@@ -4,7 +4,7 @@
 <h4 align="center">
   <a href="https://infisical.com/docs/integrations/platforms/kubernetes/overview">Docs</a> |
   <a href="https://www.infisical.com">Website</a>
-  <a href="https://infisical.com/slack">Slack</a> |
+  <a href="https://infisical.com/slack">Slack</a>
 </h4>
 
 <h4 align="center">

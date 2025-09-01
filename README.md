@@ -10,7 +10,7 @@
 </h4>
 
 <h4 align="center">
-  <a href="https://github.com/Infisical/infisical/blob/main/LICENSE">
+  <a href="https://github.com/Infisical/kubernetes-operator/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="Infisical is released under the MIT license." />
   </a>
   <a href="https://github.com/infisical/infisical/blob/main/CONTRIBUTING.md">

@@ -1,5 +1,6 @@
 <p align="center">
-  <p align="center"><b>Infisical Kubernetes Operator </b></p>
+  <p align="center"><b>Infisical Kubernetes Operator </b>
+</p>
 <h4 align="center">
   <a href="https://infisical.com/docs/integrations/platforms/kubernetes/overview">Docs</a> |
   <a href="https://www.infisical.com">Website</a>

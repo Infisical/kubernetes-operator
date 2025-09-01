@@ -1,7 +1,7 @@
 # Infisical Helm Chart
 
 This is the Infisical Secrets Operator Helm chart. Find the integration documentation [here](https://infisical.com/docs/integrations/platforms/kubernetes)
-
+test
 ## Installation
 
 To install the chart, run the following :

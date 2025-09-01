@@ -1,6 +1,3 @@
-<h1 align="center">
-  <img width="300" src="/resources/logo.svg" alt="infisical">
-</h1>
 <p align="center">
   <p align="center"><b>Infisical Kubernetes Operator </b></p>
 <h4 align="center">

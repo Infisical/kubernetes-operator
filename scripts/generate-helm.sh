@@ -82,6 +82,11 @@ for rbac_file in "${HELM_DIR}/templates"/*-rbac.yaml; do
       continue
     fi
 
+    if [[ "$(basename "$rbac_file")" == "user-rbac.yaml" ]]; then
+      echo "Skipping user-rbac.yaml"
+      continue
+    fi
+
     if [[ "$(basename "$rbac_file")" == "leader-election-rbac.yaml" ]]; then
       echo "Skipping infisicaldynamicsecret-admin-rbac.yaml"
       continue

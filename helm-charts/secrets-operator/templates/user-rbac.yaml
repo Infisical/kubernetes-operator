@@ -1,0 +1,35 @@
+{{- if .Values.enableUserRBAC }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "secrets-operator.fullname" . }}-user-admin
+  labels:
+    {{- include "secrets-operator.labels" . | nindent 4 }}
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+rules:
+- apiGroups: ["secrets.infisical.com"]
+  resources: ["infisicalsecrets", "infisicalpushsecrets", "infisicaldynamicsecrets", "clustergenerators"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection"]
+- apiGroups: ["secrets.infisical.com"]
+  resources: ["infisicalsecrets/status", "infisicalpushsecrets/status", "infisicaldynamicsecrets/status"]
+  verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "secrets-operator.fullname" . }}-user-view
+  labels:
+    {{- include "secrets-operator.labels" . | nindent 4 }}
+    rbac.authorization.k8s.io/aggregate-to-view: "true"
+    rbac.authorization.k8s.io/aggregate-to-cluster-reader: "true"
+rules:
+- apiGroups: ["secrets.infisical.com"]
+  resources: ["infisicalsecrets", "infisicalpushsecrets", "infisicaldynamicsecrets", "clustergenerators"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["secrets.infisical.com"]
+  resources: ["infisicalsecrets/status", "infisicalpushsecrets/status", "infisicaldynamicsecrets/status"]
+  verbs: ["get", "list", "watch"]
+{{- end }}

@@ -31,6 +31,30 @@ type InfisicalDynamicSecretReconciler struct {
 	IsNamespaceScoped bool
 }
 
+func (r *InfisicalDynamicSecretReconciler) GetProjectSlug(infisicalClient infisicalSdk.InfisicalClientInterface, infisicalDynamicSecret v1alpha1.InfisicalDynamicSecret) (string, error) {
+	if err := infisicalDynamicSecret.Spec.DynamicSecret.ValidateDetails(); err != nil {
+		return "", fmt.Errorf("unable to validate dynamic secret [err=%s]", err)
+	}
+
+	projectSlug := infisicalDynamicSecret.Spec.DynamicSecret.ProjectSlug
+
+	if projectSlug == "" {
+
+		project, err := util.GetProjectByID(infisicalClient.Auth().GetAccessToken(), infisicalDynamicSecret.Spec.DynamicSecret.ProjectID)
+		if err != nil {
+			return "", err
+		}
+
+		projectSlug = project.Slug
+	}
+
+	if projectSlug == "" {
+		return "", fmt.Errorf("failed to extract project slug")
+	}
+
+	return projectSlug, nil
+}
+
 func (r *InfisicalDynamicSecretReconciler) createInfisicalManagedKubeSecret(ctx context.Context, logger logr.Logger, infisicalDynamicSecret v1alpha1.InfisicalDynamicSecret, versionAnnotationValue string) error {
 	secretType := infisicalDynamicSecret.Spec.ManagedSecretReference.SecretType
 
@@ -115,14 +139,14 @@ func (r *InfisicalDynamicSecretReconciler) getResourceVariables(infisicalDynamic
 }
 
 func (r *InfisicalDynamicSecretReconciler) CreateDynamicSecretLease(ctx context.Context, logger logr.Logger, infisicalClient infisicalSdk.InfisicalClientInterface, infisicalDynamicSecret *v1alpha1.InfisicalDynamicSecret, destination *corev1.Secret) error {
-	project, err := util.GetProjectByID(infisicalClient.Auth().GetAccessToken(), infisicalDynamicSecret.Spec.DynamicSecret.ProjectID)
+	projectSlug, err := r.GetProjectSlug(infisicalClient, *infisicalDynamicSecret)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to get project slug [err=%s]", err)
 	}
 
 	request := infisicalSdk.CreateDynamicSecretLeaseOptions{
 		DynamicSecretName: infisicalDynamicSecret.Spec.DynamicSecret.SecretName,
-		ProjectSlug:       project.Slug,
+		ProjectSlug:       projectSlug,
 		SecretPath:        infisicalDynamicSecret.Spec.DynamicSecret.SecretPath,
 		EnvironmentSlug:   infisicalDynamicSecret.Spec.DynamicSecret.EnvironmentSlug,
 	}
@@ -171,14 +195,14 @@ func (r *InfisicalDynamicSecretReconciler) CreateDynamicSecretLease(ctx context.
 }
 
 func (r *InfisicalDynamicSecretReconciler) RenewDynamicSecretLease(ctx context.Context, logger logr.Logger, infisicalClient infisicalSdk.InfisicalClientInterface, infisicalDynamicSecret *v1alpha1.InfisicalDynamicSecret, destination *corev1.Secret) error {
-	project, err := util.GetProjectByID(infisicalClient.Auth().GetAccessToken(), infisicalDynamicSecret.Spec.DynamicSecret.ProjectID)
+	projectSlug, err := r.GetProjectSlug(infisicalClient, *infisicalDynamicSecret)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to get project slug [err=%s]", err)
 	}
 
 	request := infisicalSdk.RenewDynamicSecretLeaseOptions{
 		LeaseId:         infisicalDynamicSecret.Status.Lease.ID,
-		ProjectSlug:     project.Slug,
+		ProjectSlug:     projectSlug,
 		SecretPath:      infisicalDynamicSecret.Spec.DynamicSecret.SecretPath,
 		EnvironmentSlug: infisicalDynamicSecret.Spec.DynamicSecret.EnvironmentSlug,
 	}
@@ -243,15 +267,14 @@ func (r *InfisicalDynamicSecretReconciler) HandleLeaseRevocation(ctx context.Con
 		return nil
 	}
 
-	project, err := util.GetProjectByID(infisicalClient.Auth().GetAccessToken(), infisicalDynamicSecret.Spec.DynamicSecret.ProjectID)
-
+	projectSlug, err := r.GetProjectSlug(infisicalClient, *infisicalDynamicSecret)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to get project slug [err=%s]", err)
 	}
 
 	infisicalClient.DynamicSecrets().Leases().DeleteById(infisicalSdk.DeleteDynamicSecretLeaseOptions{
 		LeaseId:         infisicalDynamicSecret.Status.Lease.ID,
-		ProjectSlug:     project.Slug,
+		ProjectSlug:     projectSlug,
 		SecretPath:      infisicalDynamicSecret.Spec.DynamicSecret.SecretPath,
 		EnvironmentSlug: infisicalDynamicSecret.Spec.DynamicSecret.EnvironmentSlug,
 	})

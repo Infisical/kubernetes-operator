@@ -49,9 +49,8 @@ func GetServiceTokenDetails(infisicalToken string) (api.GetServiceTokenDetailsRe
 }
 
 func GetPlainTextSecretsViaMachineIdentity(infisicalClient infisical.InfisicalClientInterface, secretScope v1alpha1.MachineIdentityScopeInWorkspace) ([]model.SingleEnvironmentVariable, error) {
-
 	secrets, err := infisicalClient.Secrets().List(infisical.ListSecretsOptions{
-		ProjectSlug:            secretScope.ProjectSlug,
+		ProjectID:              secretScope.ProjectID,
 		Environment:            secretScope.EnvSlug,
 		Recursive:              secretScope.Recursive,
 		SecretPath:             secretScope.SecretsPath,

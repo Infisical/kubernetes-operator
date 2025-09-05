@@ -129,34 +129,34 @@ func CallGetServiceAccountKeysV2(httpClient *resty.Client, request GetServiceAcc
 	return serviceAccountKeysResponse, nil
 }
 
-func CallGetProjectByID(httpClient *resty.Client, request GetProjectByIDRequest) (GetProjectByIDResponse, error) {
+func CallGetProjectByID(httpClient *resty.Client, request GetProjectBySlugRequest) (GetProjectBySlugResponse, error) {
 
-	var projectResponse GetProjectByIDResponse
+	var projectResponse GetProjectBySlugResponse
 
 	response, err := httpClient.
 		R().SetResult(&projectResponse).
 		SetHeader("User-Agent", USER_AGENT_NAME).
-		Get(fmt.Sprintf("%s/v1/workspace/%s", API_HOST_URL, request.ProjectID))
+		Get(fmt.Sprintf("%s/v1/workspace/%s", API_HOST_URL, request.ProjectSlug))
 
 	if err != nil {
-		return GetProjectByIDResponse{}, fmt.Errorf("CallGetProject: Unable to complete api request [err=%s]", err)
+		return GetProjectBySlugResponse{}, fmt.Errorf("CallGetProject: Unable to complete api request [err=%s]", err)
 	}
 
 	if response.IsError() {
-		return GetProjectByIDResponse{}, fmt.Errorf("CallGetProject: Unsuccessful response: [response=%s]", response)
+		return GetProjectBySlugResponse{}, fmt.Errorf("CallGetProject: Unsuccessful response: [response=%s]", response)
 	}
 
 	return projectResponse, nil
 
 }
 
-func CallGetProjectByIDv2(httpClient *resty.Client, request GetProjectByIDRequest) (model.Project, error) {
+func CallGetProjectBySlugV2(httpClient *resty.Client, request GetProjectBySlugRequest) (model.Project, error) {
 	var projectResponse model.Project
 
 	response, err := httpClient.
 		R().SetResult(&projectResponse).
 		SetHeader("User-Agent", USER_AGENT_NAME).
-		Get(fmt.Sprintf("%s/v2/workspace/%s", API_HOST_URL, request.ProjectID))
+		Get(fmt.Sprintf("%s/v2/workspace/%s", API_HOST_URL, request.ProjectSlug))
 
 	if err != nil {
 		return model.Project{}, fmt.Errorf("CallGetProject: Unable to complete api request [err=%s]", err)

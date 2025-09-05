@@ -17,6 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"fmt"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -37,9 +39,24 @@ type DynamicSecretDetails struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Immutable
 	EnvironmentSlug string `json:"environmentSlug"`
-	// +kubebuilder:validation:Required
+
+	// +kubebuilder:validation:Optional
 	// +kubebuilder:validation:Immutable
 	ProjectID string `json:"projectId"`
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Immutable
+	ProjectSlug string `json:"projectSlug"`
+}
+
+func (d *DynamicSecretDetails) ValidateDetails() error {
+
+	if d.ProjectID == "" && d.ProjectSlug == "" {
+		return fmt.Errorf("either projectId or projectSlug must be specified")
+	}
+	if d.ProjectID != "" && d.ProjectSlug != "" {
+		return fmt.Errorf("projectId and projectSlug cannot both be specified")
+	}
+	return nil
 }
 
 // InfisicalDynamicSecretSpec defines the desired state of InfisicalDynamicSecret.

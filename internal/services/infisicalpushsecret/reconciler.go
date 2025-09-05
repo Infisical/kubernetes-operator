@@ -178,6 +178,21 @@ func (r *InfisicalPushSecretReconciler) ReconcileInfisicalPushSecret(ctx context
 		}, resourceVariablesMap)
 	}
 
+	destination := infisicalPushSecret.Spec.Destination
+	if err := destination.ValidateDestination(); err != nil {
+		return fmt.Errorf("unable to validate destination [err=%s]", err)
+	}
+
+	if destination.ProjectSlug != "" {
+		projectId, err := util.ExtractProjectIdFromSlug(infisicalClient.Auth().GetAccessToken(), destination.ProjectSlug)
+		if err != nil {
+			return fmt.Errorf("unable to extract project id from slug [err=%s]", err)
+		}
+
+		logger.Info(fmt.Sprintf("ReconcileInfisicalPushSecret: Extracted project id from slug [projectId=%s] [projectSlug=%s]", projectId, destination.ProjectSlug))
+		destination.ProjectID = projectId
+	}
+
 	processedSecrets := make(map[string]string)
 
 	if infisicalPushSecret.Spec.Push.Secret != nil {
@@ -194,7 +209,7 @@ func (r *InfisicalPushSecretReconciler) ReconcileInfisicalPushSecret(ctx context
 			return fmt.Errorf("unable to fetch kube secret [err=%s]", err)
 		}
 
-		processedSecrets, err = r.processTemplatedSecrets(*infisicalPushSecret, kubePushSecret, infisicalPushSecret.Spec.Destination)
+		processedSecrets, err = r.processTemplatedSecrets(*infisicalPushSecret, kubePushSecret, destination)
 		if err != nil {
 			return fmt.Errorf("unable to process templated secrets [err=%s]", err)
 		}
@@ -209,7 +224,6 @@ func (r *InfisicalPushSecretReconciler) ReconcileInfisicalPushSecret(ctx context
 		processedSecrets[key] = value
 	}
 
-	destination := infisicalPushSecret.Spec.Destination
 	existingSecrets, err := infisicalClient.Secrets().List(infisicalSdk.ListSecretsOptions{
 		ProjectID:      destination.ProjectID,
 		Environment:    destination.EnvironmentSlug,
@@ -533,6 +547,21 @@ func (r *InfisicalPushSecretReconciler) DeleteManagedSecrets(ctx context.Context
 	}
 
 	destination := infisicalPushSecret.Spec.Destination
+	if err := destination.ValidateDestination(); err != nil {
+		return fmt.Errorf("unable to validate destination [err=%s]", err)
+	}
+
+	if destination.ProjectSlug != "" {
+
+		projectId, err := util.ExtractProjectIdFromSlug(infisicalClient.Auth().GetAccessToken(), destination.ProjectSlug)
+		if err != nil {
+			return fmt.Errorf("unable to extract project id from slug [err=%s]", err)
+		}
+
+		logger.Info(fmt.Sprintf("DeleteManagedSecrets: Extracted project id from slug [projectId=%s] [projectSlug=%s]", projectId, destination.ProjectSlug))
+		destination.ProjectID = projectId
+	}
+
 	existingSecrets, err := resourceVariables.InfisicalClient.Secrets().List(infisicalSdk.ListSecretsOptions{
 		ProjectID:      destination.ProjectID,
 		Environment:    destination.EnvironmentSlug,

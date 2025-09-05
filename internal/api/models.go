@@ -199,11 +199,11 @@ type GetServiceAccountKeysResponse struct {
 	ServiceAccountKeys []ServiceAccountKey `json:"serviceAccountKeys"`
 }
 
-type GetProjectByIDRequest struct {
-	ProjectID string
+type GetProjectBySlugRequest struct {
+	ProjectSlug string
 }
 
-type GetProjectByIDResponse struct {
+type GetProjectBySlugResponse struct {
 	Project model.Project `json:"workspace"`
 }
 

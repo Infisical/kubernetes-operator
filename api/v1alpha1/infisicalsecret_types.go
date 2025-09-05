@@ -1,6 +1,8 @@
 package v1alpha1
 
 import (
+	"fmt"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -129,10 +131,25 @@ type MachineIdentityScopeInWorkspace struct {
 	SecretsPath string `json:"secretsPath"`
 	// +kubebuilder:validation:Required
 	EnvSlug string `json:"envSlug"`
-	// +kubebuilder:validation:Required
+
+	// +kubebuilder:validation:Optional
 	ProjectSlug string `json:"projectSlug"`
+
+	// +kubebuilder:validation:Optional
+	ProjectID string `json:"projectId"`
+
 	// +kubebuilder:validation:Optional
 	Recursive bool `json:"recursive"`
+}
+
+func (s *MachineIdentityScopeInWorkspace) ValidateScope() error {
+	if s.ProjectID == "" && s.ProjectSlug == "" {
+		return fmt.Errorf("either projectId or projectSlug must be specified")
+	}
+	if s.ProjectID != "" && s.ProjectSlug != "" {
+		return fmt.Errorf("projectId and projectSlug cannot both be specified")
+	}
+	return nil
 }
 
 // InfisicalSecretSpec defines the desired state of InfisicalSecret

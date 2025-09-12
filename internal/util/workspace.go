@@ -15,8 +15,8 @@ func GetProjectByID(accessToken string, projectId string) (model.Project, error)
 		SetAuthToken(accessToken).
 		SetHeader("Accept", "application/json")
 
-	projectDetails, err := api.CallGetProjectByID(httpClient, api.GetProjectBySlugRequest{
-		ProjectSlug: projectId,
+	projectDetails, err := api.CallGetProjectByID(httpClient, api.GetProjectByIDRequest{
+		ProjectID: projectId,
 	})
 	if err != nil {
 		return model.Project{}, fmt.Errorf("unable to get project by slug. [err=%v]", err)

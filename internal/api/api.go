@@ -129,21 +129,21 @@ func CallGetServiceAccountKeysV2(httpClient *resty.Client, request GetServiceAcc
 	return serviceAccountKeysResponse, nil
 }
 
-func CallGetProjectByID(httpClient *resty.Client, request GetProjectBySlugRequest) (GetProjectBySlugResponse, error) {
+func CallGetProjectByID(httpClient *resty.Client, request GetProjectByIDRequest) (GetProjectByIDResponse, error) {
 
-	var projectResponse GetProjectBySlugResponse
+	var projectResponse GetProjectByIDResponse
 
 	response, err := httpClient.
 		R().SetResult(&projectResponse).
 		SetHeader("User-Agent", USER_AGENT_NAME).
-		Get(fmt.Sprintf("%s/v1/workspace/%s", API_HOST_URL, request.ProjectSlug))
+		Get(fmt.Sprintf("%s/v1/workspace/%s", API_HOST_URL, request.ProjectID))
 
 	if err != nil {
-		return GetProjectBySlugResponse{}, fmt.Errorf("CallGetProject: Unable to complete api request [err=%s]", err)
+		return GetProjectByIDResponse{}, fmt.Errorf("CallGetProject: Unable to complete api request [err=%s]", err)
 	}
 
 	if response.IsError() {
-		return GetProjectBySlugResponse{}, fmt.Errorf("CallGetProject: Unsuccessful response: [response=%s]", response)
+		return GetProjectByIDResponse{}, fmt.Errorf("CallGetProject: Unsuccessful response: [response=%s]", response)
 	}
 
 	return projectResponse, nil

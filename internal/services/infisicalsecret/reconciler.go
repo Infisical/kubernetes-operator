@@ -592,6 +592,10 @@ func (r *InfisicalSecretReconciler) OpenInstantUpdatesStream(ctx context.Context
 		return fmt.Errorf("failed to get project [err=%s]", err)
 	}
 
+	if variables.AuthDetails.MachineIdentityScope.Recursive {
+		secretsPath = fmt.Sprint(secretsPath, "**")
+	}
+
 	if err != nil {
 		return fmt.Errorf("CallSubscribeProjectEvents: unable to marshal body [err=%s]", err)
 	}

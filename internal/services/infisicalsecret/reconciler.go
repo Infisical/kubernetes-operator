@@ -383,6 +383,21 @@ func (r *InfisicalSecretReconciler) fetchSecretsFromAPI(ctx context.Context, log
 		return plainTextSecretsFromApi, nil
 
 	} else if authDetails.IsMachineIdentityAuth { // * Machine Identity authentication, the SDK will be authenticated at this point
+		if err := authDetails.MachineIdentityScope.ValidateScope(); err != nil {
+			return nil, fmt.Errorf("invalid machine identity scope [err=%s]", err)
+		}
+
+		if authDetails.MachineIdentityScope.ProjectSlug != "" {
+			projectId, err := util.ExtractProjectIdFromSlug(infisicalClient.Auth().GetAccessToken(), authDetails.MachineIdentityScope.ProjectSlug)
+
+			logger.Info(fmt.Sprintf("ReconcileInfisicalSecret: Extracted project id from slug [projectId=%s] [projectSlug=%s]", projectId, authDetails.MachineIdentityScope.ProjectSlug))
+			if err != nil {
+				return nil, fmt.Errorf("unable to extract project id from slug [err=%s]", err)
+			}
+
+			authDetails.MachineIdentityScope.ProjectID = projectId
+		}
+
 		plainTextSecretsFromApi, err := util.GetPlainTextSecretsViaMachineIdentity(infisicalClient, authDetails.MachineIdentityScope)
 
 		if err != nil {

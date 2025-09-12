@@ -32,8 +32,8 @@ func GetProjectBySlug(accessToken string, projectSlug string) (model.Project, er
 		SetAuthToken(accessToken).
 		SetHeader("Accept", "application/json")
 
-	project, err := api.CallGetProjectByIDv2(httpClient, api.GetProjectByIDRequest{
-		ProjectID: projectSlug,
+	project, err := api.CallGetProjectBySlugV2(httpClient, api.GetProjectBySlugRequest{
+		ProjectSlug: projectSlug,
 	})
 
 	if err != nil {
@@ -41,4 +41,23 @@ func GetProjectBySlug(accessToken string, projectSlug string) (model.Project, er
 	}
 
 	return project, nil
+}
+
+func ExtractProjectIdFromSlug(accessToken string, projectSlug string) (string, error) {
+	httpClient := resty.New()
+	httpClient.
+		SetAuthScheme("Bearer").
+		SetAuthToken(accessToken).
+		SetHeader("Accept", "application/json")
+
+	project, err := api.CallGetProjectBySlugV2(httpClient, api.GetProjectBySlugRequest{
+		ProjectSlug: projectSlug,
+	})
+
+	if err != nil {
+		return "", fmt.Errorf("unable to get project by slug. [err=%v]", err)
+	}
+
+	return project.ID, nil
+
 }

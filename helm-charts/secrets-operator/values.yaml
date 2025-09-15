@@ -38,4 +38,5 @@ kubernetesClusterDomain: cluster.local
 scopedNamespace: ""
 scopedRBAC: false
 installCRDs: true
+enableUserRBAC: false
 imagePullSecrets: []

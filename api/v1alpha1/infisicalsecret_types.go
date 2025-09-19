@@ -133,6 +133,9 @@ type MachineIdentityScopeInWorkspace struct {
 	EnvSlug string `json:"envSlug"`
 
 	// +kubebuilder:validation:Optional
+	SecretName string `json:"secretName"`
+
+	// +kubebuilder:validation:Optional
 	ProjectSlug string `json:"projectSlug"`
 
 	// +kubebuilder:validation:Optional
@@ -149,6 +152,11 @@ func (s *MachineIdentityScopeInWorkspace) ValidateScope() error {
 	if s.ProjectID != "" && s.ProjectSlug != "" {
 		return fmt.Errorf("projectId and projectSlug cannot both be specified")
 	}
+
+	if s.SecretName != "" && s.Recursive {
+		return fmt.Errorf("recursive mode is not supported when secretName is specified")
+	}
+
 	return nil
 }
 

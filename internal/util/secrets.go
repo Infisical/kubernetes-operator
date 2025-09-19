@@ -49,22 +49,47 @@ func GetServiceTokenDetails(infisicalToken string) (api.GetServiceTokenDetailsRe
 }
 
 func GetPlainTextSecretsViaMachineIdentity(infisicalClient infisical.InfisicalClientInterface, secretScope v1alpha1.MachineIdentityScopeInWorkspace) ([]model.SingleEnvironmentVariable, error) {
-	secrets, err := infisicalClient.Secrets().List(infisical.ListSecretsOptions{
-		ProjectID:              secretScope.ProjectID,
-		Environment:            secretScope.EnvSlug,
-		Recursive:              secretScope.Recursive,
-		SecretPath:             secretScope.SecretsPath,
-		IncludeImports:         true,
-		ExpandSecretReferences: true,
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("unable to get secrets. [err=%v]", err)
-	}
 
 	var environmentVariables []model.SingleEnvironmentVariable
 
-	for _, secret := range secrets {
+	if secretScope.SecretName == "" {
+
+		secrets, err := infisicalClient.Secrets().List(infisical.ListSecretsOptions{
+			ProjectID:              secretScope.ProjectID,
+			Environment:            secretScope.EnvSlug,
+			Recursive:              secretScope.Recursive,
+			SecretPath:             secretScope.SecretsPath,
+			IncludeImports:         true,
+			ExpandSecretReferences: true,
+		})
+
+		if err != nil {
+			return nil, fmt.Errorf("unable to get secrets. [err=%v]", err)
+		}
+
+		for _, secret := range secrets {
+
+			environmentVariables = append(environmentVariables, model.SingleEnvironmentVariable{
+				Key:        secret.SecretKey,
+				Value:      secret.SecretValue,
+				Type:       secret.Type,
+				ID:         secret.ID,
+				SecretPath: secret.SecretPath,
+			})
+		}
+	} else {
+		secret, err := infisicalClient.Secrets().Retrieve(infisical.RetrieveSecretOptions{
+			SecretKey:              secretScope.SecretName,
+			ProjectID:              secretScope.ProjectID,
+			Environment:            secretScope.EnvSlug,
+			SecretPath:             secretScope.SecretsPath,
+			IncludeImports:         true,
+			ExpandSecretReferences: true,
+		})
+
+		if err != nil {
+			return nil, fmt.Errorf("unable to get single secret [secretName=%s]. [err=%v]", secretScope.SecretName, err)
+		}
 
 		environmentVariables = append(environmentVariables, model.SingleEnvironmentVariable{
 			Key:        secret.SecretKey,

@@ -404,8 +404,11 @@ func (r *InfisicalSecretReconciler) fetchSecretsFromAPI(ctx context.Context, log
 			return nil, fmt.Errorf("\nfailed to get secrets because [err=%v]", err)
 		}
 
-		logger.Info(fmt.Sprintf("ReconcileInfisicalSecret: Fetched secrets via machine identity [type=%v]", authDetails.AuthStrategy))
-
+		if authDetails.MachineIdentityScope.SecretName != "" {
+			logger.Info(fmt.Sprintf("ReconcileInfisicalSecret: Fetched secret via machine identity [type=%v] [secretName=%s]", authDetails.AuthStrategy, authDetails.MachineIdentityScope.SecretName))
+		} else {
+			logger.Info(fmt.Sprintf("ReconcileInfisicalSecret: Fetched secrets via machine identity [type=%v]", authDetails.AuthStrategy))
+		}
 		return plainTextSecretsFromApi, nil
 
 	} else {

@@ -78,7 +78,7 @@ func GetPlainTextSecretsViaMachineIdentity(infisicalClient infisical.InfisicalCl
 			})
 		}
 	} else {
-		secrets, err := infisicalClient.Secrets().Retrieve(infisical.RetrieveSecretOptions{
+		secret, err := infisicalClient.Secrets().Retrieve(infisical.RetrieveSecretOptions{
 			SecretKey:              secretScope.SecretName,
 			ProjectID:              secretScope.ProjectID,
 			Environment:            secretScope.EnvSlug,
@@ -92,11 +92,11 @@ func GetPlainTextSecretsViaMachineIdentity(infisicalClient infisical.InfisicalCl
 		}
 
 		environmentVariables = append(environmentVariables, model.SingleEnvironmentVariable{
-			Key:        secrets.SecretKey,
-			Value:      secrets.SecretValue,
-			Type:       secrets.Type,
-			ID:         secrets.ID,
-			SecretPath: secrets.SecretPath,
+			Key:        secret.SecretKey,
+			Value:      secret.SecretValue,
+			Type:       secret.Type,
+			ID:         secret.ID,
+			SecretPath: secret.SecretPath,
 		})
 	}
 

@@ -12,7 +12,7 @@ controllerManager:
       readOnlyRootFilesystem: true
     image:
       repository: infisical/kubernetes-operator
-      tag: v0.10.6
+      tag: v0.10.7
     resources:
       limits:
         cpu: 500m
@@ -38,5 +38,4 @@ kubernetesClusterDomain: cluster.local
 scopedNamespace: ""
 scopedRBAC: false
 installCRDs: true
-enableUserRBAC: false
 imagePullSecrets: []

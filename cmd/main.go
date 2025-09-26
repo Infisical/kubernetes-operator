@@ -41,6 +41,7 @@ import (
 
 	secretsv1alpha1 "github.com/Infisical/infisical/k8-operator/api/v1alpha1"
 	"github.com/Infisical/infisical/k8-operator/internal/controller"
+	"github.com/Infisical/infisical/k8-operator/internal/template"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -219,6 +220,8 @@ func main() {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
+
+	template.InitializeTemplateFunctions()
 
 	if err := (&controller.InfisicalSecretReconciler{
 		Client:            mgr.GetClient(),

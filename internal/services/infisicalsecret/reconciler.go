@@ -614,6 +614,10 @@ func (r *InfisicalSecretReconciler) OpenInstantUpdatesStream(ctx context.Context
 			},
 		})
 
+		if err != nil {
+			return nil, fmt.Errorf("unable to create resty client. [err=%v]", err)
+		}
+
 		req, err := api.CallSubscribeProjectEvents(httpClient, project.ID, secretsPath, envSlug)
 
 		if err != nil {

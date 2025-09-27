@@ -602,7 +602,7 @@ func (r *InfisicalSecretReconciler) OpenInstantUpdatesStream(ctx context.Context
 		identityScope.ProjectID = projectId
 	}
 
-	if variables.AuthDetails.MachineIdentityScope.Recursive {
+	if identityScope.Recursive {
 		identityScope.SecretsPath = fmt.Sprint(identityScope.SecretsPath, "**")
 	}
 

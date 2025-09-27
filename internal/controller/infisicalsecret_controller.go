@@ -134,17 +134,11 @@ func (r *InfisicalSecretReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	if infisicalSecretCRD.Spec.ResyncInterval != 0 {
-		// we still set the requeue time even if instant updates is enabled.
-		// in case of errors we can fall back to the requeue time.
 		requeueTime = time.Second * time.Duration(infisicalSecretCRD.Spec.ResyncInterval)
-		if !infisicalSecretCRD.Spec.InstantUpdates {
-			logger.Info(fmt.Sprintf("Manual re-sync interval set. Interval: %v", requeueTime))
-		}
+		logger.Info(fmt.Sprintf("Manual re-sync interval set. Interval: %v", requeueTime))
 
 	} else {
-		if !infisicalSecretCRD.Spec.InstantUpdates {
-			logger.Info(fmt.Sprintf("Re-sync interval set. Interval: %v", requeueTime))
-		}
+		logger.Info(fmt.Sprintf("Re-sync interval set. Interval: %v", requeueTime))
 	}
 
 	// Check if the resource is already marked for deletion
@@ -219,17 +213,10 @@ func (r *InfisicalSecretReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	// Sync again after the specified time
-
-	if infisicalSecretCRD.Spec.InstantUpdates {
-		logger.Info(fmt.Sprintf("Successfully synced %d secrets. Operator will reconcile when secret changes are detected.", secretsCount))
-		return ctrl.Result{}, nil
-	}
-
 	logger.Info(fmt.Sprintf("Successfully synced %d secrets. Operator will requeue after [%v]", secretsCount, requeueTime))
 	return ctrl.Result{
 		RequeueAfter: requeueTime,
 	}, nil
-
 }
 
 func (r *InfisicalSecretReconciler) SetupWithManager(mgr ctrl.Manager) error {

@@ -580,27 +580,30 @@ func (r *InfisicalSecretReconciler) OpenInstantUpdatesStream(ctx context.Context
 		return fmt.Errorf("only machine identity is supported for subscriptions")
 	}
 
-	projectSlug := variables.AuthDetails.MachineIdentityScope.ProjectSlug
-	secretsPath := variables.AuthDetails.MachineIdentityScope.SecretsPath
-	envSlug := variables.AuthDetails.MachineIdentityScope.EnvSlug
+	identityScope := variables.AuthDetails.MachineIdentityScope
 
-	infiscalClient := variables.InfisicalClient
+	if err := identityScope.ValidateScope(); err != nil {
+		return fmt.Errorf("invalid machine identity scope [err=%s]", err)
+	}
+
+	infisicalClient := variables.InfisicalClient
 	sseRegistry := variables.ServerSentEvents
 
-	token := infiscalClient.Auth().GetAccessToken()
+	token := infisicalClient.Auth().GetAccessToken()
 
-	project, err := util.GetProjectBySlug(token, projectSlug)
+	if identityScope.ProjectSlug != "" {
 
-	if err != nil {
-		return fmt.Errorf("failed to get project [err=%s]", err)
+		projectId, err := util.ExtractProjectIdFromSlug(infisicalClient.Auth().GetAccessToken(), identityScope.ProjectSlug)
+		if err != nil {
+			return fmt.Errorf("unable to extract project id from slug [err=%s]", err)
+		}
+
+		logger.Info(fmt.Sprintf("OpenInstantUpdatesStream: Extracted project id from slug [projectId=%s] [projectSlug=%s]", projectId, identityScope.ProjectSlug))
+		identityScope.ProjectID = projectId
 	}
 
 	if variables.AuthDetails.MachineIdentityScope.Recursive {
-		secretsPath = fmt.Sprint(secretsPath, "**")
-	}
-
-	if err != nil {
-		return fmt.Errorf("CallSubscribeProjectEvents: unable to marshal body [err=%s]", err)
+		identityScope.SecretsPath = fmt.Sprint(identityScope.SecretsPath, "**")
 	}
 
 	events, errors, err := sseRegistry.Subscribe(func() (*http.Response, error) {
@@ -618,7 +621,7 @@ func (r *InfisicalSecretReconciler) OpenInstantUpdatesStream(ctx context.Context
 			return nil, fmt.Errorf("unable to create resty client. [err=%v]", err)
 		}
 
-		req, err := api.CallSubscribeProjectEvents(httpClient, project.ID, secretsPath, envSlug)
+		req, err := api.CallSubscribeProjectEvents(httpClient, identityScope.ProjectID, identityScope.SecretsPath, identityScope.EnvSlug)
 
 		if err != nil {
 			return nil, err

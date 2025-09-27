@@ -10,7 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1alpha1"
-	"github.com/Infisical/infisical/k8-operator/internal/api"
+	"github.com/Infisical/infisical/k8-operator/internal/config"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
 	"github.com/go-logr/logr"
 	k8Errors "k8s.io/apimachinery/pkg/api/errors"
@@ -32,9 +32,9 @@ func NewInfisicalSecretHandler(client client.Client, scheme *runtime.Scheme, isN
 
 func (h *InfisicalSecretHandler) SetupAPIConfig(infisicalSecret v1alpha1.InfisicalSecret, infisicalConfig map[string]string) error {
 	if infisicalSecret.Spec.HostAPI == "" {
-		api.API_HOST_URL = infisicalConfig["hostAPI"]
+		config.API_HOST_URL = infisicalConfig["hostAPI"]
 	} else {
-		api.API_HOST_URL = util.AppendAPIEndpoint(infisicalSecret.Spec.HostAPI)
+		config.API_HOST_URL = util.AppendAPIEndpoint(infisicalSecret.Spec.HostAPI)
 	}
 	return nil
 }
@@ -68,9 +68,9 @@ func (h *InfisicalSecretHandler) HandleCACertificate(ctx context.Context, infisi
 		if err != nil {
 			return err
 		}
-		api.API_CA_CERTIFICATE = caCert
+		config.API_CA_CERTIFICATE = caCert
 	} else {
-		api.API_CA_CERTIFICATE = ""
+		config.API_CA_CERTIFICATE = ""
 	}
 	return nil
 }

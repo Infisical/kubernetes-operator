@@ -11,6 +11,7 @@ import (
 
 	"github.com/Infisical/infisical/k8-operator/api/v1alpha1"
 	"github.com/Infisical/infisical/k8-operator/internal/api"
+	"github.com/Infisical/infisical/k8-operator/internal/config"
 	"github.com/Infisical/infisical/k8-operator/internal/constants"
 	"github.com/Infisical/infisical/k8-operator/internal/crypto"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
@@ -18,7 +19,6 @@ import (
 	"github.com/Infisical/infisical/k8-operator/internal/util"
 	"github.com/Infisical/infisical/k8-operator/internal/util/sse"
 	"github.com/go-logr/logr"
-	"github.com/go-resty/resty/v2"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -425,9 +425,9 @@ func (r *InfisicalSecretReconciler) getResourceVariables(infisicalSecret v1alpha
 		ctx, cancel := context.WithCancel(context.Background())
 
 		client := infisicalSdk.NewInfisicalClient(ctx, infisicalSdk.Config{
-			SiteUrl:       api.API_HOST_URL,
-			CaCertificate: api.API_CA_CERTIFICATE,
-			UserAgent:     api.USER_AGENT_NAME,
+			SiteUrl:       config.API_HOST_URL,
+			CaCertificate: config.API_CA_CERTIFICATE,
+			UserAgent:     constants.USER_AGENT_NAME,
 		})
 
 		resourceVariablesMap[string(infisicalSecret.UID)] = util.ResourceVariables{
@@ -580,33 +580,48 @@ func (r *InfisicalSecretReconciler) OpenInstantUpdatesStream(ctx context.Context
 		return fmt.Errorf("only machine identity is supported for subscriptions")
 	}
 
-	projectSlug := variables.AuthDetails.MachineIdentityScope.ProjectSlug
-	secretsPath := variables.AuthDetails.MachineIdentityScope.SecretsPath
-	envSlug := variables.AuthDetails.MachineIdentityScope.EnvSlug
+	identityScope := variables.AuthDetails.MachineIdentityScope
 
-	infiscalClient := variables.InfisicalClient
+	if err := identityScope.ValidateScope(); err != nil {
+		return fmt.Errorf("invalid machine identity scope [err=%s]", err)
+	}
+
+	infisicalClient := variables.InfisicalClient
 	sseRegistry := variables.ServerSentEvents
 
-	token := infiscalClient.Auth().GetAccessToken()
+	token := infisicalClient.Auth().GetAccessToken()
 
-	project, err := util.GetProjectBySlug(token, projectSlug)
+	if identityScope.ProjectSlug != "" {
 
-	if err != nil {
-		return fmt.Errorf("failed to get project [err=%s]", err)
+		projectId, err := util.ExtractProjectIdFromSlug(infisicalClient.Auth().GetAccessToken(), identityScope.ProjectSlug)
+		if err != nil {
+			return fmt.Errorf("unable to extract project id from slug [err=%s]", err)
+		}
+
+		logger.Info(fmt.Sprintf("OpenInstantUpdatesStream: Extracted project id from slug [projectId=%s] [projectSlug=%s]", projectId, identityScope.ProjectSlug))
+		identityScope.ProjectID = projectId
 	}
 
-	if variables.AuthDetails.MachineIdentityScope.Recursive {
-		secretsPath = fmt.Sprint(secretsPath, "**")
-	}
-
-	if err != nil {
-		return fmt.Errorf("CallSubscribeProjectEvents: unable to marshal body [err=%s]", err)
+	if identityScope.Recursive {
+		identityScope.SecretsPath = fmt.Sprint(identityScope.SecretsPath, "**")
 	}
 
 	events, errors, err := sseRegistry.Subscribe(func() (*http.Response, error) {
-		httpClient := resty.New()
 
-		req, err := api.CallSubscribeProjectEvents(httpClient, project.ID, secretsPath, envSlug, token)
+		httpClient, err := util.CreateRestyClient(model.CreateRestyClientOptions{
+			AccessToken: token,
+			Headers: map[string]string{
+				"Content-Type": "application/json",
+				"Accept":       "text/event-stream",
+				"Connection":   "keep-alive",
+			},
+		})
+
+		if err != nil {
+			return nil, fmt.Errorf("unable to create resty client. [err=%v]", err)
+		}
+
+		req, err := api.CallSubscribeProjectEvents(httpClient, identityScope.ProjectID, identityScope.SecretsPath, identityScope.EnvSlug)
 
 		if err != nil {
 			return nil, err

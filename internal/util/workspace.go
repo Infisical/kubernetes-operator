@@ -5,15 +5,20 @@ import (
 
 	"github.com/Infisical/infisical/k8-operator/internal/api"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
-	"github.com/go-resty/resty/v2"
 )
 
 func GetProjectByID(accessToken string, projectId string) (model.Project, error) {
-	httpClient := resty.New()
-	httpClient.
-		SetAuthScheme("Bearer").
-		SetAuthToken(accessToken).
-		SetHeader("Accept", "application/json")
+
+	httpClient, err := CreateRestyClient(model.CreateRestyClientOptions{
+		AccessToken: accessToken,
+		Headers: map[string]string{
+			"Accept": "application/json",
+		},
+	})
+
+	if err != nil {
+		return model.Project{}, fmt.Errorf("unable to create resty client. [err=%v]", err)
+	}
 
 	projectDetails, err := api.CallGetProjectByID(httpClient, api.GetProjectByIDRequest{
 		ProjectID: projectId,
@@ -26,11 +31,16 @@ func GetProjectByID(accessToken string, projectId string) (model.Project, error)
 }
 
 func GetProjectBySlug(accessToken string, projectSlug string) (model.Project, error) {
-	httpClient := resty.New()
-	httpClient.
-		SetAuthScheme("Bearer").
-		SetAuthToken(accessToken).
-		SetHeader("Accept", "application/json")
+	httpClient, err := CreateRestyClient(model.CreateRestyClientOptions{
+		AccessToken: accessToken,
+		Headers: map[string]string{
+			"Accept": "application/json",
+		},
+	})
+
+	if err != nil {
+		return model.Project{}, fmt.Errorf("unable to create resty client. [err=%v]", err)
+	}
 
 	project, err := api.CallGetProjectBySlugV2(httpClient, api.GetProjectBySlugRequest{
 		ProjectSlug: projectSlug,
@@ -44,11 +54,17 @@ func GetProjectBySlug(accessToken string, projectSlug string) (model.Project, er
 }
 
 func ExtractProjectIdFromSlug(accessToken string, projectSlug string) (string, error) {
-	httpClient := resty.New()
-	httpClient.
-		SetAuthScheme("Bearer").
-		SetAuthToken(accessToken).
-		SetHeader("Accept", "application/json")
+
+	httpClient, err := CreateRestyClient(model.CreateRestyClientOptions{
+		AccessToken: accessToken,
+		Headers: map[string]string{
+			"Accept": "application/json",
+		},
+	})
+
+	if err != nil {
+		return "", fmt.Errorf("unable to create resty client. [err=%v]", err)
+	}
 
 	project, err := api.CallGetProjectBySlugV2(httpClient, api.GetProjectBySlugRequest{
 		ProjectSlug: projectSlug,

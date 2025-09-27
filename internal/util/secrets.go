@@ -7,7 +7,6 @@ import (
 	"github.com/Infisical/infisical/k8-operator/api/v1alpha1"
 	"github.com/Infisical/infisical/k8-operator/internal/api"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
-	"github.com/go-resty/resty/v2"
 	infisical "github.com/infisical/go-sdk"
 )
 
@@ -36,9 +35,15 @@ func GetServiceTokenDetails(infisicalToken string) (api.GetServiceTokenDetailsRe
 
 	serviceToken := fmt.Sprintf("%v.%v.%v", serviceTokenParts[0], serviceTokenParts[1], serviceTokenParts[2])
 
-	httpClient := resty.New()
-	httpClient.SetAuthToken(serviceToken).
-		SetHeader("Accept", "application/json")
+	httpClient, err := CreateRestyClient(model.CreateRestyClientOptions{
+		AccessToken: serviceToken,
+		Headers: map[string]string{
+			"Accept": "application/json",
+		},
+	})
+	if err != nil {
+		return api.GetServiceTokenDetailsResponse{}, fmt.Errorf("unable to create resty client. [err=%v]", err)
+	}
 
 	serviceTokenDetails, err := api.CallGetServiceTokenDetailsV2(httpClient)
 	if err != nil {
@@ -111,10 +116,16 @@ func GetPlainTextSecretsViaServiceToken(infisicalClient infisical.InfisicalClien
 
 	serviceToken := fmt.Sprintf("%v.%v.%v", serviceTokenParts[0], serviceTokenParts[1], serviceTokenParts[2])
 
-	httpClient := resty.New()
+	httpClient, err := CreateRestyClient(model.CreateRestyClientOptions{
+		AccessToken: serviceToken,
+		Headers: map[string]string{
+			"Accept": "application/json",
+		},
+	})
 
-	httpClient.SetAuthToken(serviceToken).
-		SetHeader("Accept", "application/json")
+	if err != nil {
+		return nil, fmt.Errorf("unable to create resty client. [err=%v]", err)
+	}
 
 	serviceTokenDetails, err := api.CallGetServiceTokenDetailsV2(httpClient)
 	if err != nil {
@@ -155,9 +166,16 @@ func GetPlainTextSecretsViaServiceToken(infisicalClient infisical.InfisicalClien
 // The function fetches the service account details and keys, decrypts the workspace key, fetches the encrypted secrets for the specified project and environment, and decrypts the secrets using the decrypted workspace key.
 // Returns the plaintext secrets, encrypted secrets response, and any errors that occurred during the process.
 func GetPlainTextSecretsViaServiceAccount(infisicalClient infisical.InfisicalClientInterface, serviceAccountCreds model.ServiceAccountDetails, projectId string, environmentName string) ([]model.SingleEnvironmentVariable, error) {
-	httpClient := resty.New()
-	httpClient.SetAuthToken(serviceAccountCreds.AccessKey).
-		SetHeader("Accept", "application/json")
+
+	httpClient, err := CreateRestyClient(model.CreateRestyClientOptions{
+		AccessToken: serviceAccountCreds.AccessKey,
+		Headers: map[string]string{
+			"Accept": "application/json",
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to create resty client. [err=%v]", err)
+	}
 
 	serviceAccountDetails, err := api.CallGetServiceTokenAccountDetailsV2(httpClient)
 	if err != nil {

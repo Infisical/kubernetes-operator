@@ -9,7 +9,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1alpha1"
-	"github.com/Infisical/infisical/k8-operator/internal/api"
+	"github.com/Infisical/infisical/k8-operator/internal/config"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
 	"github.com/go-logr/logr"
 	k8Errors "k8s.io/apimachinery/pkg/api/errors"
@@ -31,9 +31,9 @@ func NewInfisicalPushSecretHandler(client client.Client, scheme *runtime.Scheme,
 
 func (h *InfisicalPushSecretHandler) SetupAPIConfig(infisicalPushSecret v1alpha1.InfisicalPushSecret, infisicalConfig map[string]string) error {
 	if infisicalPushSecret.Spec.HostAPI == "" {
-		api.API_HOST_URL = infisicalConfig["hostAPI"]
+		config.API_HOST_URL = infisicalConfig["hostAPI"]
 	} else {
-		api.API_HOST_URL = util.AppendAPIEndpoint(infisicalPushSecret.Spec.HostAPI)
+		config.API_HOST_URL = util.AppendAPIEndpoint(infisicalPushSecret.Spec.HostAPI)
 	}
 	return nil
 }
@@ -68,9 +68,9 @@ func (h *InfisicalPushSecretHandler) HandleCACertificate(ctx context.Context, in
 		if err != nil {
 			return err
 		}
-		api.API_CA_CERTIFICATE = caCert
+		config.API_CA_CERTIFICATE = caCert
 	} else {
-		api.API_CA_CERTIFICATE = ""
+		config.API_CA_CERTIFICATE = ""
 	}
 	return nil
 }

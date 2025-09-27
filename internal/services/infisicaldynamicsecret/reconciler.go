@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1alpha1"
-	"github.com/Infisical/infisical/k8-operator/internal/api"
+	"github.com/Infisical/infisical/k8-operator/internal/config"
 	"github.com/Infisical/infisical/k8-operator/internal/constants"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
 	"github.com/go-logr/logr"
@@ -118,9 +118,9 @@ func (r *InfisicalDynamicSecretReconciler) getResourceVariables(infisicalDynamic
 		ctx, cancel := context.WithCancel(context.Background())
 
 		client := infisicalSdk.NewInfisicalClient(ctx, infisicalSdk.Config{
-			SiteUrl:       api.API_HOST_URL,
-			CaCertificate: api.API_CA_CERTIFICATE,
-			UserAgent:     api.USER_AGENT_NAME,
+			SiteUrl:       config.API_HOST_URL,
+			CaCertificate: config.API_CA_CERTIFICATE,
+			UserAgent:     constants.USER_AGENT_NAME,
 		})
 
 		resourceVariablesMap[string(infisicalDynamicSecret.UID)] = util.ResourceVariables{

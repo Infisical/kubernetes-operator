@@ -11,6 +11,7 @@ import (
 
 	"github.com/Infisical/infisical/k8-operator/api/v1alpha1"
 	"github.com/Infisical/infisical/k8-operator/internal/api"
+	"github.com/Infisical/infisical/k8-operator/internal/config"
 	"github.com/Infisical/infisical/k8-operator/internal/constants"
 	"github.com/Infisical/infisical/k8-operator/internal/crypto"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
@@ -18,7 +19,6 @@ import (
 	"github.com/Infisical/infisical/k8-operator/internal/util"
 	"github.com/Infisical/infisical/k8-operator/internal/util/sse"
 	"github.com/go-logr/logr"
-	"github.com/go-resty/resty/v2"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -425,9 +425,9 @@ func (r *InfisicalSecretReconciler) getResourceVariables(infisicalSecret v1alpha
 		ctx, cancel := context.WithCancel(context.Background())
 
 		client := infisicalSdk.NewInfisicalClient(ctx, infisicalSdk.Config{
-			SiteUrl:       api.API_HOST_URL,
-			CaCertificate: api.API_CA_CERTIFICATE,
-			UserAgent:     api.USER_AGENT_NAME,
+			SiteUrl:       config.API_HOST_URL,
+			CaCertificate: config.API_CA_CERTIFICATE,
+			UserAgent:     constants.USER_AGENT_NAME,
 		})
 
 		resourceVariablesMap[string(infisicalSecret.UID)] = util.ResourceVariables{
@@ -604,9 +604,18 @@ func (r *InfisicalSecretReconciler) OpenInstantUpdatesStream(ctx context.Context
 	}
 
 	events, errors, err := sseRegistry.Subscribe(func() (*http.Response, error) {
-		httpClient := resty.New()
 
-		req, err := api.CallSubscribeProjectEvents(httpClient, project.ID, secretsPath, envSlug, token)
+		httpClient, err := util.CreateRestyClient(model.CreateRestyClientOptions{
+			AccessToken: token,
+			Headers: map[string]string{
+				"Content-Type":  "application/json",
+				"Accept":        "text/event-stream",
+				"Connection":    "keep-alive",
+				"Authorization": fmt.Sprint("Bearer ", token),
+			},
+		})
+
+		req, err := api.CallSubscribeProjectEvents(httpClient, project.ID, secretsPath, envSlug)
 
 		if err != nil {
 			return nil, err

@@ -1,10 +1,17 @@
 package util
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Infisical/infisical/k8-operator/internal/config"
+	"github.com/Infisical/infisical/k8-operator/internal/constants"
+	"github.com/Infisical/infisical/k8-operator/internal/model"
+	"github.com/go-resty/resty/v2"
 )
 
 func ConvertIntervalToDuration(resyncInterval *string) (time.Duration, error) {
@@ -57,4 +64,38 @@ func AppendAPIEndpoint(address string) string {
 
 func IsNamespaceScopedError(err error, isNamespaceScoped bool) bool {
 	return isNamespaceScoped && err != nil && strings.Contains(err.Error(), "unknown namespace for the cache")
+}
+
+func CreateRestyClient(options model.CreateRestyClientOptions) (*resty.Client, error) {
+
+	httpClient := resty.New()
+
+	if options.AccessToken != "" {
+		httpClient.SetAuthToken(options.AccessToken)
+	}
+
+	// no nil check needed when using range on a map
+	for key, value := range options.Headers {
+		httpClient.SetHeader(key, value)
+	}
+	httpClient.SetHeader("User-Agent", constants.USER_AGENT_NAME)
+
+	if config.API_CA_CERTIFICATE != "" {
+		caCertPool, err := x509.SystemCertPool()
+		if err != nil {
+			return nil, fmt.Errorf("failed to load system root CA pool: %v", err)
+		}
+
+		if ok := caCertPool.AppendCertsFromPEM([]byte(config.API_CA_CERTIFICATE)); !ok {
+			return nil, fmt.Errorf("failed to append CA certificate")
+		}
+
+		tlsConfig := &tls.Config{
+			RootCAs: caCertPool,
+		}
+
+		httpClient.SetTLSClientConfig(tlsConfig)
+	}
+
+	return httpClient, nil
 }

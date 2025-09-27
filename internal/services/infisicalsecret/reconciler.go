@@ -608,10 +608,9 @@ func (r *InfisicalSecretReconciler) OpenInstantUpdatesStream(ctx context.Context
 		httpClient, err := util.CreateRestyClient(model.CreateRestyClientOptions{
 			AccessToken: token,
 			Headers: map[string]string{
-				"Content-Type":  "application/json",
-				"Accept":        "text/event-stream",
-				"Connection":    "keep-alive",
-				"Authorization": fmt.Sprint("Bearer ", token),
+				"Content-Type": "application/json",
+				"Accept":       "text/event-stream",
+				"Connection":   "keep-alive",
 			},
 		})
 

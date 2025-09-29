@@ -2,6 +2,8 @@ package constants
 
 import "errors"
 
+const USER_AGENT_NAME = "k8-operator"
+
 const SERVICE_ACCOUNT_ACCESS_KEY = "serviceAccountAccessKey"
 const SERVICE_ACCOUNT_PUBLIC_KEY = "serviceAccountPublicKey"
 const SERVICE_ACCOUNT_PRIVATE_KEY = "serviceAccountPrivateKey"

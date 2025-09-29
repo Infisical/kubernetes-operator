@@ -40,3 +40,8 @@ type Project struct {
 		ID   string `json:"id"`
 	}
 }
+
+type CreateRestyClientOptions struct {
+	AccessToken string
+	Headers     map[string]string
+}

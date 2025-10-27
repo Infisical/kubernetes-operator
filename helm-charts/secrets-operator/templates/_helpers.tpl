@@ -7,18 +7,18 @@ Expand the name of the chart.
 
 {{/*
 Create a default fully qualified app name.
-We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
+We truncate at 33 chars to allow for the added role suffixes and stay within the 63 chars DNS limit.
 If release name contains chart name it will be used as a full name.
 */}}
 {{- define "secrets-operator.fullname" -}}
 {{- if .Values.fullnameOverride }}
-{{- .Values.fullnameOverride | trunc 15 | trimSuffix "-" }}
+{{- .Values.fullnameOverride | trunc 33 | trimSuffix "-" }}
 {{- else }}
 {{- $name := default .Chart.Name .Values.nameOverride }}
 {{- if contains $name .Release.Name }}
-{{- .Release.Name | trunc 15 | trimSuffix "-" }}
+{{- .Release.Name | trunc 33 | trimSuffix "-" }}
 {{- else }}
-{{- printf "%s-%s" .Release.Name $name | trunc 15 | trimSuffix "-" }}
+{{- printf "%s-%s" .Release.Name $name | trunc 33 | trimSuffix "-" }}
 {{- end }}
 {{- end }}
 {{- end }}
@@ -54,9 +54,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 Create the name of the service account to use
 */}}
 {{- define "secrets-operator.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "secrets-operator.fullname" .) .Values.serviceAccount.name }}
+{{- if .Values.controllerManager.serviceAccount.create }}
+{{- default (include "secrets-operator.fullname" .) .Values.controllerManager.serviceAccount.name }}
 {{- else }}
-{{- default "default" .Values.serviceAccount.name }}
+{{- default "default" .Values.controllerManager.serviceAccount.name }}
 {{- end }}
 {{- end }}

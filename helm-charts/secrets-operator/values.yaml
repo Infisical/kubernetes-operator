@@ -24,6 +24,8 @@ controllerManager:
       type: RuntimeDefault
   replicas: 1
   serviceAccount:
+    create: true
+    name: ""
     annotations: {}
   nodeSelector: {}
   tolerations: []

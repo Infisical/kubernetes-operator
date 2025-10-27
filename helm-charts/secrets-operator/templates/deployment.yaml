@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "secrets-operator.fullname" . }}-controller-manager
+  name: {{ include "secrets-operator.fullname" . }}
   labels:
     control-plane: controller-manager
   {{- include "secrets-operator.labels" . | nindent 4 }}
@@ -51,7 +51,7 @@ spec:
           | nindent 10 }}
       securityContext:
         runAsNonRoot: true
-      serviceAccountName: {{ include "secrets-operator.fullname" . }}-controller-manager
+      serviceAccountName: {{ include "secrets-operator.serviceAccountName" . }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}

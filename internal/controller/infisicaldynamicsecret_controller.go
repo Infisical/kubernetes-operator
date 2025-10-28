@@ -128,7 +128,7 @@ func (r *InfisicalDynamicSecretReconciler) Reconcile(ctx context.Context, req ct
 	}
 
 	// Get modified/default config
-	infisicalConfig, err := controllerhelpers.GetInfisicalConfigMap(ctx, r.Client, r.IsNamespaceScoped)
+	infisicalGlobalConfig, err := controllerhelpers.GetInfisicalConfigMap(ctx, r.Client, r.IsNamespaceScoped)
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("unable to fetch infisical-config. Will requeue after [requeueTime=%v]", requeueTime))
 		return ctrl.Result{
@@ -140,7 +140,7 @@ func (r *InfisicalDynamicSecretReconciler) Reconcile(ctx context.Context, req ct
 	handler := infisicaldynamicsecret.NewInfisicalDynamicSecretHandler(r.Client, r.Scheme, r.IsNamespaceScoped)
 
 	// Setup API configuration through business logic
-	err = handler.SetupAPIConfig(infisicalDynamicSecretCRD, infisicalConfig)
+	err = handler.SetupAPIConfig(infisicalDynamicSecretCRD, infisicalGlobalConfig)
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("unable to setup API configuration. Will requeue after [requeueTime=%v]", requeueTime))
 		return ctrl.Result{
@@ -149,7 +149,7 @@ func (r *InfisicalDynamicSecretReconciler) Reconcile(ctx context.Context, req ct
 	}
 
 	// Handle CA certificate through business logic
-	err = handler.HandleCACertificate(ctx, infisicalDynamicSecretCRD)
+	err = handler.HandleCACertificate(ctx, infisicalDynamicSecretCRD, infisicalGlobalConfig)
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("unable to handle CA certificate. Will requeue after [requeueTime=%v]", requeueTime))
 		return ctrl.Result{

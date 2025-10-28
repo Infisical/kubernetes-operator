@@ -33,20 +33,20 @@ func NewInfisicalDynamicSecretHandler(client client.Client, scheme *runtime.Sche
 	}
 }
 
-func (h *InfisicalDynamicSecretHandler) SetupAPIConfig(infisicalDynamicSecret v1alpha1.InfisicalDynamicSecret, infisicalConfig map[string]string) error {
+func (h *InfisicalDynamicSecretHandler) SetupAPIConfig(infisicalDynamicSecret v1alpha1.InfisicalDynamicSecret, infisicalGlobalConfig *config.InfisicalGlobalConfig) error {
 	if infisicalDynamicSecret.Spec.HostAPI == "" {
-		config.API_HOST_URL = infisicalConfig["hostAPI"]
+		config.API_HOST_URL = infisicalGlobalConfig.HostAPI
 	} else {
 		config.API_HOST_URL = util.AppendAPIEndpoint(infisicalDynamicSecret.Spec.HostAPI)
 	}
 	return nil
 }
 
-func (h *InfisicalDynamicSecretHandler) getInfisicalCaCertificateFromKubeSecret(ctx context.Context, infisicalDynamicSecret v1alpha1.InfisicalDynamicSecret) (caCertificate string, err error) {
+func (h *InfisicalDynamicSecretHandler) getInfisicalCaCertificateFromKubeSecret(ctx context.Context, tlsConfig v1alpha1.TLSConfig) (caCertificate string, err error) {
 
 	caCertificateFromKubeSecret, err := util.GetKubeSecretByNamespacedName(ctx, h.Client, types.NamespacedName{
-		Namespace: infisicalDynamicSecret.Spec.TLS.CaRef.SecretNamespace,
-		Name:      infisicalDynamicSecret.Spec.TLS.CaRef.SecretName,
+		Namespace: tlsConfig.CaRef.SecretNamespace,
+		Name:      tlsConfig.CaRef.SecretName,
 	})
 
 	if k8Errors.IsNotFound(err) {
@@ -61,14 +61,20 @@ func (h *InfisicalDynamicSecretHandler) getInfisicalCaCertificateFromKubeSecret(
 		return "", fmt.Errorf("something went wrong when fetching your CA certificate [err=%s]", err)
 	}
 
-	caCertificateFromSecret := string(caCertificateFromKubeSecret.Data[infisicalDynamicSecret.Spec.TLS.CaRef.SecretKey])
+	caCertificateFromSecret := string(caCertificateFromKubeSecret.Data[tlsConfig.CaRef.SecretKey])
 
 	return caCertificateFromSecret, nil
 }
 
-func (h *InfisicalDynamicSecretHandler) HandleCACertificate(ctx context.Context, infisicalDynamicSecret v1alpha1.InfisicalDynamicSecret) error {
-	if infisicalDynamicSecret.Spec.TLS.CaRef.SecretName != "" {
-		caCert, err := h.getInfisicalCaCertificateFromKubeSecret(ctx, infisicalDynamicSecret)
+func (h *InfisicalDynamicSecretHandler) HandleCACertificate(ctx context.Context, infisicalDynamicSecret v1alpha1.InfisicalDynamicSecret, infisicalGlobalConfig *config.InfisicalGlobalConfig) error {
+	if infisicalGlobalConfig.TLS != nil {
+		caCert, err := h.getInfisicalCaCertificateFromKubeSecret(ctx, *infisicalGlobalConfig.TLS)
+		if err != nil {
+			return err
+		}
+		config.API_CA_CERTIFICATE = caCert
+	} else if infisicalDynamicSecret.Spec.TLS.CaRef.SecretName != "" {
+		caCert, err := h.getInfisicalCaCertificateFromKubeSecret(ctx, infisicalDynamicSecret.Spec.TLS)
 		if err != nil {
 			return err
 		}

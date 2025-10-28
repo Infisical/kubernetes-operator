@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1alpha1"
+	"github.com/Infisical/infisical/k8-operator/internal/config"
 	"github.com/Infisical/infisical/k8-operator/internal/constants"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
 	"github.com/go-logr/logr"
@@ -264,10 +265,11 @@ func ReconcileStatefulSet(ctx context.Context, client controllerClient.Client, l
 	return nil
 }
 
-func GetInfisicalConfigMap(ctx context.Context, client client.Client, isNamespaceScoped bool) (configMap map[string]string, errToReturn error) {
+func GetInfisicalConfigMap(ctx context.Context, client client.Client, isNamespaceScoped bool) (configMap *config.InfisicalGlobalConfig, errToReturn error) {
 	// default key values
-	defaultConfigMapData := make(map[string]string)
-	defaultConfigMapData["hostAPI"] = constants.INFISICAL_DOMAIN
+	defaultConfigMapData := &config.InfisicalGlobalConfig{
+		HostAPI: constants.INFISICAL_DOMAIN,
+	}
 
 	// this will never work if we're namespace scoped, because the operator can't read outside of its namespace by our current RBAC rules.
 	// This is how it has always worked, but the error has been masked as 'not found' in V3 kubebuilder.
@@ -292,13 +294,6 @@ func GetInfisicalConfigMap(ctx context.Context, client client.Client, isNamespac
 	if kubeConfigMap == nil {
 		return defaultConfigMapData, nil
 	} else {
-		for key, value := range defaultConfigMapData {
-			_, exists := kubeConfigMap.Data[key]
-			if !exists {
-				kubeConfigMap.Data[key] = value
-			}
-		}
-
-		return kubeConfigMap.Data, nil
+		return config.ParseInfisicalGlobalConfig(kubeConfigMap.Data)
 	}
 }

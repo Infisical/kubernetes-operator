@@ -33,8 +33,8 @@ func NewInfisicalDynamicSecretHandler(client client.Client, scheme *runtime.Sche
 	}
 }
 
-func (h *InfisicalDynamicSecretHandler) SetupAPIConfig(infisicalDynamicSecret v1alpha1.InfisicalDynamicSecret, infisicalGlobalConfig *config.InfisicalGlobalConfig) error {
-	if infisicalDynamicSecret.Spec.HostAPI == "" {
+func (h *InfisicalDynamicSecretHandler) SetupAPIConfig(infisicalDynamicSecret v1alpha1.InfisicalDynamicSecret, infisicalGlobalConfig config.InfisicalGlobalConfig) error {
+	if infisicalDynamicSecret.Spec.HostAPI == "" && infisicalGlobalConfig.HostAPI != "" {
 		config.API_HOST_URL = infisicalGlobalConfig.HostAPI
 	} else {
 		config.API_HOST_URL = util.AppendAPIEndpoint(infisicalDynamicSecret.Spec.HostAPI)
@@ -66,9 +66,9 @@ func (h *InfisicalDynamicSecretHandler) getInfisicalCaCertificateFromKubeSecret(
 	return caCertificateFromSecret, nil
 }
 
-func (h *InfisicalDynamicSecretHandler) HandleCACertificate(ctx context.Context, infisicalDynamicSecret v1alpha1.InfisicalDynamicSecret, infisicalGlobalConfig *config.InfisicalGlobalConfig) error {
-	if infisicalGlobalConfig.TLS != nil {
-		caCert, err := h.getInfisicalCaCertificateFromKubeSecret(ctx, *infisicalGlobalConfig.TLS)
+func (h *InfisicalDynamicSecretHandler) HandleCACertificate(ctx context.Context, infisicalDynamicSecret v1alpha1.InfisicalDynamicSecret, globalTlsConfig *v1alpha1.TLSConfig) error {
+	if globalTlsConfig != nil {
+		caCert, err := h.getInfisicalCaCertificateFromKubeSecret(ctx, *globalTlsConfig)
 		if err != nil {
 			return err
 		}

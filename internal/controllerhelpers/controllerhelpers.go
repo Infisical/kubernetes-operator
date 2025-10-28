@@ -265,9 +265,9 @@ func ReconcileStatefulSet(ctx context.Context, client controllerClient.Client, l
 	return nil
 }
 
-func GetInfisicalConfigMap(ctx context.Context, client client.Client, isNamespaceScoped bool) (configMap *config.InfisicalGlobalConfig, errToReturn error) {
+func GetInfisicalConfigMap(ctx context.Context, client client.Client, isNamespaceScoped bool) (configMap config.InfisicalGlobalConfig, errToReturn error) {
 	// default key values
-	defaultConfigMapData := &config.InfisicalGlobalConfig{
+	defaultConfigMapData := config.InfisicalGlobalConfig{
 		HostAPI: constants.INFISICAL_DOMAIN,
 	}
 
@@ -287,7 +287,7 @@ func GetInfisicalConfigMap(ctx context.Context, client client.Client, isNamespac
 		if k8Errors.IsNotFound(err) {
 			kubeConfigMap = nil
 		} else {
-			return nil, fmt.Errorf("GetConfigMapByNamespacedName: unable to fetch config map in [namespacedName=%s] [err=%s]", constants.OPERATOR_SETTINGS_CONFIGMAP_NAMESPACE, err)
+			return defaultConfigMapData, fmt.Errorf("GetConfigMapByNamespacedName: unable to fetch config map in [namespacedName=%s] [err=%s]", constants.OPERATOR_SETTINGS_CONFIGMAP_NAMESPACE, err)
 		}
 	}
 

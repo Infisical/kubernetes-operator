@@ -149,7 +149,7 @@ func (r *InfisicalDynamicSecretReconciler) Reconcile(ctx context.Context, req ct
 	}
 
 	// Handle CA certificate through business logic
-	err = handler.HandleCACertificate(ctx, infisicalDynamicSecretCRD, infisicalGlobalConfig)
+	err = handler.HandleCACertificate(ctx, infisicalDynamicSecretCRD, infisicalGlobalConfig.TLS)
 	if err != nil {
 		logger.Error(err, fmt.Sprintf("unable to handle CA certificate. Will requeue after [requeueTime=%v]", requeueTime))
 		return ctrl.Result{

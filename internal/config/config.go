@@ -14,8 +14,8 @@ type InfisicalGlobalConfig struct {
 var API_HOST_URL string = "https://app.infisical.com/api"
 var API_CA_CERTIFICATE string = ""
 
-func ParseInfisicalGlobalConfig(rawMap map[string]string) (*InfisicalGlobalConfig, error) {
-	config := &InfisicalGlobalConfig{}
+func ParseInfisicalGlobalConfig(rawMap map[string]string) (InfisicalGlobalConfig, error) {
+	config := InfisicalGlobalConfig{}
 
 	if hostAPI, ok := rawMap["hostAPI"]; ok {
 		config.HostAPI = hostAPI
@@ -27,7 +27,7 @@ func ParseInfisicalGlobalConfig(rawMap map[string]string) (*InfisicalGlobalConfi
 
 	if secretName != "" || secretNamespace != "" || secretKey != "" {
 		if secretName == "" || secretNamespace == "" || secretKey == "" {
-			return nil, fmt.Errorf("when tls.caRef is configured in the infisical-config, all fields must be set (secretName, secretNamespace, key)")
+			return config, fmt.Errorf("when tls.caRef is configured in the infisical-config, all fields must be set (secretName, secretNamespace, key)")
 		}
 		config.TLS = &v1alpha1.TLSConfig{
 			CaRef: v1alpha1.CaReference{

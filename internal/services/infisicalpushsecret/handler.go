@@ -29,7 +29,7 @@ func NewInfisicalPushSecretHandler(client client.Client, scheme *runtime.Scheme,
 	}
 }
 
-func (h *InfisicalPushSecretHandler) SetupAPIConfig(infisicalPushSecret v1alpha1.InfisicalPushSecret, infisicalGlobalConfig *config.InfisicalGlobalConfig) error {
+func (h *InfisicalPushSecretHandler) SetupAPIConfig(infisicalPushSecret v1alpha1.InfisicalPushSecret, infisicalGlobalConfig config.InfisicalGlobalConfig) error {
 	if infisicalPushSecret.Spec.HostAPI == "" {
 		config.API_HOST_URL = infisicalGlobalConfig.HostAPI
 	} else {
@@ -62,9 +62,9 @@ func (h *InfisicalPushSecretHandler) getInfisicalCaCertificateFromKubeSecret(ctx
 	return caCertificateFromSecret, nil
 }
 
-func (h *InfisicalPushSecretHandler) HandleCACertificate(ctx context.Context, infisicalPushSecret v1alpha1.InfisicalPushSecret, infisicalGlobalConfig *config.InfisicalGlobalConfig) error {
-	if infisicalGlobalConfig.TLS != nil {
-		caCert, err := h.getInfisicalCaCertificateFromKubeSecret(ctx, *infisicalGlobalConfig.TLS)
+func (h *InfisicalPushSecretHandler) HandleCACertificate(ctx context.Context, infisicalPushSecret v1alpha1.InfisicalPushSecret, globalTlsConfig *v1alpha1.TLSConfig) error {
+	if globalTlsConfig != nil {
+		caCert, err := h.getInfisicalCaCertificateFromKubeSecret(ctx, *globalTlsConfig)
 		if err != nil {
 			return err
 		}

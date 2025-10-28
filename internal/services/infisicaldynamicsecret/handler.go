@@ -42,11 +42,11 @@ func (h *InfisicalDynamicSecretHandler) SetupAPIConfig(infisicalDynamicSecret v1
 	return nil
 }
 
-func (h *InfisicalDynamicSecretHandler) getInfisicalCaCertificateFromKubeSecret(ctx context.Context, tlsConfig v1alpha1.TLSConfig) (caCertificate string, err error) {
+func (h *InfisicalDynamicSecretHandler) getInfisicalCaCertificateFromKubeSecret(ctx context.Context, caRef v1alpha1.CaReference) (caCertificate string, err error) {
 
 	caCertificateFromKubeSecret, err := util.GetKubeSecretByNamespacedName(ctx, h.Client, types.NamespacedName{
-		Namespace: tlsConfig.CaRef.SecretNamespace,
-		Name:      tlsConfig.CaRef.SecretName,
+		Namespace: caRef.SecretNamespace,
+		Name:      caRef.SecretName,
 	})
 
 	if k8Errors.IsNotFound(err) {
@@ -61,20 +61,20 @@ func (h *InfisicalDynamicSecretHandler) getInfisicalCaCertificateFromKubeSecret(
 		return "", fmt.Errorf("something went wrong when fetching your CA certificate [err=%s]", err)
 	}
 
-	caCertificateFromSecret := string(caCertificateFromKubeSecret.Data[tlsConfig.CaRef.SecretKey])
+	caCertificateFromSecret := string(caCertificateFromKubeSecret.Data[caRef.SecretKey])
 
 	return caCertificateFromSecret, nil
 }
 
 func (h *InfisicalDynamicSecretHandler) HandleCACertificate(ctx context.Context, infisicalDynamicSecret v1alpha1.InfisicalDynamicSecret, globalTlsConfig *v1alpha1.TLSConfig) error {
-	if globalTlsConfig != nil {
-		caCert, err := h.getInfisicalCaCertificateFromKubeSecret(ctx, *globalTlsConfig)
+	if infisicalDynamicSecret.Spec.TLS.CaRef.SecretName != "" {
+		caCert, err := h.getInfisicalCaCertificateFromKubeSecret(ctx, infisicalDynamicSecret.Spec.TLS.CaRef)
 		if err != nil {
 			return err
 		}
 		config.API_CA_CERTIFICATE = caCert
-	} else if infisicalDynamicSecret.Spec.TLS.CaRef.SecretName != "" {
-		caCert, err := h.getInfisicalCaCertificateFromKubeSecret(ctx, infisicalDynamicSecret.Spec.TLS)
+	} else if globalTlsConfig != nil {
+		caCert, err := h.getInfisicalCaCertificateFromKubeSecret(ctx, globalTlsConfig.CaRef)
 		if err != nil {
 			return err
 		}

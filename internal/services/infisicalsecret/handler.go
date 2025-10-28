@@ -63,14 +63,14 @@ func (h *InfisicalSecretHandler) getInfisicalCaCertificateFromKubeSecret(ctx con
 }
 
 func (h *InfisicalSecretHandler) HandleCACertificate(ctx context.Context, infisicalSecret v1alpha1.InfisicalSecret, globalTlsConfig *v1alpha1.TLSConfig) error {
-	if globalTlsConfig != nil {
-		caCert, err := h.getInfisicalCaCertificateFromKubeSecret(ctx, globalTlsConfig.CaRef)
+	if infisicalSecret.Spec.TLS.CaRef.SecretName != "" {
+		caCert, err := h.getInfisicalCaCertificateFromKubeSecret(ctx, infisicalSecret.Spec.TLS.CaRef)
 		if err != nil {
 			return err
 		}
 		config.API_CA_CERTIFICATE = caCert
-	} else if infisicalSecret.Spec.TLS.CaRef.SecretName != "" {
-		caCert, err := h.getInfisicalCaCertificateFromKubeSecret(ctx, infisicalSecret.Spec.TLS.CaRef)
+	} else if globalTlsConfig != nil {
+		caCert, err := h.getInfisicalCaCertificateFromKubeSecret(ctx, globalTlsConfig.CaRef)
 		if err != nil {
 			return err
 		}

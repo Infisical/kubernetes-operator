@@ -466,8 +466,8 @@ func (r *InfisicalSecretReconciler) deleteUnreferencedOwnedResources(
 	ctx context.Context,
 	logger logr.Logger,
 	infisicalSecret v1alpha1.InfisicalSecret,
-	desiredSecrets map[string]bool,
-	desiredConfigMaps map[string]bool,
+	secretOwnerReferences map[string]bool,
+	configMapOwnerReferences map[string]bool,
 ) {
 	secretList := &corev1.SecretList{}
 	if err := r.List(ctx, secretList, client.InNamespace(infisicalSecret.Namespace)); err != nil {
@@ -478,10 +478,10 @@ func (r *InfisicalSecretReconciler) deleteUnreferencedOwnedResources(
 	for _, secret := range secretList.Items {
 		if isOwnedByInfisicalSecret(&secret, infisicalSecret.UID) {
 			key := secret.Namespace + "/" + secret.Name
-			if !desiredSecrets[key] {
-				logger.Info("Deleting orphaned secret", "secret", key)
+			if !secretOwnerReferences[key] {
+				logger.Info("Deleting orphaned owned secret", "secret", key)
 				if err := r.Delete(ctx, &secret); err != nil {
-					logger.Error(err, "Failed to delete orphaned secret", "secret", key)
+					logger.Error(err, "Failed to delete orphaned owned secret", "secret", key)
 				}
 			}
 		}
@@ -496,10 +496,10 @@ func (r *InfisicalSecretReconciler) deleteUnreferencedOwnedResources(
 	for _, cm := range configMapList.Items {
 		if isOwnedByInfisicalSecret(&cm, infisicalSecret.UID) {
 			key := cm.Namespace + "/" + cm.Name
-			if !desiredConfigMaps[key] {
-				logger.Info("Deleting orphaned configmap", "configmap", key)
+			if !configMapOwnerReferences[key] {
+				logger.Info("Deleting orphaned owned configmap", "configmap", key)
 				if err := r.Delete(ctx, &cm); err != nil {
-					logger.Error(err, "Failed to delete orphaned configmap", "configmap", key)
+					logger.Error(err, "Failed to delete orphaned owned configmap", "configmap", key)
 				}
 			}
 		}

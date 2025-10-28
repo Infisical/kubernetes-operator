@@ -34,7 +34,7 @@ func NewInfisicalDynamicSecretHandler(client client.Client, scheme *runtime.Sche
 }
 
 func (h *InfisicalDynamicSecretHandler) SetupAPIConfig(infisicalDynamicSecret v1alpha1.InfisicalDynamicSecret, infisicalGlobalConfig config.InfisicalGlobalConfig) error {
-	if infisicalDynamicSecret.Spec.HostAPI == "" && infisicalGlobalConfig.HostAPI != "" {
+	if infisicalDynamicSecret.Spec.HostAPI == "" {
 		config.API_HOST_URL = infisicalGlobalConfig.HostAPI
 	} else {
 		config.API_HOST_URL = util.AppendAPIEndpoint(infisicalDynamicSecret.Spec.HostAPI)

@@ -450,6 +450,62 @@ func (r *InfisicalSecretReconciler) updateResourceVariables(infisicalSecret v1al
 	resourceVariablesMap[string(infisicalSecret.UID)] = resourceVariables
 }
 
+func isOwnedByInfisicalSecret(obj client.Object, infisicalSecretUID types.UID) bool {
+	for _, ownerRef := range obj.GetOwnerReferences() {
+		if ownerRef.UID == infisicalSecretUID &&
+			ownerRef.Kind == constants.INFISICAL_SECRET_KIND {
+			return true
+		}
+	}
+	return false
+}
+
+// Removes secrets and configmaps that are owned by the InfisicalSecret but are no longer referenced in the spec
+// Best effort, don't fail reconciliation
+func (r *InfisicalSecretReconciler) deleteUnreferencedOwnedResources(
+	ctx context.Context,
+	logger logr.Logger,
+	infisicalSecret v1alpha1.InfisicalSecret,
+	secretOwnerReferences map[string]bool,
+	configMapOwnerReferences map[string]bool,
+) {
+	secretList := &corev1.SecretList{}
+	if err := r.List(ctx, secretList, client.InNamespace(infisicalSecret.Namespace)); err != nil {
+		logger.Error(err, "Failed to list secrets for cleanup")
+		return
+	}
+
+	for _, secret := range secretList.Items {
+		if isOwnedByInfisicalSecret(&secret, infisicalSecret.UID) {
+			key := secret.Namespace + "/" + secret.Name
+			if !secretOwnerReferences[key] {
+				logger.Info("Deleting orphaned owned secret", "secret", key)
+				if err := r.Delete(ctx, &secret); err != nil {
+					logger.Error(err, "Failed to delete orphaned owned secret", "secret", key)
+				}
+			}
+		}
+	}
+
+	configMapList := &corev1.ConfigMapList{}
+	if err := r.List(ctx, configMapList, client.InNamespace(infisicalSecret.Namespace)); err != nil {
+		logger.Error(err, "Failed to list configmaps for cleanup")
+		return
+	}
+
+	for _, cm := range configMapList.Items {
+		if isOwnedByInfisicalSecret(&cm, infisicalSecret.UID) {
+			key := cm.Namespace + "/" + cm.Name
+			if !configMapOwnerReferences[key] {
+				logger.Info("Deleting orphaned owned configmap", "configmap", key)
+				if err := r.Delete(ctx, &cm); err != nil {
+					logger.Error(err, "Failed to delete orphaned owned configmap", "configmap", key)
+				}
+			}
+		}
+	}
+}
+
 func (r *InfisicalSecretReconciler) ReconcileInfisicalSecret(ctx context.Context, logger logr.Logger, infisicalSecret *v1alpha1.InfisicalSecret, managedKubeSecretReferences []v1alpha1.ManagedKubeSecretConfig, managedKubeConfigMapReferences []v1alpha1.ManagedKubeConfigMapConfig, resourceVariablesMap map[string]util.ResourceVariables) (int, error) {
 
 	if infisicalSecret == nil {
@@ -489,9 +545,14 @@ func (r *InfisicalSecretReconciler) ReconcileInfisicalSecret(ctx context.Context
 		return 0, fmt.Errorf("failed to fetch secrets from API for managed secrets [err=%s]", err)
 	}
 	secretsCount := len(plainTextSecretsFromApi)
+	secretOwnerReferences := make(map[string]bool)
 
 	if len(managedKubeSecretReferences) > 0 {
 		for _, managedSecretReference := range managedKubeSecretReferences {
+			if managedSecretReference.CreationPolicy == "Owner" {
+				key := managedSecretReference.SecretNamespace + "/" + managedSecretReference.SecretName
+				secretOwnerReferences[key] = true
+			}
 			// Look for managed secret by name and namespace
 			managedKubeSecret, err := util.GetKubeSecretByNamespacedName(ctx, r.Client, types.NamespacedName{
 				Name:      managedSecretReference.SecretName,
@@ -518,8 +579,15 @@ func (r *InfisicalSecretReconciler) ReconcileInfisicalSecret(ctx context.Context
 		}
 	}
 
+	configMapOwnerReferences := make(map[string]bool)
+
 	if len(managedKubeConfigMapReferences) > 0 {
 		for _, managedConfigMapReference := range managedKubeConfigMapReferences {
+			if managedConfigMapReference.CreationPolicy == "Owner" {
+				key := managedConfigMapReference.ConfigMapNamespace + "/" + managedConfigMapReference.ConfigMapName
+				configMapOwnerReferences[key] = true
+			}
+
 			managedKubeConfigMap, err := util.GetKubeConfigMapByNamespacedName(ctx, r.Client, types.NamespacedName{
 				Name:      managedConfigMapReference.ConfigMapName,
 				Namespace: managedConfigMapReference.ConfigMapNamespace,
@@ -545,6 +613,8 @@ func (r *InfisicalSecretReconciler) ReconcileInfisicalSecret(ctx context.Context
 
 		}
 	}
+
+	r.deleteUnreferencedOwnedResources(ctx, logger, *infisicalSecret, secretOwnerReferences, configMapOwnerReferences)
 
 	return secretsCount, nil
 }

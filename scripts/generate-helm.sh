@@ -302,7 +302,7 @@ if [ -f "${HELM_DIR}/templates/deployment.yaml" ]; then
 
 
     # check if this is the serviceAccountName line - add imagePullSecrets after it
-    if [[ "$line" =~ serviceAccountName.*include.*fullname ]] && [ "$imagePullSecrets_added" -eq 0 ]; then
+    if [[ "$line" =~ serviceAccountName.*include ]] && [ "$imagePullSecrets_added" -eq 0 ]; then
       echo "$line" >> "${HELM_DIR}/templates/deployment.yaml.new"
       # Add imagePullSecrets section
       echo "      {{- with .Values.imagePullSecrets }}" >> "${HELM_DIR}/templates/deployment.yaml.new"
@@ -379,7 +379,6 @@ fi
 
 
 
-
 # ? NOTE(Daniel): Processes values.yaml
 if [ -f "${HELM_DIR}/values.yaml" ]; then
   echo "Processing values.yaml file"
@@ -390,10 +389,37 @@ if [ -f "${HELM_DIR}/values.yaml" ]; then
   # Flag to track sections
   in_resources_section=0
   in_service_account=0
+  in_controller_manager=0
+  service_account_added=0
   
   previous_line=""
   # Process the file line by line
   while IFS= read -r line; do
+    # Check if we're entering controllerManager section
+    if [[ "$line" =~ ^controllerManager: ]]; then
+      in_controller_manager=1
+      service_account_added=0
+      echo "$line" >> "${HELM_DIR}/values.yaml.new"
+      continue
+    fi
+    
+    # if we are in controllerManager and haven't added serviceAccount yet
+    if [ "$in_controller_manager" -eq 1 ] && [ "$service_account_added" -eq 0 ]; then
+        echo "  serviceAccount:" >> "${HELM_DIR}/values.yaml.new"
+        echo "    create: true" >> "${HELM_DIR}/values.yaml.new"
+        echo "    name: \"\"" >> "${HELM_DIR}/values.yaml.new"
+        echo "    annotations: {}" >> "${HELM_DIR}/values.yaml.new"
+        # Add nodeSelector and tolerations at the same level as serviceAccount
+        echo "  nodeSelector: {}" >> "${HELM_DIR}/values.yaml.new"
+        echo "  tolerations: []" >> "${HELM_DIR}/values.yaml.new"
+        service_account_added=1
+    fi
+    
+    # reset in_controller_manager when we exit the section (when it hits another top-level key)
+    if [ "$in_controller_manager" -eq 1 ] && [[ "$line" =~ ^[a-zA-Z] ]] && ! [[ "$line" =~ ^controllerManager: ]]; then
+      in_controller_manager=0
+    fi
+    
     if [[ "$line" =~ resources: ]]; then
       in_resources_section=1
     fi
@@ -450,8 +476,6 @@ if [ -f "${HELM_DIR}/values.yaml" ]; then
     previous_line="$line"
   done < "${HELM_DIR}/values.yaml"
   
-
-
   # hacky, just append the kubernetesClusterDomain fields at the end of the file
   if [[ "$OSTYPE" == "darwin"* ]]; then
   # macOS version

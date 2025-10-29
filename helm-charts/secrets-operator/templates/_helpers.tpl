@@ -54,7 +54,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 Create the name of the service account to use
 */}}
 {{- define "secrets-operator.serviceAccountName" -}}
-{{- if and .Values.controllerManager.serviceAccount.name }}
+{{- if .Values.controllerManager.serviceAccount.name }}
 {{- .Values.controllerManager.serviceAccount.name }}
 {{- else }}
 {{- printf "%s-controller-manager" (include "secrets-operator.fullname" .) }}

@@ -51,7 +51,7 @@ spec:
           | nindent 10 }}
       securityContext:
         runAsNonRoot: true
-      serviceAccountName: {{ include "secrets-operator.fullname" . }}-controller-manager
+      serviceAccountName: {{ include "secrets-operator.serviceAccountName" . }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}

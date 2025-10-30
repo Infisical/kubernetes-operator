@@ -120,5 +120,5 @@ roleRef:
   name: '{{ include "secrets-operator.fullname" . }}-manager-role'
 subjects:
 - kind: ServiceAccount
-  name: '{{ include "secrets-operator.fullname" . }}-controller-manager'
+  name: '{{ include "secrets-operator.serviceAccountName" . }}'
   namespace: '{{ .Release.Namespace }}'

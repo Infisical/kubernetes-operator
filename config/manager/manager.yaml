@@ -93,5 +93,5 @@ spec:
               memory: 64Mi
           volumeMounts: []
       volumes: []
-      serviceAccountName: controller-manager
+      serviceAccountName: '{{ include "secrets-operator.serviceAccountName" . }}'
       terminationGracePeriodSeconds: 10

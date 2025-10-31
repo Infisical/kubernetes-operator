@@ -10,3 +10,7 @@ metadata:
   namespace: infisical-operator-system
 data:
   hostAPI: "https://example.com/api"
+  tls.caRef.secretName: custom-ca-certificate
+  tls.caRef.secretNamespace: default
+  tls.caRef.key: ca.crt
+  

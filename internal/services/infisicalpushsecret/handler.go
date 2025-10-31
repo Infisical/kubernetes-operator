@@ -29,20 +29,20 @@ func NewInfisicalPushSecretHandler(client client.Client, scheme *runtime.Scheme,
 	}
 }
 
-func (h *InfisicalPushSecretHandler) SetupAPIConfig(infisicalPushSecret v1alpha1.InfisicalPushSecret, infisicalConfig map[string]string) error {
+func (h *InfisicalPushSecretHandler) SetupAPIConfig(infisicalPushSecret v1alpha1.InfisicalPushSecret, infisicalGlobalConfig config.InfisicalGlobalConfig) error {
 	if infisicalPushSecret.Spec.HostAPI == "" {
-		config.API_HOST_URL = infisicalConfig["hostAPI"]
+		config.API_HOST_URL = infisicalGlobalConfig.HostAPI
 	} else {
 		config.API_HOST_URL = util.AppendAPIEndpoint(infisicalPushSecret.Spec.HostAPI)
 	}
 	return nil
 }
 
-func (h *InfisicalPushSecretHandler) getInfisicalCaCertificateFromKubeSecret(ctx context.Context, infisicalPushSecret v1alpha1.InfisicalPushSecret) (caCertificate string, err error) {
+func (h *InfisicalPushSecretHandler) getInfisicalCaCertificateFromKubeSecret(ctx context.Context, caRef v1alpha1.CaReference) (caCertificate string, err error) {
 
 	caCertificateFromKubeSecret, err := util.GetKubeSecretByNamespacedName(ctx, h.Client, types.NamespacedName{
-		Namespace: infisicalPushSecret.Spec.TLS.CaRef.SecretNamespace,
-		Name:      infisicalPushSecret.Spec.TLS.CaRef.SecretName,
+		Namespace: caRef.SecretNamespace,
+		Name:      caRef.SecretName,
 	})
 
 	if k8Errors.IsNotFound(err) {
@@ -57,14 +57,20 @@ func (h *InfisicalPushSecretHandler) getInfisicalCaCertificateFromKubeSecret(ctx
 		return "", fmt.Errorf("something went wrong when fetching your CA certificate [err=%s]", err)
 	}
 
-	caCertificateFromSecret := string(caCertificateFromKubeSecret.Data[infisicalPushSecret.Spec.TLS.CaRef.SecretKey])
+	caCertificateFromSecret := string(caCertificateFromKubeSecret.Data[caRef.SecretKey])
 
 	return caCertificateFromSecret, nil
 }
 
-func (h *InfisicalPushSecretHandler) HandleCACertificate(ctx context.Context, infisicalPushSecret v1alpha1.InfisicalPushSecret) error {
+func (h *InfisicalPushSecretHandler) HandleCACertificate(ctx context.Context, infisicalPushSecret v1alpha1.InfisicalPushSecret, globalTlsConfig *v1alpha1.TLSConfig) error {
 	if infisicalPushSecret.Spec.TLS.CaRef.SecretName != "" {
-		caCert, err := h.getInfisicalCaCertificateFromKubeSecret(ctx, infisicalPushSecret)
+		caCert, err := h.getInfisicalCaCertificateFromKubeSecret(ctx, infisicalPushSecret.Spec.TLS.CaRef)
+		if err != nil {
+			return err
+		}
+		config.API_CA_CERTIFICATE = caCert
+	} else if globalTlsConfig != nil {
+		caCert, err := h.getInfisicalCaCertificateFromKubeSecret(ctx, globalTlsConfig.CaRef)
 		if err != nil {
 			return err
 		}

@@ -280,48 +280,7 @@ func (r *InfisicalPushSecretReconciler) SetupWithManager(mgr ctrl.Manager) error
 			handler.EnqueueRequestsFromMapFunc(r.findPushSecretsForSecret),
 		)
 
-	if !r.IsNamespaceScoped {
-		r.BaseLogger.Info("Watching ClusterGenerators for non-namespace scoped operator")
-		controllerManager.Watches(
-			&secretsv1alpha1.ClusterGenerator{},
-			handler.EnqueueRequestsFromMapFunc(r.findPushSecretsForClusterGenerator),
-		)
-	} else {
-		r.BaseLogger.Info("Not watching ClusterGenerators for namespace scoped operator")
-	}
-
 	return controllerManager.Complete(r)
-}
-
-func (r *InfisicalPushSecretReconciler) findPushSecretsForClusterGenerator(ctx context.Context, o client.Object) []reconcile.Request {
-	pushSecrets := &secretsv1alpha1.InfisicalPushSecretList{}
-	if err := r.List(ctx, pushSecrets); err != nil {
-		return []reconcile.Request{}
-	}
-
-	clusterGenerator, ok := o.(*secretsv1alpha1.ClusterGenerator)
-	if !ok {
-		return []reconcile.Request{}
-	}
-
-	requests := []reconcile.Request{}
-
-	for _, pushSecret := range pushSecrets.Items {
-		if pushSecret.Spec.Push.Generators != nil {
-			for _, generator := range pushSecret.Spec.Push.Generators {
-				if generator.GeneratorRef.Name == clusterGenerator.GetName() {
-					requests = append(requests, reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Name:      pushSecret.GetName(),
-							Namespace: pushSecret.GetNamespace(),
-						},
-					})
-					break
-				}
-			}
-		}
-	}
-	return requests
 }
 
 func (r *InfisicalPushSecretReconciler) findPushSecretsForSecret(ctx context.Context, o client.Object) []reconcile.Request {

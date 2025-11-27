@@ -49,6 +49,7 @@ spec:
           }}
         securityContext: {{- toYaml .Values.controllerManager.manager.containerSecurityContext
           | nindent 10 }}
+      nodeSelector: {{- toYaml .Values.controllerManager.nodeSelector | nindent 8 }}
       securityContext:
         runAsNonRoot: true
       serviceAccountName: {{ include "secrets-operator.serviceAccountName" . }}
@@ -57,5 +58,8 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       terminationGracePeriodSeconds: 10
+      tolerations: {{- toYaml .Values.controllerManager.tolerations | nindent 8 }}
+      topologySpreadConstraints: {{- toYaml .Values.controllerManager.topologySpreadConstraints
+        | nindent 8 }}
       nodeSelector: {{ toYaml .Values.controllerManager.nodeSelector | nindent 8 }}
       tolerations: {{ toYaml .Values.controllerManager.tolerations | nindent 8 }}

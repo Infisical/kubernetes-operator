@@ -18,6 +18,8 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -238,7 +240,16 @@ func (r *InfisicalPushSecretReconciler) SetupWithManager(mgr ctrl.Manager) error
 
 			isSpecOrGenerationChange := e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration()
 
-			if isSpecOrGenerationChange {
+			isAnnotationChange := false
+
+			jsonOld, oldErr := json.Marshal(e.ObjectOld.GetAnnotations())
+			jsonNew, newErr := json.Marshal(e.ObjectNew.GetAnnotations())
+
+			if oldErr == nil && newErr == nil {
+				isAnnotationChange = sha256.Sum256(jsonOld) != sha256.Sum256(jsonNew)
+			}
+
+			if isSpecOrGenerationChange || isAnnotationChange {
 				if infisicalPushSecretResourceVariablesMap != nil {
 					if rv, ok := infisicalPushSecretResourceVariablesMap[string(e.ObjectNew.GetUID())]; ok {
 						rv.CancelCtx()
@@ -247,7 +258,7 @@ func (r *InfisicalPushSecretReconciler) SetupWithManager(mgr ctrl.Manager) error
 				}
 			}
 
-			return isSpecOrGenerationChange
+			return isSpecOrGenerationChange || isAnnotationChange
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
 			// Always reconcile on deletion

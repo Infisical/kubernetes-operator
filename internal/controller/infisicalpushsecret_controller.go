@@ -18,6 +18,8 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -238,7 +240,16 @@ func (r *InfisicalPushSecretReconciler) SetupWithManager(mgr ctrl.Manager) error
 
 			isSpecOrGenerationChange := e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration()
 
-			if isSpecOrGenerationChange {
+			isAnnotationChange := false
+
+			jsonOld, oldErr := json.Marshal(e.ObjectOld.GetAnnotations())
+			jsonNew, newErr := json.Marshal(e.ObjectNew.GetAnnotations())
+
+			if oldErr == nil && newErr == nil {
+				isAnnotationChange = sha256.Sum256(jsonOld) != sha256.Sum256(jsonNew)
+			}
+
+			if isSpecOrGenerationChange || isAnnotationChange {
 				if infisicalPushSecretResourceVariablesMap != nil {
 					if rv, ok := infisicalPushSecretResourceVariablesMap[string(e.ObjectNew.GetUID())]; ok {
 						rv.CancelCtx()
@@ -247,7 +258,7 @@ func (r *InfisicalPushSecretReconciler) SetupWithManager(mgr ctrl.Manager) error
 				}
 			}
 
-			return isSpecOrGenerationChange
+			return isSpecOrGenerationChange || isAnnotationChange
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
 			// Always reconcile on deletion
@@ -280,48 +291,7 @@ func (r *InfisicalPushSecretReconciler) SetupWithManager(mgr ctrl.Manager) error
 			handler.EnqueueRequestsFromMapFunc(r.findPushSecretsForSecret),
 		)
 
-	if !r.IsNamespaceScoped {
-		r.BaseLogger.Info("Watching ClusterGenerators for non-namespace scoped operator")
-		controllerManager.Watches(
-			&secretsv1alpha1.ClusterGenerator{},
-			handler.EnqueueRequestsFromMapFunc(r.findPushSecretsForClusterGenerator),
-		)
-	} else {
-		r.BaseLogger.Info("Not watching ClusterGenerators for namespace scoped operator")
-	}
-
 	return controllerManager.Complete(r)
-}
-
-func (r *InfisicalPushSecretReconciler) findPushSecretsForClusterGenerator(ctx context.Context, o client.Object) []reconcile.Request {
-	pushSecrets := &secretsv1alpha1.InfisicalPushSecretList{}
-	if err := r.List(ctx, pushSecrets); err != nil {
-		return []reconcile.Request{}
-	}
-
-	clusterGenerator, ok := o.(*secretsv1alpha1.ClusterGenerator)
-	if !ok {
-		return []reconcile.Request{}
-	}
-
-	requests := []reconcile.Request{}
-
-	for _, pushSecret := range pushSecrets.Items {
-		if pushSecret.Spec.Push.Generators != nil {
-			for _, generator := range pushSecret.Spec.Push.Generators {
-				if generator.GeneratorRef.Name == clusterGenerator.GetName() {
-					requests = append(requests, reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Name:      pushSecret.GetName(),
-							Namespace: pushSecret.GetNamespace(),
-						},
-					})
-					break
-				}
-			}
-		}
-	}
-	return requests
 }
 
 func (r *InfisicalPushSecretReconciler) findPushSecretsForSecret(ctx context.Context, o client.Object) []reconcile.Request {

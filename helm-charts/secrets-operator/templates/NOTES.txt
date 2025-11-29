@@ -1,0 +1,15 @@
+{{- if .Values.configureBasicKubernetesAuth }}
+{{- $namespace := .Release.Namespace }}
+==========================================
+Installation complete.
+==========================================
+
+To view the reviewer token, CA certificate, and Kubernetes host, run:
+
+kubectl logs -n {{ $namespace }} -l app.kubernetes.io/component=token-setup --tail=100
+
+==========================================
+{{- else }}
+Installation complete.
+{{- end }}
+

@@ -16,6 +16,8 @@ controllerManager:
         drop:
         - ALL
       readOnlyRootFilesystem: true
+      seccompProfile:
+        type: RuntimeDefault
     image:
       repository: infisical/kubernetes-operator
       tag: v0.10.13
@@ -26,8 +28,6 @@ controllerManager:
       requests:
         cpu: 10m
         memory: 64Mi
-    seccompProfile:
-      type: RuntimeDefault
   replicas: 1
 metricsService:
   ports:

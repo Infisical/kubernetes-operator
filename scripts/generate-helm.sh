@@ -278,22 +278,6 @@ if [ -f "${HELM_DIR}/templates/deployment.yaml" ]; then
       continue
     fi
     
-    # check if this is the problematic pod securityContext line
-    if [[ "$line" =~ securityContext.*Values.controllerManager.podSecurityContext ]] && [ "$securityContext_replaced" -eq 0 ]; then
-      # Replace with our custom securityContext
-      echo "      securityContext:" >> "${HELM_DIR}/templates/deployment.yaml.new"
-      echo "        runAsNonRoot: true" >> "${HELM_DIR}/templates/deployment.yaml.new"
-      securityContext_replaced=1
-      continue
-    fi
-    
-    # skip the line if it's just the trailing part of the replacement
-    if [[ "$securityContext_replaced" -eq 1 ]] && [[ "$line" =~ ^[[:space:]]*[0-9]+[[:space:]]*\}\} ]]; then
-      # this is the trailing part of the template expression, skip it
-      securityContext_replaced=0
-      continue
-    fi
-    
     # skip the simplified args line that replaced our custom one
     if [[ "$line" =~ args:.*Values.controllerManager.manager.args ]]; then
       continue
@@ -424,15 +408,6 @@ if [ -f "${HELM_DIR}/values.yaml" ]; then
       in_resources_section=1
     fi
     
-    if [[ "$line" =~ podSecurityContext: ]]; then
-      # skip this line and continue to the next line
-      continue
-    fi
-    
-    if [[ "$line" =~ runAsNonRoot: ]] && [ "$in_resources_section" -eq 1 ]; then
-      # also skip this line and continue to the next line
-      continue
-    fi
     
     if [[ "$line" =~ ^[[:space:]]*serviceAccount: ]]; then
       # set the flag to 1 so we can continue to print the associated lines later 

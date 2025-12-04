@@ -26,6 +26,8 @@ controllerManager:
       requests:
         cpu: 10m
         memory: 64Mi
+  podSecurityContext:
+    runAsNonRoot: true
     seccompProfile:
       type: RuntimeDefault
   replicas: 1

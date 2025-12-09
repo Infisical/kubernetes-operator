@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	tpl "text/template"
 
@@ -285,10 +286,11 @@ func formatManagedKeys(keys map[string]bool) string {
 	if len(keys) == 0 {
 		return ""
 	}
-	var keyList []string
+	keyList := make([]string, 0, len(keys))
 	for k := range keys {
 		keyList = append(keyList, k)
 	}
+	sort.Strings(keyList)
 	return strings.Join(keyList, ",")
 }
 

@@ -34,6 +34,8 @@ import (
 
 const FINALIZER_NAME = "secrets.finalizers.infisical.com"
 
+var SYSTEM_PREFIXES = []string{"kubectl.kubernetes.io/", "kubernetes.io/", "k8s.io/", "helm.sh/"}
+
 type InfisicalSecretReconciler struct {
 	client.Client
 	Scheme            *runtime.Scheme
@@ -164,10 +166,9 @@ func (r *InfisicalSecretReconciler) createInfisicalManagedKubeResource(ctx conte
 	}
 
 	annotations := map[string]string{}
-	systemPrefixes := []string{"kubectl.kubernetes.io/", "kubernetes.io/", "k8s.io/", "helm.sh/"}
 	for k, v := range infisicalSecret.Annotations {
 		isSystem := false
-		for _, prefix := range systemPrefixes {
+		for _, prefix := range SYSTEM_PREFIXES {
 			if strings.HasPrefix(k, prefix) {
 				isSystem = true
 				break
@@ -244,7 +245,7 @@ func (r *InfisicalSecretReconciler) createInfisicalManagedKubeResource(ctx conte
 
 }
 
-func (r *InfisicalSecretReconciler) updateInfisicalManagedKubeSecret(ctx context.Context, logger logr.Logger, managedSecretReference v1alpha1.ManagedKubeSecretConfig, managedKubeSecret corev1.Secret, secretsFromAPI []model.SingleEnvironmentVariable, ETag string) error {
+func (r *InfisicalSecretReconciler) updateInfisicalManagedKubeSecret(ctx context.Context, logger logr.Logger, infisicalSecret v1alpha1.InfisicalSecret, managedSecretReference v1alpha1.ManagedKubeSecretConfig, managedKubeSecret corev1.Secret, secretsFromAPI []model.SingleEnvironmentVariable, ETag string) error {
 	managedTemplateData := managedSecretReference.Template
 
 	plainProcessedSecrets := make(map[string][]byte)
@@ -283,6 +284,26 @@ func (r *InfisicalSecretReconciler) updateInfisicalManagedKubeSecret(ctx context
 		managedKubeSecret.ObjectMeta.Annotations = make(map[string]string)
 	}
 
+	if managedKubeSecret.ObjectMeta.Labels == nil {
+		managedKubeSecret.ObjectMeta.Labels = make(map[string]string)
+	}
+	for k, v := range infisicalSecret.Labels {
+		managedKubeSecret.ObjectMeta.Labels[k] = v
+	}
+
+	for k, v := range infisicalSecret.Annotations {
+		isSystem := false
+		for _, prefix := range SYSTEM_PREFIXES {
+			if strings.HasPrefix(k, prefix) {
+				isSystem = true
+				break
+			}
+		}
+		if !isSystem {
+			managedKubeSecret.ObjectMeta.Annotations[k] = v
+		}
+	}
+
 	managedKubeSecret.Data = plainProcessedSecrets
 	managedKubeSecret.ObjectMeta.Annotations[constants.SECRET_VERSION_ANNOTATION] = ETag
 
@@ -295,7 +316,7 @@ func (r *InfisicalSecretReconciler) updateInfisicalManagedKubeSecret(ctx context
 	return nil
 }
 
-func (r *InfisicalSecretReconciler) updateInfisicalManagedConfigMap(ctx context.Context, logger logr.Logger, managedConfigMapReference v1alpha1.ManagedKubeConfigMapConfig, managedConfigMap corev1.ConfigMap, secretsFromAPI []model.SingleEnvironmentVariable, ETag string) error {
+func (r *InfisicalSecretReconciler) updateInfisicalManagedConfigMap(ctx context.Context, logger logr.Logger, infisicalSecret v1alpha1.InfisicalSecret, managedConfigMapReference v1alpha1.ManagedKubeConfigMapConfig, managedConfigMap corev1.ConfigMap, secretsFromAPI []model.SingleEnvironmentVariable, ETag string) error {
 	managedTemplateData := managedConfigMapReference.Template
 
 	plainProcessedSecrets := make(map[string][]byte)
@@ -332,6 +353,26 @@ func (r *InfisicalSecretReconciler) updateInfisicalManagedConfigMap(ctx context.
 	// Initialize the Annotations map if it's nil
 	if managedConfigMap.ObjectMeta.Annotations == nil {
 		managedConfigMap.ObjectMeta.Annotations = make(map[string]string)
+	}
+
+	if managedConfigMap.ObjectMeta.Labels == nil {
+		managedConfigMap.ObjectMeta.Labels = make(map[string]string)
+	}
+	for k, v := range infisicalSecret.Labels {
+		managedConfigMap.ObjectMeta.Labels[k] = v
+	}
+
+	for k, v := range infisicalSecret.Annotations {
+		isSystem := false
+		for _, prefix := range SYSTEM_PREFIXES {
+			if strings.HasPrefix(k, prefix) {
+				isSystem = true
+				break
+			}
+		}
+		if !isSystem {
+			managedConfigMap.ObjectMeta.Annotations[k] = v
+		}
 	}
 
 	managedConfigMap.Data = convertBinaryToStringMap(plainProcessedSecrets)
@@ -572,7 +613,7 @@ func (r *InfisicalSecretReconciler) ReconcileInfisicalSecret(ctx context.Context
 					return 0, fmt.Errorf("failed to create managed secret [err=%s]", err)
 				}
 			} else {
-				if err := r.updateInfisicalManagedKubeSecret(ctx, logger, managedSecretReference, *managedKubeSecret, plainTextSecretsFromApi, newEtag); err != nil {
+				if err := r.updateInfisicalManagedKubeSecret(ctx, logger, *infisicalSecret, managedSecretReference, *managedKubeSecret, plainTextSecretsFromApi, newEtag); err != nil {
 					return 0, fmt.Errorf("failed to update managed secret [err=%s]", err)
 				}
 			}
@@ -606,7 +647,7 @@ func (r *InfisicalSecretReconciler) ReconcileInfisicalSecret(ctx context.Context
 					return 0, fmt.Errorf("failed to create managed config map [err=%s]", err)
 				}
 			} else {
-				if err := r.updateInfisicalManagedConfigMap(ctx, logger, managedConfigMapReference, *managedKubeConfigMap, plainTextSecretsFromApi, newEtag); err != nil {
+				if err := r.updateInfisicalManagedConfigMap(ctx, logger, *infisicalSecret, managedConfigMapReference, *managedKubeConfigMap, plainTextSecretsFromApi, newEtag); err != nil {
 					return 0, fmt.Errorf("failed to update managed config map [err=%s]", err)
 				}
 			}

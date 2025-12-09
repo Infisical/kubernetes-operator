@@ -179,6 +179,27 @@ func (r *InfisicalSecretReconciler) createInfisicalManagedKubeResource(ctx conte
 		}
 	}
 
+	// Track which labels and annotations we manage
+	managedLabelKeys := make(map[string]bool)
+	for k := range infisicalSecret.Labels {
+		managedLabelKeys[k] = true
+	}
+	managedAnnotationKeys := make(map[string]bool)
+	for k := range infisicalSecret.Annotations {
+		isSystem := false
+		for _, prefix := range SYSTEM_PREFIXES {
+			if strings.HasPrefix(k, prefix) {
+				isSystem = true
+				break
+			}
+		}
+		if !isSystem {
+			managedAnnotationKeys[k] = true
+		}
+	}
+	annotations[constants.MANAGED_LABELS_ANNOTATION] = formatManagedKeys(managedLabelKeys)
+	annotations[constants.MANAGED_ANNOTATIONS_ANNOTATION] = formatManagedKeys(managedAnnotationKeys)
+
 	if resourceType == constants.MANAGED_KUBE_RESOURCE_TYPE_SECRET {
 
 		managedSecretReference := managedSecretReferenceInterface.(v1alpha1.ManagedKubeSecretConfig)
@@ -245,6 +266,111 @@ func (r *InfisicalSecretReconciler) createInfisicalManagedKubeResource(ctx conte
 
 }
 
+func parseManagedKeys(value string) map[string]bool {
+	managedKeys := make(map[string]bool)
+	if value == "" {
+		return managedKeys
+	}
+	keys := strings.Split(value, ",")
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key != "" {
+			managedKeys[key] = true
+		}
+	}
+	return managedKeys
+}
+
+func formatManagedKeys(keys map[string]bool) string {
+	if len(keys) == 0 {
+		return ""
+	}
+	var keyList []string
+	for k := range keys {
+		keyList = append(keyList, k)
+	}
+	return strings.Join(keyList, ",")
+}
+
+// syncLabelsAndAnnotations syncs labels and annotations from the InfisicalSecret CRD to the managed resource.
+// It ensures that labels/annotations removed from the CRD are also removed from the managed resource.
+// Labels/annotations that exist on the managed resource but are NOT in the CRD are preserved.
+func (r *InfisicalSecretReconciler) syncLabelsAndAnnotations(infisicalSecret v1alpha1.InfisicalSecret, existingAnnotations map[string]string, existingLabels map[string]string) (map[string]string, map[string]string) {
+	// get previously managed keys from tracking annotations
+	previouslyManagedLabels := parseManagedKeys(existingAnnotations[constants.MANAGED_LABELS_ANNOTATION])
+	previouslyManagedAnnotations := parseManagedKeys(existingAnnotations[constants.MANAGED_ANNOTATIONS_ANNOTATION])
+
+	// build sets of current CRD label/annotation keys
+	currentCrdLabelKeys := make(map[string]bool)
+	for k := range infisicalSecret.Labels {
+		currentCrdLabelKeys[k] = true
+	}
+
+	currentCrdAnnotationKeys := make(map[string]bool)
+	for k := range infisicalSecret.Annotations {
+		isSystem := false
+		for _, prefix := range SYSTEM_PREFIXES {
+			if strings.HasPrefix(k, prefix) {
+				isSystem = true
+				break
+			}
+		}
+		if !isSystem {
+			currentCrdAnnotationKeys[k] = true
+		}
+	}
+
+	// build new labels, keep labels not managed by us, remove previously managed but no longer in CRD
+	newLabels := make(map[string]string)
+	for k, v := range existingLabels {
+		// keep labels that were never managed by us
+		if !previouslyManagedLabels[k] {
+			newLabels[k] = v
+		}
+	}
+	// add/update labels from crd
+	for k, v := range infisicalSecret.Labels {
+		newLabels[k] = v
+	}
+
+	// same as above, but for annotations
+	newAnnotations := make(map[string]string)
+	for k, v := range existingAnnotations {
+		isSystem := false
+		for _, prefix := range SYSTEM_PREFIXES {
+			if strings.HasPrefix(k, prefix) {
+				isSystem = true
+				break
+			}
+		}
+		if isSystem || k == constants.SECRET_VERSION_ANNOTATION || k == constants.MANAGED_LABELS_ANNOTATION || k == constants.MANAGED_ANNOTATIONS_ANNOTATION {
+			newAnnotations[k] = v
+		} else if !previouslyManagedAnnotations[k] {
+			// keep annotations that were never managed by us
+			newAnnotations[k] = v
+		}
+	}
+
+	for k, v := range infisicalSecret.Annotations {
+		isSystem := false
+		for _, prefix := range SYSTEM_PREFIXES {
+			if strings.HasPrefix(k, prefix) {
+				isSystem = true
+				break
+			}
+		}
+		if !isSystem {
+			newAnnotations[k] = v
+		}
+	}
+
+	// update tracking annotations with current managed keys
+	newAnnotations[constants.MANAGED_LABELS_ANNOTATION] = formatManagedKeys(currentCrdLabelKeys)
+	newAnnotations[constants.MANAGED_ANNOTATIONS_ANNOTATION] = formatManagedKeys(currentCrdAnnotationKeys)
+
+	return newAnnotations, newLabels
+}
+
 func (r *InfisicalSecretReconciler) updateInfisicalManagedKubeSecret(ctx context.Context, logger logr.Logger, infisicalSecret v1alpha1.InfisicalSecret, managedSecretReference v1alpha1.ManagedKubeSecretConfig, managedKubeSecret corev1.Secret, secretsFromAPI []model.SingleEnvironmentVariable, ETag string) error {
 	managedTemplateData := managedSecretReference.Template
 
@@ -279,31 +405,11 @@ func (r *InfisicalSecretReconciler) updateInfisicalManagedKubeSecret(ctx context
 		}
 	}
 
-	// Initialize the Annotations map if it's nil
-	if managedKubeSecret.ObjectMeta.Annotations == nil {
-		managedKubeSecret.ObjectMeta.Annotations = make(map[string]string)
-	}
+	// Sync labels and annotations from CRD (removes ones no longer in CRD)
+	newAnnotations, newLabels := r.syncLabelsAndAnnotations(infisicalSecret, managedKubeSecret.ObjectMeta.Annotations, managedKubeSecret.ObjectMeta.Labels)
 
-	if managedKubeSecret.ObjectMeta.Labels == nil {
-		managedKubeSecret.ObjectMeta.Labels = make(map[string]string)
-	}
-	for k, v := range infisicalSecret.Labels {
-		managedKubeSecret.ObjectMeta.Labels[k] = v
-	}
-
-	for k, v := range infisicalSecret.Annotations {
-		isSystem := false
-		for _, prefix := range SYSTEM_PREFIXES {
-			if strings.HasPrefix(k, prefix) {
-				isSystem = true
-				break
-			}
-		}
-		if !isSystem {
-			managedKubeSecret.ObjectMeta.Annotations[k] = v
-		}
-	}
-
+	managedKubeSecret.ObjectMeta.Labels = newLabels
+	managedKubeSecret.ObjectMeta.Annotations = newAnnotations
 	managedKubeSecret.Data = plainProcessedSecrets
 	managedKubeSecret.ObjectMeta.Annotations[constants.SECRET_VERSION_ANNOTATION] = ETag
 
@@ -350,31 +456,11 @@ func (r *InfisicalSecretReconciler) updateInfisicalManagedConfigMap(ctx context.
 		}
 	}
 
-	// Initialize the Annotations map if it's nil
-	if managedConfigMap.ObjectMeta.Annotations == nil {
-		managedConfigMap.ObjectMeta.Annotations = make(map[string]string)
-	}
+	// Sync labels and annotations from CRD (removes ones no longer in CRD)
+	newAnnotations, newLabels := r.syncLabelsAndAnnotations(infisicalSecret, managedConfigMap.ObjectMeta.Annotations, managedConfigMap.ObjectMeta.Labels)
 
-	if managedConfigMap.ObjectMeta.Labels == nil {
-		managedConfigMap.ObjectMeta.Labels = make(map[string]string)
-	}
-	for k, v := range infisicalSecret.Labels {
-		managedConfigMap.ObjectMeta.Labels[k] = v
-	}
-
-	for k, v := range infisicalSecret.Annotations {
-		isSystem := false
-		for _, prefix := range SYSTEM_PREFIXES {
-			if strings.HasPrefix(k, prefix) {
-				isSystem = true
-				break
-			}
-		}
-		if !isSystem {
-			managedConfigMap.ObjectMeta.Annotations[k] = v
-		}
-	}
-
+	managedConfigMap.ObjectMeta.Labels = newLabels
+	managedConfigMap.ObjectMeta.Annotations = newAnnotations
 	managedConfigMap.Data = convertBinaryToStringMap(plainProcessedSecrets)
 	managedConfigMap.ObjectMeta.Annotations[constants.SECRET_VERSION_ANNOTATION] = ETag
 

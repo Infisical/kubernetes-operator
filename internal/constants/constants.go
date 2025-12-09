@@ -14,7 +14,9 @@ const INFISICAL_MACHINE_IDENTITY_CLIENT_ID = "clientId"
 const INFISICAL_MACHINE_IDENTITY_CLIENT_SECRET = "clientSecret"
 
 const INFISICAL_TOKEN_SECRET_KEY_NAME = "infisicalToken"
-const SECRET_VERSION_ANNOTATION = "secrets.infisical.com/version" // used to set the version of secrets via Etag
+const SECRET_VERSION_ANNOTATION = "secrets.infisical.com/version"                  // used to set the version of secrets via Etag
+const MANAGED_LABELS_ANNOTATION = "secrets.infisical.com/managed-labels"           // comma-separated list of label keys we manage
+const MANAGED_ANNOTATIONS_ANNOTATION = "secrets.infisical.com/managed-annotations" // comma-separated list of annotation keys we manage
 const OPERATOR_SETTINGS_CONFIGMAP_NAME = "infisical-config"
 const OPERATOR_SETTINGS_CONFIGMAP_NAMESPACE = "infisical-operator-system"
 const INFISICAL_DOMAIN = "https://app.infisical.com/api"

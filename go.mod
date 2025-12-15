@@ -8,7 +8,7 @@ require (
 	github.com/go-logr/logr v1.4.2
 	github.com/go-resty/resty/v2 v2.16.5
 	github.com/google/uuid v1.6.0
-	github.com/infisical/go-sdk v0.5.99
+	github.com/infisical/go-sdk v0.6.3
 	github.com/lestrrat-go/jwx/v2 v2.1.6
 	github.com/onsi/ginkgo/v2 v2.22.0
 	github.com/onsi/gomega v1.36.1
@@ -99,6 +99,7 @@ require (
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.62.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
+	github.com/rs/zerolog v1.26.1 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/sony/gobreaker v0.5.0 // indirect

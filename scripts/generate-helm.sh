@@ -372,10 +372,16 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
   # macOS version
   sed -i '' 's/appVersion: .*/appVersion: "'"$VERSION"'"/g' "${PATH_TO_HELM_CHART}/Chart.yaml"
   sed -i '' 's/version: .*/version: '"$VERSION"'/g' "${PATH_TO_HELM_CHART}/Chart.yaml"
+
+  # update the values.yaml file with the new version
+  sed -i '' 's/tag: .*/tag: '$VERSION'/g' "${PATH_TO_HELM_CHART}/values.yaml"
 else
   # Linux version
   sed -i 's/appVersion: .*/appVersion: "'"$VERSION"'"/g' "${PATH_TO_HELM_CHART}/Chart.yaml"
   sed -i 's/version: .*/version: '"$VERSION"'/g' "${PATH_TO_HELM_CHART}/Chart.yaml"
+
+  # update the values.yaml file with the new version
+  sed -i 's/tag: .*/tag: '$VERSION'/g' "${PATH_TO_HELM_CHART}/values.yaml"
 fi
 
 rm -rf 

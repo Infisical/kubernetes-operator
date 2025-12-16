@@ -47,7 +47,7 @@ metricsService:
 
 telemetry:
   serviceMonitor:
-    enabled: true
+    enabled: false
 
     selectors: {}
     scheme: https

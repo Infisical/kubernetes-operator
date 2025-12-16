@@ -33,6 +33,14 @@ fi
 
 
 cd "${PROJECT_ROOT}"
+
+# Backup original values.yaml before helmify runs (if it exists)
+VALUES_YAML_BACKUP="${HELM_DIR}/values.yaml.original"
+if [ -f "${HELM_DIR}/values.yaml" ]; then
+  echo "Backing up original values.yaml"
+  cp "${HELM_DIR}/values.yaml" "${VALUES_YAML_BACKUP}"
+fi
+
 # first run the regular helm target to generate base templates
 "${KUSTOMIZE}" build config/default | "${HELMIFY}" "${HELM_DIR}"
 
@@ -350,126 +358,11 @@ if [ -f "${HELM_DIR}/templates/deployment.yaml" ]; then
   echo "Completed args structure fix"
 fi
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-# ? NOTE(Daniel): Processes values.yaml
-if [ -f "${HELM_DIR}/values.yaml" ]; then
-  echo "Processing values.yaml file"
-  
-  # Create a temporary file
-  touch "${HELM_DIR}/values.yaml.new"
-  
-  # Flag to track sections
-  in_resources_section=0
-  in_service_account=0
-  in_controller_manager=0
-  service_account_added=0
-  
-  previous_line=""
-  # Process the file line by line
-  while IFS= read -r line; do
-    # Check if we're entering controllerManager section
-    if [[ "$line" =~ ^controllerManager: ]]; then
-      in_controller_manager=1
-      service_account_added=0
-      echo "$line" >> "${HELM_DIR}/values.yaml.new"
-      continue
-    fi
-    
-    # if we are in controllerManager and haven't added serviceAccount yet
-    if [ "$in_controller_manager" -eq 1 ] && [ "$service_account_added" -eq 0 ]; then
-        echo "  serviceAccount:" >> "${HELM_DIR}/values.yaml.new"
-        echo "    create: true" >> "${HELM_DIR}/values.yaml.new"
-        echo "    name: \"\"" >> "${HELM_DIR}/values.yaml.new"
-        echo "    annotations: {}" >> "${HELM_DIR}/values.yaml.new"
-        # Add nodeSelector and tolerations at the same level as serviceAccount
-        echo "  nodeSelector: {}" >> "${HELM_DIR}/values.yaml.new"
-        echo "  tolerations: []" >> "${HELM_DIR}/values.yaml.new"
-        service_account_added=1
-    fi
-    
-    # reset in_controller_manager when we exit the section (when it hits another top-level key)
-    if [ "$in_controller_manager" -eq 1 ] && [[ "$line" =~ ^[a-zA-Z] ]] && ! [[ "$line" =~ ^controllerManager: ]]; then
-      in_controller_manager=0
-    fi
-    
-    if [[ "$line" =~ resources: ]]; then
-      in_resources_section=1
-    fi
-    
-    
-    if [[ "$line" =~ ^[[:space:]]*serviceAccount: ]]; then
-      # set the flag to 1 so we can continue to print the associated lines later 
-      in_service_account=1
-      # print the current line
-      echo "$line" >> "${HELM_DIR}/values.yaml.new"
-      continue
-    fi
-    
-    # process annotations under serviceAccount (only if in_service_account is true)
-    if [ "$in_service_account" -eq 1 ]; then
-      # Print the current line (annotations) 
-      echo "$line" >> "${HELM_DIR}/values.yaml.new"
-      
-      # if we've processed the annotations, add our new fields
-      if [[ "$line" =~ annotations: ]]; then
-        # get the base indentation level (of serviceAccount:)
-        base_indent=$(echo "$line" | sed 's/\(^[[:space:]]*\).*/\1/')
-        base_indent=${base_indent%??}  # Remove two spaces to get to parent level
-        
-        # add nodeSelector and tolerations at the same level as serviceAccount
-        echo "${base_indent}nodeSelector: {}" >> "${HELM_DIR}/values.yaml.new"
-        echo "${base_indent}tolerations: []" >> "${HELM_DIR}/values.yaml.new"
-      fi
-      
-      # exit serviceAccount section when we hit the next top-level item
-      if [[ "$line" =~ ^[[:space:]]{2}[a-zA-Z] ]] && ! [[ "$line" =~ annotations: ]]; then
-        in_service_account=0
-      fi
-      
-      continue
-    fi
-    
-    # if we reach this point, we'll exit the resources section, this is the next top-level item
-    if [ "$in_resources_section" -eq 1 ] && [[ "$line" =~ ^[[:space:]]{2}[a-zA-Z] ]]; then
-      in_resources_section=0
-    fi
-    
-    # output the line unchanged
-    echo "$line" >> "${HELM_DIR}/values.yaml.new"
-    previous_line="$line"
-  done < "${HELM_DIR}/values.yaml"
-  
-  # hacky, just append the kubernetesClusterDomain fields at the end of the file
-  if [[ "$OSTYPE" == "darwin"* ]]; then
-  # macOS version
-  sed -i '' '/kubernetesClusterDomain: /d' "${HELM_DIR}/values.yaml.new"
-  else
-  # Linux version
-  sed -i '/kubernetesClusterDomain: /d' "${HELM_DIR}/values.yaml.new"
-  fi
-
-  echo "kubernetesClusterDomain: cluster.local" >> "${HELM_DIR}/values.yaml.new"
-  echo "scopedNamespace: \"\"" >> "${HELM_DIR}/values.yaml.new"
-  echo "scopedRBAC: false" >> "${HELM_DIR}/values.yaml.new"
-  echo "installCRDs: true" >> "${HELM_DIR}/values.yaml.new"
-  echo "imagePullSecrets: []" >> "${HELM_DIR}/values.yaml.new"
-  
-  # replace the original file with the new one
-  mv "${HELM_DIR}/values.yaml.new" "${HELM_DIR}/values.yaml"
-  
-  echo "Completed processing for values.yaml"
+# ? NOTE(Daniel): Skip values.yaml processing - we preserve the original file
+# Restore original values.yaml if it was backed up
+if [ -f "${VALUES_YAML_BACKUP}" ]; then
+  echo "Restoring original values.yaml (helm will not manage this file)"
+  mv "${VALUES_YAML_BACKUP}" "${HELM_DIR}/values.yaml"
 fi
 
 echo "Helm chart generation complete with custom templating applied."

@@ -1,0 +1,32 @@
+{{- if .Values.telemetry.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "secrets-operator.fullname" . }}-controller-manager-metrics-monitor
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "secrets-operator.labels" . | nindent 4 }}
+    {{- $selectors := .Values.telemetry.serviceMonitor.selectors }}
+    {{- if $selectors }}
+    {{- toYaml $selectors | nindent 4 }}
+    {{ end }}
+    control-plane: controller-manager
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+  endpoints:
+    - port: {{ .Values.telemetry.serviceMonitor.port }}
+      bearerTokenFile: {{ .Values.telemetry.serviceMonitor.bearerTokenFile }}
+      path: {{ .Values.telemetry.serviceMonitor.path }}
+      scrapeTimeout: {{ .Values.telemetry.serviceMonitor.scrapeTimeout }}
+      interval: {{ .Values.telemetry.serviceMonitor.interval }}
+      scheme: {{ .Values.telemetry.serviceMonitor.scheme }}
+      params:
+        format:
+          - prometheus
+      tlsConfig:
+        insecureSkipVerify: true
+{{ end }}

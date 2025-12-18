@@ -31,15 +31,28 @@ controllerManager:
     seccompProfile:
       type: RuntimeDefault
   replicas: 1
-metricsService:
-  ports:
-  - name: https
-    port: 8443
-    protocol: TCP
-    targetPort: 8443
-  type: ClusterIP
 kubernetesClusterDomain: cluster.local
 scopedNamespace: ""
 scopedRBAC: false
 installCRDs: true
 imagePullSecrets: []
+
+metricsService:
+  ports:
+    - name: https
+      port: 8443
+      protocol: TCP
+      targetPort: 8443
+  type: ClusterIP
+
+telemetry:
+  serviceMonitor:
+    enabled: false
+
+    selectors: {}
+    scheme: https
+    port: https
+    path: /metrics
+    bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    interval: 30s
+    scrapeTimeout: 10s

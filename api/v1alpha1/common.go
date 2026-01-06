@@ -147,6 +147,17 @@ type ManagedKubeConfigMapConfig struct {
 	Template *SecretTemplate `json:"template,omitempty"`
 }
 
+// SecretTemplateMetadata defines custom metadata for the managed secret.
+// When specified, these values are used instead of copying metadata from the InfisicalSecret CR.
+type SecretTemplateMetadata struct {
+	// Custom labels to apply to the managed secret
+	// +kubebuilder:validation:Optional
+	Labels map[string]string `json:"labels,omitempty"`
+	// Custom annotations to apply to the managed secret
+	// +kubebuilder:validation:Optional
+	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
 type SecretTemplate struct {
 	// This injects all retrieved secrets into the top level of your template.
 	// Secrets defined in the template will take precedence over the injected ones.
@@ -155,4 +166,8 @@ type SecretTemplate struct {
 	// The template key values
 	// +kubebuilder:validation:Optional
 	Data map[string]string `json:"data,omitempty"`
+	// Custom metadata (labels/annotations) for the managed secret.
+	// When specified, these values are used instead of copying metadata from the InfisicalSecret CR.
+	// +kubebuilder:validation:Optional
+	Metadata *SecretTemplateMetadata `json:"metadata,omitempty"`
 }

@@ -166,6 +166,8 @@ github.com/infisical/go-sdk v0.5.99 h1:trvn7JhKYuSzDkc44h+yqToVjclkrRyP42t315k5k
 github.com/infisical/go-sdk v0.5.99/go.mod h1:j2D2a5WPNdKXDfHO+3y/TNyLWh5Aq9QYS7EcGI96LZI=
 github.com/infisical/go-sdk v0.6.3 h1:ILKgN3G9yfaLj9/Z8phV6IbWm+GDod99I8DRlIWg3kU=
 github.com/infisical/go-sdk v0.6.3/go.mod h1:A6l7EhwCkPw8tmJjgA09KtueEHYko+VdGCEupK8hL08=
+github.com/infisical/go-sdk v0.6.4 h1:ua34iGZ+fa05GFhwdNPyKA0Z5S4Q9MhAdMtwrlHu2t8=
+github.com/infisical/go-sdk v0.6.4/go.mod h1:A6l7EhwCkPw8tmJjgA09KtueEHYko+VdGCEupK8hL08=
 github.com/josharian/intern v1.0.0 h1:vlS4z54oSdjm0bgjRigI+G1HpF+tI+9rE5LLzOg8HmY=
 github.com/josharian/intern v1.0.0/go.mod h1:5DoeVV0s6jJacbCEi61lwdGj/aVlrQvzHFFd8Hwg//Y=
 github.com/json-iterator/go v1.1.12 h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnrnM=

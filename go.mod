@@ -8,7 +8,7 @@ require (
 	github.com/go-logr/logr v1.4.2
 	github.com/go-resty/resty/v2 v2.16.5
 	github.com/google/uuid v1.6.0
-	github.com/infisical/go-sdk v0.6.3
+	github.com/infisical/go-sdk v0.6.4
 	github.com/lestrrat-go/jwx/v2 v2.1.6
 	github.com/onsi/ginkgo/v2 v2.22.0
 	github.com/onsi/gomega v1.36.1

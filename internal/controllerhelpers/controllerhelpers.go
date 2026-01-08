@@ -16,6 +16,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	controllerClient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	argorollouts "github.com/argoproj/argo-rollouts/pkg/apis/rollouts/v1alpha1"
 )
 
 const DEPLOYMENT_SECRET_NAME_ANNOTATION_PREFIX = "secrets.infisical.com/managed-secret"
@@ -39,6 +41,14 @@ func ReconcileDeploymentsWithManagedSecrets(ctx context.Context, client controll
 	err = client.List(ctx, listOfStatefulSets, &controllerClient.ListOptions{Namespace: managedSecret.SecretNamespace})
 	if err != nil {
 		return 0, fmt.Errorf("unable to get statefulSets in the [namespace=%v] [err=%v]", managedSecret.SecretNamespace, err)
+	}
+
+	listOfRollouts := &argorollouts.RolloutList{}
+	err = client.List(ctx, listOfRollouts, &controllerClient.ListOptions{Namespace: managedSecret.SecretNamespace})
+	if err != nil {
+		if !k8Errors.IsNotFound(err) {
+			logger.Error(err, fmt.Sprintf("unable to get rollouts in the [namespace=%v]. Ignoring error as CRD likely not installed", managedSecret.SecretNamespace))
+		}
 	}
 
 	managedKubeSecretNameAndNamespace := types.NamespacedName{
@@ -98,6 +108,20 @@ func ReconcileDeploymentsWithManagedSecrets(ctx context.Context, client controll
 					logger.Error(err, fmt.Sprintf("unable to reconcile statefulset with [name=%v]. Will try next requeue", statefulSet.ObjectMeta.Name))
 				}
 			}(statefulSet, *managedKubeSecret)
+		}
+	}
+
+	// Iterate over the rollouts and check if they use the managed secret
+	for _, rollout := range listOfRollouts.Items {
+		rollout := rollout
+		if rollout.Annotations[AUTO_RELOAD_DEPLOYMENT_ANNOTATION] == "true" && IsRolloutUsingManagedSecret(rollout, managedSecret) {
+			wg.Add(1)
+			go func(rollout argorollouts.Rollout, managedSecret corev1.Secret) {
+				defer wg.Done()
+				if err := ReconcileRollout(ctx, client, logger, rollout, managedSecret); err != nil {
+					logger.Error(err, fmt.Sprintf("unable to reconcile rollout with [name=%v]. Will try next requeue", rollout.ObjectMeta.Name))
+				}
+			}(rollout, *managedKubeSecret)
 		}
 	}
 
@@ -261,6 +285,54 @@ func ReconcileStatefulSet(ctx context.Context, client controllerClient.Client, l
 
 	if err := client.Update(ctx, &statefulSet); err != nil {
 		return fmt.Errorf("failed to update statefulSet annotation: %v", err)
+	}
+	return nil
+}
+
+func IsRolloutUsingManagedSecret(rollout argorollouts.Rollout, managedSecret v1alpha1.ManagedKubeSecretConfig) bool {
+	managedSecretName := managedSecret.SecretName
+	for _, container := range rollout.Spec.Template.Spec.Containers {
+		for _, envFrom := range container.EnvFrom {
+			if envFrom.SecretRef != nil && envFrom.SecretRef.LocalObjectReference.Name == managedSecretName {
+				return true
+			}
+		}
+		for _, env := range container.Env {
+			if env.ValueFrom != nil && env.ValueFrom.SecretKeyRef != nil && env.ValueFrom.SecretKeyRef.LocalObjectReference.Name == managedSecretName {
+				return true
+			}
+		}
+	}
+	for _, volume := range rollout.Spec.Template.Spec.Volumes {
+		if volume.Secret != nil && volume.Secret.SecretName == managedSecretName {
+			return true
+		}
+	}
+
+	return false
+}
+
+func ReconcileRollout(ctx context.Context, client controllerClient.Client, logger logr.Logger, rollout argorollouts.Rollout, secret corev1.Secret) error {
+	annotationKey := fmt.Sprintf("%s.%s", DEPLOYMENT_SECRET_NAME_ANNOTATION_PREFIX, secret.Name)
+	annotationValue := secret.Annotations[constants.SECRET_VERSION_ANNOTATION]
+
+	if rollout.Annotations[annotationKey] == annotationValue &&
+		rollout.Spec.Template.Annotations[annotationKey] == annotationValue {
+		logger.Info(fmt.Sprintf("The [rolloutName=%v] is already using the most up to date managed secrets. No action required.", rollout.ObjectMeta.Name))
+		return nil
+	}
+
+	logger.Info(fmt.Sprintf("Rollout is using outdated managed secret. Starting re-deployment [rolloutName=%v]", rollout.ObjectMeta.Name))
+
+	if rollout.Spec.Template.Annotations == nil {
+		rollout.Spec.Template.Annotations = make(map[string]string)
+	}
+
+	rollout.Annotations[annotationKey] = annotationValue
+	rollout.Spec.Template.Annotations[annotationKey] = annotationValue
+
+	if err := client.Update(ctx, &rollout); err != nil {
+		return fmt.Errorf("failed to update rollout annotation: %v", err)
 	}
 	return nil
 }

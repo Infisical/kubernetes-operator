@@ -188,7 +188,6 @@ func (r *InfisicalSecretReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	if infisicalSecretCRD.Spec.InstantUpdates {
 		if err := handler.OpenInstantUpdatesStream(ctx, logger, &infisicalSecretCRD, infisicalSecretResourceVariablesMap, r.SourceCh); err != nil {
-			requeueTime = time.Second * 10
 			logger.Error(err, "event stream failed")
 			return ctrl.Result{}, fmt.Errorf("event stream failed: %w", err)
 		}

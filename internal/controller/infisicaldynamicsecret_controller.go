@@ -92,6 +92,8 @@ func (r *InfisicalDynamicSecretReconciler) Reconcile(ctx context.Context, req ct
 		if err := r.Update(ctx, &infisicalDynamicSecretCRD); err != nil {
 			return ctrl.Result{}, err
 		}
+		// Return early - the update will trigger a new reconcile with the fresh object. We can only update the CRD once or we'll see "the object has been modified; please apply your changes to the latest version and try again"
+		return ctrl.Result{}, nil
 	}
 
 	// Check if it's being deleted

@@ -101,6 +101,8 @@ func (r *InfisicalPushSecretReconciler) Reconcile(ctx context.Context, req ctrl.
 		if err := r.Update(ctx, &infisicalPushSecretCRD); err != nil {
 			return ctrl.Result{}, err
 		}
+		// Return early - the update will trigger a new reconcile with the fresh object "the object has been modified; please apply your changes to the latest version and try again"
+		return ctrl.Result{}, nil
 	}
 
 	// Check if it's being deleted

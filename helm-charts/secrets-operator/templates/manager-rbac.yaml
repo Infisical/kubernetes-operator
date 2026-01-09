@@ -46,6 +46,16 @@ rules:
   verbs:
   - create
 - apiGroups:
+  - argoproj.io
+  resources:
+  - rollouts
+  verbs:
+  - get
+  - list
+  - watch
+  - update
+  - patch
+- apiGroups:
   - apps
   resources:
   - daemonsets

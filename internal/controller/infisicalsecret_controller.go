@@ -90,9 +90,7 @@ func (r *InfisicalSecretReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			}, nil
 		} else {
 			logger.Error(err, "unable to fetch Infisical Secret CRD from cluster")
-			return ctrl.Result{
-				RequeueAfter: requeueTime,
-			}, nil
+			return ctrl.Result{}, fmt.Errorf("unable to fetch Infisical Secret CRD from cluster: %w", err)
 		}
 	}
 
@@ -151,10 +149,8 @@ func (r *InfisicalSecretReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// Get modified/default config
 	infisicalGlobalConfig, err := controllerhelpers.GetInfisicalConfigMap(ctx, r.Client, r.IsNamespaceScoped)
 	if err != nil {
-		logger.Error(err, fmt.Sprintf("unable to fetch infisical-config. Will requeue after [requeueTime=%v]", requeueTime))
-		return ctrl.Result{
-			RequeueAfter: requeueTime,
-		}, nil
+		logger.Error(err, "unable to fetch infisical-config")
+		return ctrl.Result{}, fmt.Errorf("unable to fetch infisical-config: %w", err)
 	}
 
 	// Initialize the business logic handler
@@ -163,48 +159,37 @@ func (r *InfisicalSecretReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// Setup API configuration through business logic
 	err = handler.SetupAPIConfig(infisicalSecretCRD, infisicalGlobalConfig)
 	if err != nil {
-		logger.Error(err, fmt.Sprintf("unable to setup API configuration. Will requeue after [requeueTime=%v]", requeueTime))
-		return ctrl.Result{
-			RequeueAfter: requeueTime,
-		}, nil
+		logger.Error(err, "unable to setup API configuration")
+		return ctrl.Result{}, fmt.Errorf("unable to setup API configuration: %w", err)
 	}
 
 	// Handle CA certificate through business logic
 	err = handler.HandleCACertificate(ctx, infisicalSecretCRD, infisicalGlobalConfig.TLS)
 	if err != nil {
-		logger.Error(err, fmt.Sprintf("unable to handle CA certificate. Will requeue after [requeueTime=%v]", requeueTime))
-		return ctrl.Result{
-			RequeueAfter: requeueTime,
-		}, nil
+		logger.Error(err, "unable to handle CA certificate")
+		return ctrl.Result{}, fmt.Errorf("unable to handle CA certificate: %w", err)
 	}
 
 	secretsCount, err := handler.ReconcileInfisicalSecret(ctx, logger, &infisicalSecretCRD, managedKubeSecretReferences, managedKubeConfigMapReferences, infisicalSecretResourceVariablesMap)
 	handler.SetReadyToSyncSecretsConditions(ctx, logger, &infisicalSecretCRD, secretsCount, err)
 
 	if err != nil {
-		logger.Error(err, fmt.Sprintf("unable to reconcile InfisicalSecret. Will requeue after [requeueTime=%v]", requeueTime))
-		return ctrl.Result{
-			RequeueAfter: requeueTime,
-		}, nil
+		logger.Error(err, "unable to reconcile InfisicalSecret")
+		return ctrl.Result{}, fmt.Errorf("unable to reconcile InfisicalSecret: %w", err)
 	}
 
 	numDeployments, err := controllerhelpers.ReconcileDeploymentsWithMultipleManagedSecrets(ctx, r.Client, logger, managedKubeSecretReferences, r.IsNamespaceScoped)
 	handler.SetInfisicalAutoRedeploymentReady(ctx, logger, &infisicalSecretCRD, numDeployments, err)
 
 	if err != nil {
-		logger.Error(err, fmt.Sprintf("unable to reconcile auto redeployment. Will requeue after [requeueTime=%v]", requeueTime))
-		return ctrl.Result{
-			RequeueAfter: requeueTime,
-		}, nil
+		logger.Error(err, "unable to reconcile auto redeployment")
+		return ctrl.Result{}, fmt.Errorf("unable to reconcile auto redeployment: %w", err)
 	}
 
 	if infisicalSecretCRD.Spec.InstantUpdates {
 		if err := handler.OpenInstantUpdatesStream(ctx, logger, &infisicalSecretCRD, infisicalSecretResourceVariablesMap, r.SourceCh); err != nil {
-			requeueTime = time.Second * 10
-			logger.Info(fmt.Sprintf("event stream failed. Will requeue after [requeueTime=%v] [error=%s]", requeueTime, err.Error()))
-			return ctrl.Result{
-				RequeueAfter: requeueTime,
-			}, nil
+			logger.Error(err, "event stream failed")
+			return ctrl.Result{}, fmt.Errorf("event stream failed: %w", err)
 		}
 
 		logger.Info("Instant updates are enabled")
@@ -249,7 +234,6 @@ func (r *InfisicalSecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				}
 				return true
 			},
-		})).
-		Complete(r)
+		})).Complete(r)
 
 }

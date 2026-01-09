@@ -90,10 +90,8 @@ func (r *InfisicalPushSecretReconciler) Reconcile(ctx context.Context, req ctrl.
 				Requeue: false,
 			}, nil
 		} else {
-			logger.Error(err, "Unable to fetch Infisical Secret CRD from cluster")
-			return ctrl.Result{
-				RequeueAfter: requeueTime,
-			}, nil
+			logger.Error(err, "Unable to fetch Infisical Push Secret CRD from cluster")
+			return ctrl.Result{}, fmt.Errorf("unable to fetch Infisical Push Secret CRD from cluster: %w", err)
 		}
 	}
 
@@ -103,6 +101,8 @@ func (r *InfisicalPushSecretReconciler) Reconcile(ctx context.Context, req ctrl.
 		if err := r.Update(ctx, &infisicalPushSecretCRD); err != nil {
 			return ctrl.Result{}, err
 		}
+		// Return early - the update will trigger a new reconcile with the fresh object "the object has been modified; please apply your changes to the latest version and try again"
+		return ctrl.Result{}, nil
 	}
 
 	// Check if it's being deleted
@@ -128,25 +128,16 @@ func (r *InfisicalPushSecretReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	if infisicalPushSecretCRD.Spec.Push.Secret == nil && infisicalPushSecretCRD.Spec.Push.Generators == nil {
-		logger.Info("No secret or generators found, skipping reconciliation. Please define ")
+		logger.Info("No secret or generators found, skipping reconciliation. please define a source secret or generator")
 		return ctrl.Result{}, nil
 	}
 
 	duration, err := util.ConvertIntervalToDuration(infisicalPushSecretCRD.Spec.ResyncInterval)
 
 	if err != nil {
-		// if resyncInterval is nil, we don't want to reconcile automatically
-		if infisicalPushSecretCRD.Spec.ResyncInterval != nil {
-			logger.Error(err, fmt.Sprintf("unable to convert resync interval to duration. Will requeue after [requeueTime=%v]", requeueTime))
-			return ctrl.Result{
-				RequeueAfter: requeueTime,
-			}, nil
-		} else {
-			logger.Error(err, "unable to convert resync interval to duration")
-			return ctrl.Result{}, err
-		}
+		logger.Error(err, "unable to convert resync interval to duration")
+		return ctrl.Result{}, fmt.Errorf("unable to convert resync interval to duration: %w", err)
 	}
-
 	requeueTime = duration
 
 	if requeueTime != 0 {
@@ -163,15 +154,8 @@ func (r *InfisicalPushSecretReconciler) Reconcile(ctx context.Context, req ctrl.
 	// Get modified/default config
 	infisicalGlobalConfig, err := controllerhelpers.GetInfisicalConfigMap(ctx, r.Client, r.IsNamespaceScoped)
 	if err != nil {
-		if requeueTime != 0 {
-			logger.Error(err, fmt.Sprintf("unable to fetch infisical-config. Will requeue after [requeueTime=%v]", requeueTime))
-			return ctrl.Result{
-				RequeueAfter: requeueTime,
-			}, nil
-		} else {
-			logger.Error(err, "unable to fetch infisical-config")
-			return ctrl.Result{}, err
-		}
+		logger.Error(err, "unable to fetch infisical-config")
+		return ctrl.Result{}, err
 	}
 
 	// Initialize the business logic handler
@@ -180,44 +164,23 @@ func (r *InfisicalPushSecretReconciler) Reconcile(ctx context.Context, req ctrl.
 	// Setup API configuration through business logic
 	err = handler.SetupAPIConfig(infisicalPushSecretCRD, infisicalGlobalConfig)
 	if err != nil {
-		if requeueTime != 0 {
-			logger.Error(err, fmt.Sprintf("unable to setup API configuration. Will requeue after [requeueTime=%v]", requeueTime))
-			return ctrl.Result{
-				RequeueAfter: requeueTime,
-			}, nil
-		} else {
-			logger.Error(err, "unable to setup API configuration")
-			return ctrl.Result{}, err
-		}
+		logger.Error(err, "unable to setup API configuration")
+		return ctrl.Result{}, err
 	}
 
 	// Handle CA certificate through business logic
 	err = handler.HandleCACertificate(ctx, infisicalPushSecretCRD, infisicalGlobalConfig.TLS)
 	if err != nil {
-		if requeueTime != 0 {
-			logger.Error(err, fmt.Sprintf("unable to fetch CA certificate. Will requeue after [requeueTime=%v]", requeueTime))
-			return ctrl.Result{
-				RequeueAfter: requeueTime,
-			}, nil
-		} else {
-			logger.Error(err, "unable to fetch CA certificate")
-			return ctrl.Result{}, err
-		}
+		logger.Error(err, "unable to fetch CA certificate")
+		return ctrl.Result{}, err
 	}
 
 	err = handler.ReconcileInfisicalPushSecret(ctx, logger, &infisicalPushSecretCRD, infisicalPushSecretResourceVariablesMap)
 	handler.SetReconcileStatusCondition(ctx, &infisicalPushSecretCRD, err)
 
 	if err != nil {
-		if requeueTime != 0 {
-			logger.Error(err, fmt.Sprintf("unable to reconcile Infisical Push Secret. Will requeue after [requeueTime=%v]", requeueTime))
-			return ctrl.Result{
-				RequeueAfter: requeueTime,
-			}, nil
-		} else {
-			logger.Error(err, "unable to reconcile Infisical Push Secret")
-			return ctrl.Result{}, err
-		}
+		logger.Error(err, "unable to reconcile Infisical Push Secret")
+		return ctrl.Result{}, err
 	}
 
 	// Sync again after the specified time

@@ -328,6 +328,9 @@ func ReconcileRollout(ctx context.Context, client controllerClient.Client, logge
 		rollout.Spec.Template.Annotations = make(map[string]string)
 	}
 
+	if rollout.Annotations == nil {
+		rollout.Annotations = make(map[string]string)
+	}
 	rollout.Annotations[annotationKey] = annotationValue
 	rollout.Spec.Template.Annotations[annotationKey] = annotationValue
 

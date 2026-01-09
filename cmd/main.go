@@ -41,6 +41,8 @@ import (
 	secretsv1alpha1 "github.com/Infisical/infisical/k8-operator/api/v1alpha1"
 	"github.com/Infisical/infisical/k8-operator/internal/controller"
 	"github.com/Infisical/infisical/k8-operator/internal/template"
+
+	argorollouts "github.com/argoproj/argo-rollouts/pkg/apis/rollouts/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -53,6 +55,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(secretsv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(argorollouts.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 

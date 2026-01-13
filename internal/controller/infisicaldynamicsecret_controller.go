@@ -82,9 +82,7 @@ func (r *InfisicalDynamicSecretReconciler) Reconcile(ctx context.Context, req ct
 			}, nil
 		} else {
 			logger.Error(err, "Unable to fetch Infisical Dynamic Secret CRD from cluster")
-			return ctrl.Result{
-				RequeueAfter: requeueTime,
-			}, nil
+			return ctrl.Result{}, fmt.Errorf("unable to fetch Infisical Dynamic Secret CRD from cluster: %w", err)
 		}
 	}
 
@@ -94,6 +92,8 @@ func (r *InfisicalDynamicSecretReconciler) Reconcile(ctx context.Context, req ct
 		if err := r.Update(ctx, &infisicalDynamicSecretCRD); err != nil {
 			return ctrl.Result{}, err
 		}
+		// Return early - the update will trigger a new reconcile with the fresh object. We can only update the CRD once or we'll see "the object has been modified; please apply your changes to the latest version and try again"
+		return ctrl.Result{}, nil
 	}
 
 	// Check if it's being deleted
@@ -130,10 +130,8 @@ func (r *InfisicalDynamicSecretReconciler) Reconcile(ctx context.Context, req ct
 	// Get modified/default config
 	infisicalGlobalConfig, err := controllerhelpers.GetInfisicalConfigMap(ctx, r.Client, r.IsNamespaceScoped)
 	if err != nil {
-		logger.Error(err, fmt.Sprintf("unable to fetch infisical-config. Will requeue after [requeueTime=%v]", requeueTime))
-		return ctrl.Result{
-			RequeueAfter: requeueTime,
-		}, nil
+		logger.Error(err, "unable to fetch infisical-config")
+		return ctrl.Result{}, fmt.Errorf("unable to fetch infisical-config: %w", err)
 	}
 
 	// Initialize the business logic handler
@@ -142,19 +140,15 @@ func (r *InfisicalDynamicSecretReconciler) Reconcile(ctx context.Context, req ct
 	// Setup API configuration through business logic
 	err = handler.SetupAPIConfig(infisicalDynamicSecretCRD, infisicalGlobalConfig)
 	if err != nil {
-		logger.Error(err, fmt.Sprintf("unable to setup API configuration. Will requeue after [requeueTime=%v]", requeueTime))
-		return ctrl.Result{
-			RequeueAfter: requeueTime,
-		}, nil
+		logger.Error(err, "unable to setup API configuration")
+		return ctrl.Result{}, fmt.Errorf("unable to setup API configuration: %w", err)
 	}
 
 	// Handle CA certificate through business logic
 	err = handler.HandleCACertificate(ctx, infisicalDynamicSecretCRD, infisicalGlobalConfig.TLS)
 	if err != nil {
-		logger.Error(err, fmt.Sprintf("unable to handle CA certificate. Will requeue after [requeueTime=%v]", requeueTime))
-		return ctrl.Result{
-			RequeueAfter: requeueTime,
-		}, nil
+		logger.Error(err, "unable to handle CA certificate")
+		return ctrl.Result{}, fmt.Errorf("unable to handle CA certificate: %w", err)
 	}
 
 	nextReconcile, err := handler.ReconcileInfisicalDynamicSecret(ctx, logger, &infisicalDynamicSecretCRD, infisicalDynamicSecretsResourceVariablesMap)
@@ -165,20 +159,16 @@ func (r *InfisicalDynamicSecretReconciler) Reconcile(ctx context.Context, req ct
 	}
 
 	if err != nil {
-		logger.Error(err, fmt.Sprintf("unable to reconcile Infisical Dynamic Secret. Will requeue after [requeueTime=%v]", requeueTime))
-		return ctrl.Result{
-			RequeueAfter: requeueTime,
-		}, nil
+		logger.Error(err, "unable to reconcile Infisical Dynamic Secret")
+		return ctrl.Result{}, fmt.Errorf("unable to reconcile Infisical Dynamic Secret: %w", err)
 	}
 
 	numDeployments, err := controllerhelpers.ReconcileDeploymentsWithManagedSecrets(ctx, r.Client, logger, infisicalDynamicSecretCRD.Spec.ManagedSecretReference, r.IsNamespaceScoped)
 	handler.SetReconcileAutoRedeploymentConditionStatus(ctx, logger, &infisicalDynamicSecretCRD, numDeployments, err)
 
 	if err != nil {
-		logger.Error(err, fmt.Sprintf("unable to reconcile auto redeployment. Will requeue after [requeueTime=%v]", requeueTime))
-		return ctrl.Result{
-			RequeueAfter: requeueTime,
-		}, nil
+		logger.Error(err, "unable to reconcile auto redeployment")
+		return ctrl.Result{}, fmt.Errorf("unable to reconcile auto redeployment: %w", err)
 	}
 
 	// Sync again after the specified time

@@ -45,7 +45,6 @@ type InfisicalDynamicSecretReconciler struct {
 	BaseLogger        logr.Logger
 	Scheme            *runtime.Scheme
 	Random            *rand.Rand
-	Namespace         string
 	IsNamespaceScoped bool
 }
 

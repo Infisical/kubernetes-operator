@@ -22,8 +22,12 @@ spec:
       containers:
       - args:
         {{- toYaml .Values.controllerManager.manager.args | nindent 8 }}
-        {{- if and .Values.scopedNamespace .Values.scopedRBAC }}
-        - --namespace={{ .Values.scopedNamespace }}
+        {{- $namespaces := (include "secrets-operator.scopedNamespaces" . | fromJson).list }}
+        {{- if and $namespaces .Values.scopedRBAC }}
+        - --namespaces={{ join "," $namespaces }}
+        {{- if eq (include "secrets-operator.usingDeprecatedScopedNamespace" .) "true" }}
+        - --deprecated-scoped-namespace-warning
+        {{- end }}
         {{- end }}
         command:
         - /manager

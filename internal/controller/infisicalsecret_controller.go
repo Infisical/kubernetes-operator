@@ -46,7 +46,6 @@ type InfisicalSecretReconciler struct {
 	Scheme     *runtime.Scheme
 
 	SourceCh          chan event.TypedGenericEvent[client.Object]
-	Namespace         string
 	IsNamespaceScoped bool
 }
 

@@ -96,7 +96,12 @@ for rbac_file in "${HELM_DIR}/templates"/*-rbac.yaml; do
     fi
 
     if [[ "$(basename "$rbac_file")" == "leader-election-rbac.yaml" ]]; then
-      echo "Skipping infisicaldynamicsecret-admin-rbac.yaml"
+      echo "Skipping leader-election-rbac.yaml"
+      continue
+    fi
+
+    if [[ "$(basename "$rbac_file")" == "manager-rbac.yaml" ]]; then
+      echo "Skipping manager-rbac.yaml (handled separately for multi-namespace support)"
       continue
     fi
 
@@ -177,6 +182,91 @@ for rbac_file in "${HELM_DIR}/templates"/*-rbac.yaml; do
     echo "Completed processing for $(basename "$rbac_file") with both role conditions and metadata applied"
   fi
 done
+
+# ? NOTE(Daniel): Process manager-rbac.yaml with multi-namespace support
+if [ -f "${HELM_DIR}/templates/manager-rbac.yaml" ]; then
+  echo "Processing manager-rbac.yaml with multi-namespace support"
+  
+  rbac_file="${HELM_DIR}/templates/manager-rbac.yaml"
+  cp "${rbac_file}" "${rbac_file}.bkp"
+  
+  # Extract the rules section from the original file
+  if grep -q "^---" "${rbac_file}.bkp"; then
+    rules_section=$(sed -n '/^rules:/,/^---/p' "${rbac_file}.bkp" | sed '$d')
+  else
+    rules_section=$(sed -n '/^rules:/,$ p' "${rbac_file}.bkp")
+  fi
+  
+  # Create the new manager-rbac.yaml with multi-namespace support
+  {
+    # Helper variable setup
+    echo '{{- $namespaces := (include "secrets-operator.scopedNamespaces" . | fromJson).list }}'
+    echo '{{- $isScopedMode := and $namespaces .Values.scopedRBAC }}'
+    echo ''
+    echo '{{- /* Define the rules once to avoid repetition */ -}}'
+    echo '{{- define "secrets-operator.managerRules" }}'
+    echo "$rules_section"
+    echo '{{- end }}'
+    echo ''
+    echo '{{- if $isScopedMode }}'
+    echo '{{- /* Scoped mode: Create a Role and RoleBinding in each namespace */ -}}'
+    echo '{{- range $ns := $namespaces }}'
+    echo '---'
+    echo 'apiVersion: rbac.authorization.k8s.io/v1'
+    echo 'kind: Role'
+    echo 'metadata:'
+    echo '  name: {{ include "secrets-operator.fullname" $ }}-manager-role'
+    echo '  namespace: {{ $ns | quote }}'
+    echo '  labels:'
+    echo '  {{- include "secrets-operator.labels" $ | nindent 4 }}'
+    echo '{{- include "secrets-operator.managerRules" $ }}'
+    echo '---'
+    echo 'apiVersion: rbac.authorization.k8s.io/v1'
+    echo 'kind: RoleBinding'
+    echo 'metadata:'
+    echo '  name: {{ include "secrets-operator.fullname" $ }}-manager-rolebinding'
+    echo '  namespace: {{ $ns | quote }}'
+    echo '  labels:'
+    echo '  {{- include "secrets-operator.labels" $ | nindent 4 }}'
+    echo 'roleRef:'
+    echo '  apiGroup: rbac.authorization.k8s.io'
+    echo '  kind: Role'
+    echo '  name: {{ include "secrets-operator.fullname" $ }}-manager-role'
+    echo 'subjects:'
+    echo '- kind: ServiceAccount'
+    echo '  name: {{ include "secrets-operator.serviceAccountName" $ }}'
+    echo '  namespace: {{ $.Release.Namespace }}'
+    echo '{{- end }}'
+    echo '{{- else }}'
+    echo '{{- /* Cluster-scoped mode: Create a ClusterRole and ClusterRoleBinding */ -}}'
+    echo 'apiVersion: rbac.authorization.k8s.io/v1'
+    echo 'kind: ClusterRole'
+    echo 'metadata:'
+    echo '  name: {{ include "secrets-operator.fullname" . }}-manager-role'
+    echo '  labels:'
+    echo '  {{- include "secrets-operator.labels" . | nindent 4 }}'
+    echo '{{- include "secrets-operator.managerRules" . }}'
+    echo '---'
+    echo 'apiVersion: rbac.authorization.k8s.io/v1'
+    echo 'kind: ClusterRoleBinding'
+    echo 'metadata:'
+    echo '  name: {{ include "secrets-operator.fullname" . }}-manager-rolebinding'
+    echo '  labels:'
+    echo '  {{- include "secrets-operator.labels" . | nindent 4 }}'
+    echo 'roleRef:'
+    echo '  apiGroup: rbac.authorization.k8s.io'
+    echo '  kind: ClusterRole'
+    echo '  name: {{ include "secrets-operator.fullname" . }}-manager-role'
+    echo 'subjects:'
+    echo '- kind: ServiceAccount'
+    echo '  name: {{ include "secrets-operator.serviceAccountName" . }}'
+    echo '  namespace: {{ .Release.Namespace }}'
+    echo '{{- end }}'
+  } > "${rbac_file}"
+  
+  rm "${rbac_file}.bkp"
+  echo "Completed processing for manager-rbac.yaml with multi-namespace support"
+fi
 
 # ? NOTE(Daniel): Processes and metrics-reader-rbac.yaml
 for rbac_file in "${HELM_DIR}/templates/metrics-reader-rbac.yaml"; do
@@ -276,11 +366,15 @@ if [ -f "${HELM_DIR}/templates/deployment.yaml" ]; then
     
     # check if this is the args line after the first securityContext
     if [ "$in_first_securityContext" -eq 1 ] && [[ "$line" =~ args: ]]; then
-      # Add our custom args section with conditional logic
+      # Add our custom args section with multi-namespace conditional logic
       echo "      - args:" >> "${HELM_DIR}/templates/deployment.yaml.new"
       echo "        {{- toYaml .Values.controllerManager.manager.args | nindent 8 }}" >> "${HELM_DIR}/templates/deployment.yaml.new"
-      echo "        {{- if and .Values.scopedNamespace .Values.scopedRBAC }}" >> "${HELM_DIR}/templates/deployment.yaml.new"
-      echo "        - --namespace={{ .Values.scopedNamespace }}" >> "${HELM_DIR}/templates/deployment.yaml.new"
+      echo '        {{- $namespaces := (include "secrets-operator.scopedNamespaces" . | fromJson).list }}' >> "${HELM_DIR}/templates/deployment.yaml.new"
+      echo '        {{- if and $namespaces .Values.scopedRBAC }}' >> "${HELM_DIR}/templates/deployment.yaml.new"
+      echo '        - --namespaces={{ join "," $namespaces }}' >> "${HELM_DIR}/templates/deployment.yaml.new"
+      echo '        {{- if eq (include "secrets-operator.usingDeprecatedScopedNamespace" .) "true" }}' >> "${HELM_DIR}/templates/deployment.yaml.new"
+      echo "        - --deprecated-scoped-namespace-warning" >> "${HELM_DIR}/templates/deployment.yaml.new"
+      echo "        {{- end }}" >> "${HELM_DIR}/templates/deployment.yaml.new"
       echo "        {{- end }}" >> "${HELM_DIR}/templates/deployment.yaml.new"
       in_first_securityContext=0
       continue
@@ -322,9 +416,6 @@ if [ -f "${HELM_DIR}/templates/deployment.yaml" ]; then
     
   echo "$line" >> "${HELM_DIR}/templates/deployment.yaml.new"
   done < "${HELM_DIR}/templates/deployment.yaml"
-
-  echo "      nodeSelector: {{ toYaml .Values.controllerManager.nodeSelector | nindent 8 }}" >> "${HELM_DIR}/templates/deployment.yaml.new"
-  echo "      tolerations: {{ toYaml .Values.controllerManager.tolerations | nindent 8 }}" >> "${HELM_DIR}/templates/deployment.yaml.new"
   
   mv "${HELM_DIR}/templates/deployment.yaml.new" "${HELM_DIR}/templates/deployment.yaml"
   echo "Completed processing for deployment.yaml"
@@ -343,11 +434,15 @@ if [ -f "${HELM_DIR}/templates/deployment.yaml" ]; then
       # extract the base indentation (everything before the "- args:")
       base_indent=$(echo "$line" | sed 's/^\([[:space:]]*\)-.*/\1/')
       
-      # replace with our multi-line structure
+      # replace with our multi-line structure with multi-namespace support
       echo "${base_indent}- args:" >> "${HELM_DIR}/templates/deployment.yaml.tmp"
       echo "${base_indent}  {{- toYaml .Values.controllerManager.manager.args | nindent 8 }}" >> "${HELM_DIR}/templates/deployment.yaml.tmp"
-      echo "${base_indent}  {{- if and .Values.scopedNamespace .Values.scopedRBAC }}" >> "${HELM_DIR}/templates/deployment.yaml.tmp"
-      echo "${base_indent}  - --namespace={{ .Values.scopedNamespace }}" >> "${HELM_DIR}/templates/deployment.yaml.tmp"
+      echo "${base_indent}  "'{{- $namespaces := (include "secrets-operator.scopedNamespaces" . | fromJson).list }}' >> "${HELM_DIR}/templates/deployment.yaml.tmp"
+      echo "${base_indent}  "'{{- if and $namespaces .Values.scopedRBAC }}' >> "${HELM_DIR}/templates/deployment.yaml.tmp"
+      echo "${base_indent}  "'- --namespaces={{ join "," $namespaces }}' >> "${HELM_DIR}/templates/deployment.yaml.tmp"
+      echo "${base_indent}  "'{{- if eq (include "secrets-operator.usingDeprecatedScopedNamespace" .) "true" }}' >> "${HELM_DIR}/templates/deployment.yaml.tmp"
+      echo "${base_indent}  - --deprecated-scoped-namespace-warning" >> "${HELM_DIR}/templates/deployment.yaml.tmp"
+      echo "${base_indent}  {{- end }}" >> "${HELM_DIR}/templates/deployment.yaml.tmp"
       echo "${base_indent}  {{- end }}" >> "${HELM_DIR}/templates/deployment.yaml.tmp"
     else
       echo "$line" >> "${HELM_DIR}/templates/deployment.yaml.tmp"

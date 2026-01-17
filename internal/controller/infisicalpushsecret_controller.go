@@ -50,7 +50,6 @@ type InfisicalPushSecretReconciler struct {
 	BaseLogger        logr.Logger
 	Scheme            *runtime.Scheme
 	IsNamespaceScoped bool
-	Namespace         string
 }
 
 var infisicalPushSecretResourceVariablesMap map[string]util.ResourceVariables = make(map[string]util.ResourceVariables)

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -65,10 +66,12 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
-	var namespace string
+	var namespaces string
+	var deprecatedScopedNamespaceWarning bool
 
 	var tlsOpts []func(*tls.Config)
-	flag.StringVar(&namespace, "namespace", "", "Watch InfisicalSecrets scoped in the provided namespace only")
+	flag.StringVar(&namespaces, "namespaces", "", "Comma-separated list of namespaces to watch. If empty, watches all namespaces (cluster-scoped)")
+	flag.BoolVar(&deprecatedScopedNamespaceWarning, "deprecated-scoped-namespace-warning", false, "If true, logs a deprecation warning for the scopedNamespace field")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -203,15 +206,35 @@ func main() {
 		// LeaderElectionReleaseOnCancel: true,
 	}
 
-	// Only set cache options if we're namespace-scoped
-	if namespace != "" {
-		managerOptions.Cache = cache.Options{
-			Scheme: scheme,
-			DefaultNamespaces: map[string]cache.Config{
-				namespace: {}, // whichever namespace the operator is running in
-			},
+	// Parse namespaces and configure cache for namespace-scoped watching
+	var namespaceList []string
+	if namespaces != "" {
+		for _, ns := range strings.Split(namespaces, ",") {
+			ns = strings.TrimSpace(ns)
+			if ns != "" {
+				namespaceList = append(namespaceList, ns)
+			}
 		}
-		ctrl.Log.Info(fmt.Sprintf("Watching CRDs in [namespace=%s]", namespace))
+	}
+
+	isNamespaceScoped := len(namespaceList) > 0
+
+	// Log deprecation warning if using the deprecated scopedNamespace field
+	if deprecatedScopedNamespaceWarning {
+		setupLog.Info("WARNING: The 'scopedNamespace' field is deprecated and will be removed in a future version. Please use 'scopedNamespaces' (plural) instead.")
+	}
+
+	// Only set cache options if we're namespace-scoped
+	if isNamespaceScoped {
+		defaultNamespaces := make(map[string]cache.Config)
+		for _, ns := range namespaceList {
+			defaultNamespaces[ns] = cache.Config{}
+		}
+		managerOptions.Cache = cache.Options{
+			Scheme:            scheme,
+			DefaultNamespaces: defaultNamespaces,
+		}
+		ctrl.Log.Info(fmt.Sprintf("Watching CRDs in namespaces: %v", namespaceList))
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), managerOptions)
@@ -226,8 +249,7 @@ func main() {
 		Client:            mgr.GetClient(),
 		Scheme:            mgr.GetScheme(),
 		BaseLogger:        ctrl.Log,
-		Namespace:         namespace,
-		IsNamespaceScoped: namespace != "",
+		IsNamespaceScoped: isNamespaceScoped,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InfisicalSecret")
 		os.Exit(1)
@@ -235,8 +257,7 @@ func main() {
 	if err := (&controller.InfisicalPushSecretReconciler{
 		Client:            mgr.GetClient(),
 		Scheme:            mgr.GetScheme(),
-		IsNamespaceScoped: namespace != "",
-		Namespace:         namespace,
+		IsNamespaceScoped: isNamespaceScoped,
 		BaseLogger:        ctrl.Log,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InfisicalPushSecret")
@@ -246,8 +267,7 @@ func main() {
 		Client:            mgr.GetClient(),
 		Scheme:            mgr.GetScheme(),
 		BaseLogger:        ctrl.Log,
-		IsNamespaceScoped: namespace != "",
-		Namespace:         namespace,
+		IsNamespaceScoped: isNamespaceScoped,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InfisicalDynamicSecret")
 		os.Exit(1)

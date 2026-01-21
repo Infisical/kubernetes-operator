@@ -32,7 +32,19 @@ controllerManager:
       type: RuntimeDefault
   replicas: 1
 kubernetesClusterDomain: cluster.local
+
+# DEPRECATED: Use scopedNamespaces instead. This field will be removed in a future version.
+# If both scopedNamespace and scopedNamespaces are set, scopedNamespaces takes precedence.
 scopedNamespace: ""
+
+# List of namespaces to watch. If empty, the operator watches all namespaces (cluster-scoped).
+# When scopedRBAC is true, a Role and RoleBinding will be created in each namespace.
+# Example:
+#   scopedNamespaces:
+#     - team-a-namespace
+#     - team-b-namespace
+scopedNamespaces: []
+
 scopedRBAC: false
 installCRDs: true
 imagePullSecrets: []

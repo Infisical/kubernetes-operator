@@ -60,3 +60,39 @@ Create the name of the service account to use
 {{- printf "%s-controller-manager" (include "secrets-operator.fullname" .) }}
 {{- end }}
 {{- end }}
+
+{{/*
+Compute the list of scoped namespaces.
+scopedNamespaces takes precedence over the deprecated scopedNamespace.
+Handles both array input (--set "scopedNamespaces={ns1,ns2}") and
+comma-separated string input (--set scopedNamespaces="ns1,ns2").
+Returns a JSON object with a "list" key that should be parsed with fromJson.
+Usage: $namespaces := (include "secrets-operator.scopedNamespaces" . | fromJson).list
+*/}}
+{{- define "secrets-operator.scopedNamespaces" -}}
+{{- if .Values.scopedNamespaces -}}
+  {{- if kindIs "string" .Values.scopedNamespaces -}}
+    {{- /* Handle comma-separated string input */ -}}
+    {"list": {{ splitList "," .Values.scopedNamespaces | toJson }}}
+  {{- else -}}
+    {{- /* Handle array input */ -}}
+    {"list": {{ .Values.scopedNamespaces | toJson }}}
+  {{- end -}}
+{{- else if .Values.scopedNamespace -}}
+{"list": {{ list .Values.scopedNamespace | toJson }}}
+{{- else -}}
+{"list": []}
+{{- end -}}
+{{- end }}
+
+{{/*
+Check if we're using the deprecated scopedNamespace field.
+Returns "true" or "false" as a string.
+*/}}
+{{- define "secrets-operator.usingDeprecatedScopedNamespace" -}}
+{{- if and (not .Values.scopedNamespaces) .Values.scopedNamespace -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end }}

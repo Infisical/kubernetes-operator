@@ -1,16 +1,8 @@
-apiVersion: rbac.authorization.k8s.io/v1
-{{- if and .Values.scopedNamespace .Values.scopedRBAC }}
-kind: Role
-{{- else }}
-kind: ClusterRole
-{{- end }}
-metadata:
-  name: {{ include "secrets-operator.fullname" . }}-manager-role
-  {{- if and .Values.scopedNamespace .Values.scopedRBAC }}
-  namespace: {{ .Values.scopedNamespace | quote }}
-  {{- end }}
-  labels:
-  {{- include "secrets-operator.labels" . | nindent 4 }}
+{{- $namespaces := (include "secrets-operator.scopedNamespaces" . | fromJson).list }}
+{{- $isScopedMode := and $namespaces .Values.scopedRBAC }}
+
+{{- /* Define the rules once to avoid repetition */ -}}
+{{- define "secrets-operator.managerRules" }}
 rules:
 - apiGroups:
   - ""
@@ -95,30 +87,59 @@ rules:
   - get
   - patch
   - update
+{{- end }}
+
+{{- if $isScopedMode }}
+{{- /* Scoped mode: Create a Role and RoleBinding in each namespace */ -}}
+{{- range $ns := $namespaces }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-{{- if and .Values.scopedNamespace .Values.scopedRBAC }}
+kind: Role
+metadata:
+  name: {{ include "secrets-operator.fullname" $ }}-manager-role
+  namespace: {{ $ns | quote }}
+  labels:
+  {{- include "secrets-operator.labels" $ | nindent 4 }}
+{{- include "secrets-operator.managerRules" $ }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
-{{- else }}
-kind: ClusterRoleBinding
+metadata:
+  name: {{ include "secrets-operator.fullname" $ }}-manager-rolebinding
+  namespace: {{ $ns | quote }}
+  labels:
+  {{- include "secrets-operator.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "secrets-operator.fullname" $ }}-manager-role
+subjects:
+- kind: ServiceAccount
+  name: {{ include "secrets-operator.serviceAccountName" $ }}
+  namespace: {{ $.Release.Namespace }}
 {{- end }}
+{{- else }}
+{{- /* Cluster-scoped mode: Create a ClusterRole and ClusterRoleBinding */ -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "secrets-operator.fullname" . }}-manager-role
+  labels:
+  {{- include "secrets-operator.labels" . | nindent 4 }}
+{{- include "secrets-operator.managerRules" . }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
 metadata:
   name: {{ include "secrets-operator.fullname" . }}-manager-rolebinding
-  {{- if and .Values.scopedNamespace .Values.scopedRBAC }}
-  namespace: {{ .Values.scopedNamespace | quote }}
-  {{- end }}
   labels:
-
   {{- include "secrets-operator.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  {{- if and .Values.scopedNamespace .Values.scopedRBAC }}
-  kind: Role
-  {{- else }}
   kind: ClusterRole
-  {{- end }}
-  name: '{{ include "secrets-operator.fullname" . }}-manager-role'
+  name: {{ include "secrets-operator.fullname" . }}-manager-role
 subjects:
 - kind: ServiceAccount
-  name: '{{ include "secrets-operator.serviceAccountName" . }}'
-  namespace: '{{ .Release.Namespace }}'
+  name: {{ include "secrets-operator.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}

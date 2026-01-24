@@ -65,6 +65,7 @@ func (r *InfisicalSecretReconciler) GetLogger(req ctrl.Request) logr.Logger {
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;list
 //+kubebuilder:rbac:groups="authentication.k8s.io",resources=tokenreviews,verbs=create
 //+kubebuilder:rbac:groups="",resources=serviceaccounts/token,verbs=create
+//+kubebuilder:rbac:groups=argoproj.io,resources=rollouts,verbs=list;watch;get;update;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.

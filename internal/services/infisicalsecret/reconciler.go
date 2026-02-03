@@ -836,7 +836,11 @@ func (r *InfisicalSecretReconciler) OpenInstantUpdatesStream(ctx context.Context
 	// Build secrets path with recursive suffix if needed
 	secretsPath := identityScope.SecretsPath
 	if identityScope.Recursive {
-		secretsPath = fmt.Sprint(secretsPath, "**")
+		if strings.HasSuffix(secretsPath, "/") {
+			secretsPath += "**"
+		} else {
+			secretsPath += "/**"
+		}
 	}
 
 	// Build current params for change detection

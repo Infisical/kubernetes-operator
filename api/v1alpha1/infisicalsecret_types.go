@@ -188,6 +188,18 @@ type InfisicalSecretSpec struct {
 
 	// +kubebuilder:validation:Optional
 	InstantUpdates bool `json:"instantUpdates"`
+
+	// +kubebuilder:validation:Optional
+	SyncConfig *InfisicalSecretSyncConfig `json:"syncConfig"`
+}
+
+type InfisicalSecretSyncConfig struct {
+	// +kubebuilder:validation:Optional
+	InstantUpdates bool `json:"instantUpdates"`
+
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default:="60s"
+	ResyncInterval string `json:"resyncInterval"`
 }
 
 // InfisicalSecretStatus defines the observed state of InfisicalSecret

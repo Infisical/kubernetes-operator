@@ -130,10 +130,18 @@ func (r *InfisicalSecretReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, nil
 	}
 
-	if infisicalSecretCRD.Spec.ResyncInterval != 0 {
+	// Determine resync interval - prefer syncConfig if provided
+	if infisicalSecretCRD.Spec.SyncConfig != nil && infisicalSecretCRD.Spec.SyncConfig.ResyncInterval != "" {
+		duration, err := util.ConvertResyncIntervalToDuration(infisicalSecretCRD.Spec.SyncConfig.ResyncInterval)
+		if err != nil {
+			logger.Error(err, "invalid resync interval in syncConfig, using default")
+		} else {
+			requeueTime = duration
+			logger.Info(fmt.Sprintf("Re-sync interval set from syncConfig. Interval: %v", requeueTime))
+		}
+	} else if infisicalSecretCRD.Spec.ResyncInterval != 0 {
 		requeueTime = time.Second * time.Duration(infisicalSecretCRD.Spec.ResyncInterval)
 		logger.Info(fmt.Sprintf("Manual re-sync interval set. Interval: %v", requeueTime))
-
 	} else {
 		logger.Info(fmt.Sprintf("Re-sync interval set. Interval: %v", requeueTime))
 	}
@@ -185,7 +193,13 @@ func (r *InfisicalSecretReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, fmt.Errorf("unable to reconcile auto redeployment: %w", err)
 	}
 
-	if infisicalSecretCRD.Spec.InstantUpdates {
+	// Determine instant updates - prefer syncConfig if provided
+	instantUpdatesEnabled := infisicalSecretCRD.Spec.InstantUpdates
+	if infisicalSecretCRD.Spec.SyncConfig != nil {
+		instantUpdatesEnabled = infisicalSecretCRD.Spec.SyncConfig.InstantUpdates
+	}
+
+	if instantUpdatesEnabled {
 		if err := handler.OpenInstantUpdatesStream(ctx, logger, &infisicalSecretCRD, infisicalSecretResourceVariablesMap, r.SourceCh); err != nil {
 			// Log SSE errors but don't fail reconciliation - periodic resync will continue
 			logger.Error(err, "instant updates stream failed, falling back to periodic sync only")

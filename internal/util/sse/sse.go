@@ -3,6 +3,7 @@ package sse
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -19,12 +20,44 @@ type Event struct {
 	Retry int
 }
 
+// SubscriptionParams holds parameters for SSE subscription to detect changes
+type SubscriptionParams struct {
+	ProjectID   string
+	EnvSlug     string
+	SecretsPath string
+}
+
+// ErrPlanNotSupported indicates SSE is not available on the current plan
+var ErrPlanNotSupported = fmt.Errorf("event subscriptions are not available on your current plan")
+
+// isPermanentError checks if an error should not be retried
+func isPermanentError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errMsg := strings.ToLower(err.Error())
+	// Plan-related errors should not be retried
+	if strings.Contains(errMsg, "not available on your current plan") ||
+		strings.Contains(errMsg, "plan") && strings.Contains(errMsg, "not available") {
+		return true
+	}
+	return false
+}
+
+// Equals compares two SubscriptionParams for equality
+func (p SubscriptionParams) Equals(other SubscriptionParams) bool {
+	return p.ProjectID == other.ProjectID &&
+		p.EnvSlug == other.EnvSlug &&
+		p.SecretsPath == other.SecretsPath
+}
+
 // ConnectionMeta holds metadata about an SSE connection
 type ConnectionMeta struct {
-	EventChan  <-chan Event
-	ErrorChan  <-chan error
-	lastPingAt atomic.Value // stores time.Time
-	cancel     context.CancelFunc
+	params     SubscriptionParams
+	ctx        context.Context    // Connection-specific context
+	cancel     context.CancelFunc // Cancels this connection only
+	body       io.ReadCloser      // HTTP response body - must close to unblock scanner
+	lastPingAt atomic.Value       // stores time.Time
 }
 
 // LastPing returns the last ping time
@@ -47,148 +80,211 @@ func (c *ConnectionMeta) Cancel() {
 	}
 }
 
-// ConnectionRegistry manages SSE connections with high performance
+// ReconnectConfig holds configuration for reconnection with backoff
+type ReconnectConfig struct {
+	MaxRetries     int
+	InitialBackoff time.Duration
+	MaxBackoff     time.Duration
+	BackoffFactor  float64
+}
+
+// DefaultReconnectConfig returns the default reconnection configuration
+func DefaultReconnectConfig() ReconnectConfig {
+	return ReconnectConfig{
+		MaxRetries:     5,
+		InitialBackoff: time.Second,
+		MaxBackoff:     30 * time.Second,
+		BackoffFactor:  2.0,
+	}
+}
+
+// ConnectionRegistry manages SSE connections with callbacks
 type ConnectionRegistry struct {
 	mu   sync.RWMutex
 	conn *ConnectionMeta
 
-	monitorOnce sync.Once
-	monitorStop chan struct{}
+	// Lifecycle management
+	ctx    context.Context    // Registry-level context for all goroutines
+	cancel context.CancelFunc // Cancels all goroutines on Close()
+	wg     sync.WaitGroup     // Tracks all goroutines (monitor, processStream, reconnect)
 
-	onPing func() // Callback for ping events
+	// Reconnection with backoff
+	reconnectConfig ReconnectConfig
+	requestFn       func() (*http.Response, error) // Stored for reconnection
+
+	// Callbacks instead of channels
+	onEvent     func(Event)
+	onError     func(error)
+	onReconnect func() // Called after max retries exhausted
 }
 
-// NewConnectionRegistry creates a new high-performance connection registry
-func NewConnectionRegistry(ctx context.Context) *ConnectionRegistry {
+// NewConnectionRegistry creates a new connection registry with callbacks
+func NewConnectionRegistry(onEvent func(Event), onError func(error), onReconnect func()) *ConnectionRegistry {
+	ctx, cancel := context.WithCancel(context.Background())
 	r := &ConnectionRegistry{
-		monitorStop: make(chan struct{}),
+		ctx:             ctx,
+		cancel:          cancel,
+		reconnectConfig: DefaultReconnectConfig(),
+		onEvent:         onEvent,
+		onError:         onError,
+		onReconnect:     onReconnect,
 	}
 
-	// Configure ping handler
-	r.onPing = func() {
-		r.UpdateLastPing()
-	}
+	// Start health monitor - runs for lifetime of registry
+	r.wg.Add(1)
+	go r.monitorHealth()
 
 	return r
 }
 
-// Subscribe provides SSE events, creating a connection if needed
-func (r *ConnectionRegistry) Subscribe(request func() (*http.Response, error)) (<-chan Event, <-chan error, error) {
-	// Fast path: check if connection exists
-	if conn := r.getConnection(); conn != nil {
-		return conn.EventChan, conn.ErrorChan, nil
-	}
-
-	// Slow path: create new connection under lock
+// SubscribeWithParams subscribes to SSE events with parameter tracking
+// If params differ from existing connection, the old connection is closed first
+func (r *ConnectionRegistry) SubscribeWithParams(params SubscriptionParams, requestFn func() (*http.Response, error)) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Double-check after acquiring lock
+	// Check if we already have a connection with the same params
 	if r.conn != nil {
-		return r.conn.EventChan, r.conn.ErrorChan, nil
+		if r.conn.params.Equals(params) {
+			// Same params, check if connection is still valid
+			select {
+			case <-r.conn.ctx.Done():
+				// Connection is dead, fall through to create new one
+			default:
+				// Connection is alive with same params, nothing to do
+				return nil
+			}
+		}
+		// Different params or dead connection, close it
+		r.closeConnectionLocked()
 	}
 
-	res, err := request()
+	// Store requestFn for reconnection
+	r.requestFn = requestFn
+
+	// Create the new connection
+	return r.createConnectionLocked(params, requestFn)
+}
+
+// createConnectionLocked creates a new SSE connection (must be called with lock held)
+func (r *ConnectionRegistry) createConnectionLocked(params SubscriptionParams, requestFn func() (*http.Response, error)) error {
+	// Check if registry is closing
+	select {
+	case <-r.ctx.Done():
+		return fmt.Errorf("registry is closed")
+	default:
+	}
+
+	res, err := requestFn()
 	if err != nil {
-		return nil, nil, err
+		return fmt.Errorf("failed to establish SSE connection: %w", err)
 	}
 
-	conn, err := r.createStream(res)
-	if err != nil {
-		return nil, nil, err
+	// Create connection-specific context that's also cancelled when registry closes
+	connCtx, connCancel := context.WithCancel(r.ctx)
+
+	meta := &ConnectionMeta{
+		params: params,
+		ctx:    connCtx,
+		cancel: connCancel,
+		body:   res.Body, // Store body so we can close it to unblock scanner
 	}
+	meta.UpdateLastPing()
 
-	r.conn = conn
+	r.conn = meta
 
-	// Start monitor once
-	r.monitorOnce.Do(func() {
-		go r.monitorConnections()
-	})
+	// Start the stream processor goroutine - tracked by WaitGroup
+	r.wg.Add(1)
+	go r.processStream(connCtx, meta)
 
-	return conn.EventChan, conn.ErrorChan, nil
+	return nil
+}
+
+// closeConnectionLocked closes the current connection (must be called with lock held)
+func (r *ConnectionRegistry) closeConnectionLocked() {
+	if r.conn != nil {
+		// Close body first to unblock any pending scanner.Scan()
+		if r.conn.body != nil {
+			r.conn.body.Close()
+		}
+		// Then cancel context
+		r.conn.Cancel()
+		r.conn = nil
+	}
 }
 
 // Get retrieves the current connection
 func (r *ConnectionRegistry) Get() (*ConnectionMeta, bool) {
-	conn := r.getConnection()
-	return conn, conn != nil
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.conn, r.conn != nil
 }
 
 // IsConnected checks if there's an active connection
 func (r *ConnectionRegistry) IsConnected() bool {
-	return r.getConnection() != nil
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if r.conn == nil {
+		return false
+	}
+
+	// Check if connection context is still valid
+	select {
+	case <-r.conn.ctx.Done():
+		return false
+	default:
+		return true
+	}
 }
 
-// UpdateLastPing updates the last ping time for the current connection
-func (r *ConnectionRegistry) UpdateLastPing() {
-	if conn := r.getConnection(); conn != nil {
-		conn.UpdateLastPing()
+// GetParams returns the current subscription params if connected
+func (r *ConnectionRegistry) GetParams() (SubscriptionParams, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if r.conn == nil {
+		return SubscriptionParams{}, false
 	}
+	return r.conn.params, true
 }
 
 // Close gracefully shuts down the registry
 func (r *ConnectionRegistry) Close() {
-	// Stop monitor first
-	select {
-	case <-r.monitorStop:
-		// Already closed
-	default:
-		close(r.monitorStop)
-	}
-
-	// Close connection
+	// Close connection first (this closes body and unblocks processStream)
 	r.mu.Lock()
-	if r.conn != nil {
-		r.conn.Cancel()
-		r.conn = nil
-	}
+	r.closeConnectionLocked()
 	r.mu.Unlock()
-}
 
-// getConnection returns the current connection without locking
-func (r *ConnectionRegistry) getConnection() *ConnectionMeta {
-	r.mu.RLock()
-	conn := r.conn
-	r.mu.RUnlock()
-	return conn
-}
+	// Cancel registry context - signals all goroutines to exit
+	r.cancel()
 
-func (r *ConnectionRegistry) createStream(res *http.Response) (*ConnectionMeta, error) {
-	ctx, cancel := context.WithCancel(context.Background())
+	// Wait for all goroutines with timeout
+	done := make(chan struct{})
+	go func() {
+		r.wg.Wait()
+		close(done)
+	}()
 
-	eventChan, errorChan, err := r.stream(ctx, res)
-	if err != nil {
-		cancel()
-		return nil, err
+	select {
+	case <-done:
+		// All goroutines finished cleanly
+	case <-time.After(5 * time.Second):
+		// Timeout, force continue
 	}
-
-	meta := &ConnectionMeta{
-		EventChan: eventChan,
-		ErrorChan: errorChan,
-		cancel:    cancel,
-	}
-	meta.UpdateLastPing()
-
-	return meta, nil
-}
-
-// stream processes SSE data from an HTTP response
-func (r *ConnectionRegistry) stream(ctx context.Context, res *http.Response) (<-chan Event, <-chan error, error) {
-	eventChan := make(chan Event, 10)
-	errorChan := make(chan error, 1)
-
-	go r.processStream(ctx, res.Body, eventChan, errorChan)
-
-	return eventChan, errorChan, nil
 }
 
 // processStream reads and parses SSE events from the response body
-func (r *ConnectionRegistry) processStream(ctx context.Context, body io.ReadCloser, eventChan chan<- Event, errorChan chan<- error) {
-	defer body.Close()
-	defer close(eventChan)
-	defer close(errorChan)
+// This goroutine is tied to the connection context, not the reconciler context
+func (r *ConnectionRegistry) processStream(ctx context.Context, meta *ConnectionMeta) {
+	defer r.wg.Done()
+	defer func() {
+		if rec := recover(); rec != nil {
+			r.safeCallOnError(fmt.Errorf("panic in processStream: %v", rec))
+		}
+	}()
 
-	scanner := bufio.NewScanner(body)
+	scanner := bufio.NewScanner(meta.body)
 
 	var currentEvent Event
 	var dataBuilder strings.Builder
@@ -213,16 +309,10 @@ func (r *ConnectionRegistry) processStream(ctx context.Context, body io.ReadClos
 
 				// Handle ping events
 				if r.isPingEvent(currentEvent) {
-					if r.onPing != nil {
-						r.onPing()
-					}
+					meta.UpdateLastPing()
 				} else {
-					// Send non-ping events
-					select {
-					case eventChan <- currentEvent:
-					case <-ctx.Done():
-						return
-					}
+					// Send non-ping events via callback
+					r.safeCallOnEvent(currentEvent)
 				}
 
 				// Reset for next event
@@ -231,16 +321,131 @@ func (r *ConnectionRegistry) processStream(ctx context.Context, body io.ReadClos
 			continue
 		}
 
-		// Parse line efficiently
+		// Parse line
 		r.parseLine(line, &currentEvent, &dataBuilder)
 	}
 
 	if err := scanner.Err(); err != nil {
 		select {
-		case errorChan <- err:
 		case <-ctx.Done():
+			// Context cancelled, expected shutdown
+			return
+		default:
+			// Ignore "body closed" errors - expected during intentional shutdown
+			errMsg := strings.ToLower(err.Error())
+			if strings.Contains(errMsg, "closed") || strings.Contains(errMsg, "eof") {
+				return
+			}
+			r.safeCallOnError(err)
+			// Only reconnect for transient errors
+			if !isPermanentError(err) {
+				r.triggerReconnect()
+			}
 		}
 	}
+}
+
+// triggerReconnect initiates the reconnection process
+func (r *ConnectionRegistry) triggerReconnect() {
+	// Check if registry is closing
+	select {
+	case <-r.ctx.Done():
+		return
+	default:
+	}
+
+	r.mu.RLock()
+	params := SubscriptionParams{}
+	requestFn := r.requestFn
+	if r.conn != nil {
+		params = r.conn.params
+	}
+	r.mu.RUnlock()
+
+	if requestFn == nil {
+		return
+	}
+
+	r.wg.Add(1)
+	go r.reconnectLoop(params, requestFn)
+}
+
+// reconnectLoop attempts to reconnect with exponential backoff
+func (r *ConnectionRegistry) reconnectLoop(params SubscriptionParams, requestFn func() (*http.Response, error)) {
+	defer r.wg.Done()
+
+	backoff := r.reconnectConfig.InitialBackoff
+
+	for attempt := range r.reconnectConfig.MaxRetries {
+		// Wait with backoff, checking for cancellation
+		select {
+		case <-r.ctx.Done():
+			return // Registry is closing
+		case <-time.After(backoff):
+		}
+
+		// Attempt reconnection
+		r.mu.Lock()
+		err := r.createConnectionLocked(params, requestFn)
+		r.mu.Unlock()
+
+		if err == nil {
+			return // Success
+		}
+
+		// Don't retry permanent errors (e.g., plan not supported)
+		if isPermanentError(err) {
+			r.safeCallOnError(fmt.Errorf("permanent error, stopping reconnection: %w", err))
+			return
+		}
+
+		r.safeCallOnError(fmt.Errorf("reconnect attempt %d failed: %w", attempt+1, err))
+
+		backoff = time.Duration(float64(backoff) * r.reconnectConfig.BackoffFactor)
+		backoff = min(backoff, r.reconnectConfig.MaxBackoff)
+	}
+
+	// Max retries exceeded - trigger reconciliation as fallback
+	r.safeCallOnReconnect()
+}
+
+// safeCallOnEvent calls onEvent with panic recovery
+func (r *ConnectionRegistry) safeCallOnEvent(event Event) {
+	if r.onEvent == nil {
+		return
+	}
+	defer func() {
+		if rec := recover(); rec != nil {
+			// Log but don't crash
+		}
+	}()
+	r.onEvent(event)
+}
+
+// safeCallOnError calls onError with panic recovery
+func (r *ConnectionRegistry) safeCallOnError(err error) {
+	if r.onError == nil {
+		return
+	}
+	defer func() {
+		if rec := recover(); rec != nil {
+			// Log but don't crash
+		}
+	}()
+	r.onError(err)
+}
+
+// safeCallOnReconnect calls onReconnect with panic recovery
+func (r *ConnectionRegistry) safeCallOnReconnect() {
+	if r.onReconnect == nil {
+		return
+	}
+	defer func() {
+		if rec := recover(); rec != nil {
+			// Log but don't crash
+		}
+	}()
+	r.onReconnect()
 }
 
 // parseLine efficiently parses SSE protocol lines
@@ -291,8 +496,10 @@ func (r *ConnectionRegistry) isPingEvent(event Event) bool {
 	return false
 }
 
-// monitorConnections checks connection health periodically
-func (r *ConnectionRegistry) monitorConnections() {
+// monitorHealth checks connection health periodically
+func (r *ConnectionRegistry) monitorHealth() {
+	defer r.wg.Done()
+
 	const (
 		checkInterval = 30 * time.Second
 		pingTimeout   = 2 * time.Minute
@@ -303,7 +510,7 @@ func (r *ConnectionRegistry) monitorConnections() {
 
 	for {
 		select {
-		case <-r.monitorStop:
+		case <-r.ctx.Done():
 			return
 		case <-ticker.C:
 			r.checkConnectionHealth(pingTimeout)
@@ -313,19 +520,38 @@ func (r *ConnectionRegistry) monitorConnections() {
 
 // checkConnectionHealth verifies connection is still alive
 func (r *ConnectionRegistry) checkConnectionHealth(timeout time.Duration) {
-	conn := r.getConnection()
+	// Check if registry is closing
+	select {
+	case <-r.ctx.Done():
+		return
+	default:
+	}
+
+	r.mu.RLock()
+	conn := r.conn
+	requestFn := r.requestFn
+	r.mu.RUnlock()
+
 	if conn == nil {
 		return
 	}
 
 	if time.Since(conn.LastPing()) > timeout {
-		// Connection is stale, close it
+		// Connection is stale
 		r.mu.Lock()
-		if r.conn == conn { // Verify it's still the same connection
-			r.conn.Cancel()
-			r.monitorStop <- struct{}{}
-			r.conn = nil
+		// Verify it's still the same connection
+		if r.conn == conn {
+			params := conn.params
+			r.closeConnectionLocked()
+			r.mu.Unlock()
+
+			// Trigger reconnection (uses wg.Add internally)
+			if requestFn != nil {
+				r.wg.Add(1)
+				go r.reconnectLoop(params, requestFn)
+			}
+		} else {
+			r.mu.Unlock()
 		}
-		r.mu.Unlock()
 	}
 }

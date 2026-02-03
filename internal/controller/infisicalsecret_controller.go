@@ -187,11 +187,11 @@ func (r *InfisicalSecretReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	if infisicalSecretCRD.Spec.InstantUpdates {
 		if err := handler.OpenInstantUpdatesStream(ctx, logger, &infisicalSecretCRD, infisicalSecretResourceVariablesMap, r.SourceCh); err != nil {
-			logger.Error(err, "event stream failed")
-			return ctrl.Result{}, fmt.Errorf("event stream failed: %w", err)
+			// Log SSE errors but don't fail reconciliation - periodic resync will continue
+			logger.Error(err, "instant updates stream failed, falling back to periodic sync only")
+		} else {
+			logger.Info("Instant updates are enabled")
 		}
-
-		logger.Info("Instant updates are enabled")
 	} else {
 		handler.CloseInstantUpdatesStream(ctx, logger, &infisicalSecretCRD, infisicalSecretResourceVariablesMap)
 	}
@@ -218,6 +218,10 @@ func (r *InfisicalSecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 				if infisicalSecretResourceVariablesMap != nil {
 					if rv, ok := infisicalSecretResourceVariablesMap[string(e.ObjectNew.GetUID())]; ok {
+						// Explicit SSE cleanup before context cancellation
+						if rv.ServerSentEvents != nil {
+							rv.ServerSentEvents.Close()
+						}
 						rv.CancelCtx()
 						delete(infisicalSecretResourceVariablesMap, string(e.ObjectNew.GetUID()))
 					}
@@ -227,6 +231,10 @@ func (r *InfisicalSecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			DeleteFunc: func(e event.DeleteEvent) bool {
 				if infisicalSecretResourceVariablesMap != nil {
 					if rv, ok := infisicalSecretResourceVariablesMap[string(e.Object.GetUID())]; ok {
+						// Explicit SSE cleanup before context cancellation
+						if rv.ServerSentEvents != nil {
+							rv.ServerSentEvents.Close()
+						}
 						rv.CancelCtx()
 						delete(infisicalSecretResourceVariablesMap, string(e.Object.GetUID()))
 					}

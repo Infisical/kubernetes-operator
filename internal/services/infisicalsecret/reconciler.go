@@ -600,11 +600,13 @@ func (r *InfisicalSecretReconciler) getResourceVariables(infisicalSecret v1alpha
 			UserAgent:     constants.USER_AGENT_NAME,
 		})
 
+		// SSE registry will be initialized lazily in OpenInstantUpdatesStream
+		// when eventCh is available
 		resourceVariablesMap[string(infisicalSecret.UID)] = util.ResourceVariables{
 			InfisicalClient:  client,
 			CancelCtx:        cancel,
 			AuthDetails:      util.AuthenticationDetails{},
-			ServerSentEvents: sse.NewConnectionRegistry(ctx),
+			ServerSentEvents: nil,
 		}
 
 		resourceVariables = resourceVariablesMap[string(infisicalSecret.UID)]
@@ -705,7 +707,7 @@ func (r *InfisicalSecretReconciler) ReconcileInfisicalSecret(ctx context.Context
 			InfisicalClient:  infisicalClient,
 			CancelCtx:        cancelCtx,
 			AuthDetails:      authDetails,
-			ServerSentEvents: sse.NewConnectionRegistry(ctx),
+			ServerSentEvents: resourceVariables.ServerSentEvents, // Preserve existing SSE registry
 		}, resourceVariablesMap)
 	}
 
@@ -796,14 +798,9 @@ func (r *InfisicalSecretReconciler) CloseInstantUpdatesStream(ctx context.Contex
 
 	variables := r.getResourceVariables(*infisicalSecret, resourceVariablesMap)
 
-	if !variables.AuthDetails.IsMachineIdentityAuth {
-		return fmt.Errorf("only machine identity is supported for subscriptions")
-	}
-
-	conn := variables.ServerSentEvents
-
-	if _, ok := conn.Get(); ok {
-		conn.Close()
+	// Close SSE connection if it exists
+	if variables.ServerSentEvents != nil {
+		variables.ServerSentEvents.Close()
 	}
 
 	return nil
@@ -816,10 +813,6 @@ func (r *InfisicalSecretReconciler) OpenInstantUpdatesStream(ctx context.Context
 
 	variables := r.getResourceVariables(*infisicalSecret, resourceVariablesMap)
 
-	if !variables.AuthDetails.IsMachineIdentityAuth {
-		return fmt.Errorf("only machine identity is supported for subscriptions")
-	}
-
 	identityScope := variables.AuthDetails.MachineIdentityScope
 
 	if err := identityScope.ValidateScope(); err != nil {
@@ -827,27 +820,83 @@ func (r *InfisicalSecretReconciler) OpenInstantUpdatesStream(ctx context.Context
 	}
 
 	infisicalClient := variables.InfisicalClient
-	sseRegistry := variables.ServerSentEvents
 
 	token := infisicalClient.Auth().GetAccessToken()
 
+	// Resolve project ID from slug if needed
+	resolvedProjectID := identityScope.ProjectID
 	if identityScope.ProjectSlug != "" {
-
 		projectId, err := util.ExtractProjectIdFromSlug(infisicalClient.Auth().GetAccessToken(), identityScope.ProjectSlug)
 		if err != nil {
 			return fmt.Errorf("unable to extract project id from slug [err=%s]", err)
 		}
-
-		logger.Info(fmt.Sprintf("OpenInstantUpdatesStream: Extracted project id from slug [projectId=%s] [projectSlug=%s]", projectId, identityScope.ProjectSlug))
-		identityScope.ProjectID = projectId
+		resolvedProjectID = projectId
 	}
 
+	// Build secrets path with recursive suffix if needed
+	secretsPath := identityScope.SecretsPath
 	if identityScope.Recursive {
-		identityScope.SecretsPath = fmt.Sprint(identityScope.SecretsPath, "**")
+		secretsPath = fmt.Sprint(secretsPath, "**")
 	}
 
-	events, errors, err := sseRegistry.Subscribe(func() (*http.Response, error) {
+	// Build current params for change detection
+	currentParams := sse.SubscriptionParams{
+		ProjectID:   resolvedProjectID,
+		EnvSlug:     identityScope.EnvSlug,
+		SecretsPath: secretsPath,
+	}
 
+	// Check if SSE registry exists, create if needed
+	sseRegistry := variables.ServerSentEvents
+	if sseRegistry == nil {
+		// Create SSE registry with callbacks
+		sseRegistry = sse.NewConnectionRegistry(
+			// onEvent callback - triggers reconciliation
+			func(ev sse.Event) {
+				logger.Info("Received SSE Event", "event", ev.Event, "data", ev.Data)
+				eventCh <- event.TypedGenericEvent[client.Object]{
+					Object: infisicalSecret,
+				}
+			},
+			// onError callback - log errors
+			func(err error) {
+				logger.Error(err, "SSE error occurred")
+			},
+			// onReconnect callback - triggers reconciliation after max retries
+			func() {
+				logger.Info("SSE max retries exceeded, triggering reconciliation")
+				eventCh <- event.TypedGenericEvent[client.Object]{
+					Object: infisicalSecret,
+				}
+			},
+		)
+		variables.ServerSentEvents = sseRegistry
+	}
+
+	// Check if params changed from existing connection
+	if existingParams, ok := sseRegistry.GetParams(); ok {
+		if existingParams.Equals(currentParams) {
+			// Already connected with same params, check if connection is still valid
+			if sseRegistry.IsConnected() {
+				logger.Info("SSE connection already active with same params, reusing")
+				return nil
+			}
+			// Connection is dead, will reconnect below
+			logger.Info("SSE connection dead, reconnecting with same params")
+		} else {
+			// Params changed, log it
+			logger.Info("SSE params changed, reconnecting",
+				"old_project", existingParams.ProjectID,
+				"new_project", currentParams.ProjectID,
+				"old_env", existingParams.EnvSlug,
+				"new_env", currentParams.EnvSlug,
+				"old_path", existingParams.SecretsPath,
+				"new_path", currentParams.SecretsPath)
+		}
+	}
+
+	// Subscribe with the new params (will close old connection if needed)
+	err := sseRegistry.SubscribeWithParams(currentParams, func() (*http.Response, error) {
 		httpClient, err := util.CreateRestyClient(model.CreateRestyClientOptions{
 			AccessToken: token,
 			Headers: map[string]string{
@@ -861,8 +910,7 @@ func (r *InfisicalSecretReconciler) OpenInstantUpdatesStream(ctx context.Context
 			return nil, fmt.Errorf("unable to create resty client. [err=%v]", err)
 		}
 
-		req, err := api.CallSubscribeProjectEvents(httpClient, identityScope.ProjectID, identityScope.SecretsPath, identityScope.EnvSlug)
-
+		req, err := api.CallSubscribeProjectEvents(httpClient, currentParams.ProjectID, currentParams.SecretsPath, currentParams.EnvSlug)
 		if err != nil {
 			return nil, err
 		}
@@ -874,23 +922,13 @@ func (r *InfisicalSecretReconciler) OpenInstantUpdatesStream(ctx context.Context
 		return fmt.Errorf("unable to connect sse [err=%s]", err)
 	}
 
-	go func() {
-	outer:
-		for {
-			select {
-			case ev := <-events:
-				logger.Info("Received SSE Event", "event", ev)
-				eventCh <- event.TypedGenericEvent[client.Object]{
-					Object: infisicalSecret,
-				}
-			case err := <-errors:
-				logger.Error(err, "Error occurred")
-				break outer
-			case <-ctx.Done():
-				break outer
-			}
-		}
-	}()
+	// Update resource variables to persist the SSE registry
+	r.updateResourceVariables(*infisicalSecret, variables, resourceVariablesMap)
+
+	logger.Info("SSE connection established",
+		"projectID", currentParams.ProjectID,
+		"envSlug", currentParams.EnvSlug,
+		"secretsPath", currentParams.SecretsPath)
 
 	return nil
 }

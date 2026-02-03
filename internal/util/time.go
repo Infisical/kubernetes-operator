@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func ConvertResyncIntervalToDuration(resyncInterval string) (time.Duration, error) {
+func ConvertResyncIntervalToDuration(resyncInterval string, allowZero bool) (time.Duration, error) {
 	length := len(resyncInterval)
 	if length < 2 {
 		return 0, fmt.Errorf("invalid format")
@@ -23,6 +23,9 @@ func ConvertResyncIntervalToDuration(resyncInterval string) (time.Duration, erro
 	switch unit {
 	case "s":
 		if number < 5 {
+			if number == 0 && allowZero {
+				return 0, nil
+			}
 			return 0, fmt.Errorf("resync interval must be at least 5 seconds")
 		}
 		return time.Duration(number) * time.Second, nil

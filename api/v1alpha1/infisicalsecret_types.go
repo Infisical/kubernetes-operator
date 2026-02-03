@@ -177,6 +177,7 @@ type InfisicalSecretSpec struct {
 	ManagedKubeConfigMapReferences []ManagedKubeConfigMapConfig `json:"managedKubeConfigMapReferences"`
 
 	// +kubebuilder:default:=60
+	// +kubebuilder:validation:Optional
 	ResyncInterval int `json:"resyncInterval"`
 
 	// Infisical host to pull secrets from

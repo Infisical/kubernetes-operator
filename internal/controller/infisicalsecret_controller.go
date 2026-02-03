@@ -39,6 +39,8 @@ import (
 	"github.com/go-logr/logr"
 )
 
+const DEFAULT_RESYNC_INTERVAL = time.Minute
+
 // InfisicalSecretReconciler reconciles a InfisicalSecret object
 type InfisicalSecretReconciler struct {
 	client.Client
@@ -79,7 +81,6 @@ func (r *InfisicalSecretReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	logger := r.GetLogger(req)
 
 	var infisicalSecretCRD secretsv1alpha1.InfisicalSecret
-	requeueTime := time.Minute // seconds
 
 	err := r.Get(ctx, req.NamespacedName, &infisicalSecretCRD)
 	if err != nil {
@@ -130,20 +131,32 @@ func (r *InfisicalSecretReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, nil
 	}
 
-	// Determine resync interval - prefer syncConfig if provided
-	if infisicalSecretCRD.Spec.SyncConfig != nil && infisicalSecretCRD.Spec.SyncConfig.ResyncInterval != "" {
-		duration, err := util.ConvertResyncIntervalToDuration(infisicalSecretCRD.Spec.SyncConfig.ResyncInterval)
-		if err != nil {
-			logger.Error(err, "invalid resync interval in syncConfig, using default")
-		} else {
-			requeueTime = duration
-			logger.Info(fmt.Sprintf("Re-sync interval set from syncConfig. Interval: %v", requeueTime))
+	syncConfig := infisicalSecretCRD.Spec.SyncConfig
+	var requeueTime time.Duration
+
+	if syncConfig == nil {
+		syncConfig = &secretsv1alpha1.InfisicalSecretSyncConfig{
+			ResyncInterval: fmt.Sprintf("%ds", infisicalSecretCRD.Spec.ResyncInterval),
+			InstantUpdates: infisicalSecretCRD.Spec.InstantUpdates,
 		}
-	} else if infisicalSecretCRD.Spec.ResyncInterval != 0 {
-		requeueTime = time.Second * time.Duration(infisicalSecretCRD.Spec.ResyncInterval)
-		logger.Info(fmt.Sprintf("Manual re-sync interval set. Interval: %v", requeueTime))
+
+		logger.Info("\n\n\nThe fields `instantUpdates` and `resyncInterval` are deprecated. Please use `syncConfig.instantUpdates` and `syncConfig.resyncInterval` instead.\n\nRefer to the documentation for more information: https://infisical.com/docs/integrations/platforms/kubernetes/infisical-secret-crd\n\n\n")
+
+	}
+
+	if duration, err := util.ConvertResyncIntervalToDuration(syncConfig.ResyncInterval, true); err == nil {
+		// successfully parsed the resync interval. if its parsed to 0, we should use the default of 60 seconds
+		if duration != 0 {
+			requeueTime = duration
+			logger.Info(fmt.Sprintf("resync interval set from syncConfig. interval: %v", requeueTime))
+		} else {
+			logger.Info(fmt.Sprintf("resync interval set to 0, using default of %v", DEFAULT_RESYNC_INTERVAL))
+			requeueTime = DEFAULT_RESYNC_INTERVAL
+		}
 	} else {
-		logger.Info(fmt.Sprintf("Re-sync interval set. Interval: %v", requeueTime))
+		// failed to parse the resync interval
+		logger.Error(err, fmt.Sprintf("failed to parse resync interval from syncConfig, using default of %v. [err=%v]", DEFAULT_RESYNC_INTERVAL, err))
+		requeueTime = DEFAULT_RESYNC_INTERVAL
 	}
 
 	// Check if the resource is already marked for deletion
@@ -193,13 +206,7 @@ func (r *InfisicalSecretReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, fmt.Errorf("unable to reconcile auto redeployment: %w", err)
 	}
 
-	// Determine instant updates - prefer syncConfig if provided
-	instantUpdatesEnabled := infisicalSecretCRD.Spec.InstantUpdates
-	if infisicalSecretCRD.Spec.SyncConfig != nil {
-		instantUpdatesEnabled = infisicalSecretCRD.Spec.SyncConfig.InstantUpdates
-	}
-
-	if instantUpdatesEnabled {
+	if syncConfig.InstantUpdates {
 		if err := handler.OpenInstantUpdatesStream(ctx, logger, &infisicalSecretCRD, infisicalSecretResourceVariablesMap, r.SourceCh); err != nil {
 			// Log SSE errors but don't fail reconciliation - periodic resync will continue
 			logger.Error(err, "instant updates stream failed, falling back to periodic sync only")

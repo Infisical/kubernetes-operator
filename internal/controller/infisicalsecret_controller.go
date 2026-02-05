@@ -40,6 +40,7 @@ import (
 )
 
 const DEFAULT_RESYNC_INTERVAL = time.Minute
+const DEFAULT_RESYNC_INTERVAL_WITH_INSTANT_UPDATES = time.Hour
 
 // InfisicalSecretReconciler reconciles a InfisicalSecret object
 type InfisicalSecretReconciler struct {
@@ -144,19 +145,34 @@ func (r *InfisicalSecretReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	}
 
-	if duration, err := util.ConvertResyncIntervalToDuration(syncConfig.ResyncInterval, true); err == nil {
-		// successfully parsed the resync interval. if its parsed to 0, we should use the default of 60 seconds
-		if duration != 0 {
-			requeueTime = duration
-			logger.Info(fmt.Sprintf("resync interval set from syncConfig. interval: %v", requeueTime))
+	// Determine the default resync interval based on InstantUpdates setting
+	defaultResyncInterval := DEFAULT_RESYNC_INTERVAL
+	if syncConfig.InstantUpdates {
+		defaultResyncInterval = DEFAULT_RESYNC_INTERVAL_WITH_INSTANT_UPDATES
+	}
+
+	// Check if ResyncInterval was explicitly provided
+	resyncIntervalProvided := syncConfig.ResyncInterval != "" && syncConfig.ResyncInterval != "0s"
+
+	if resyncIntervalProvided {
+		if duration, err := util.ConvertResyncIntervalToDuration(syncConfig.ResyncInterval, true); err == nil {
+			if duration != 0 {
+				requeueTime = duration
+				logger.Info(fmt.Sprintf("resync interval set from syncConfig. interval: %v", requeueTime))
+			} else {
+				// Parsed to 0, use default based on InstantUpdates
+				logger.Info(fmt.Sprintf("resync interval set to 0, using default of %v", defaultResyncInterval))
+				requeueTime = defaultResyncInterval
+			}
 		} else {
-			logger.Info(fmt.Sprintf("resync interval set to 0, using default of %v", DEFAULT_RESYNC_INTERVAL))
-			requeueTime = DEFAULT_RESYNC_INTERVAL
+			// Failed to parse the resync interval
+			logger.Error(err, fmt.Sprintf("failed to parse resync interval from syncConfig, using default of %v. [err=%v]", defaultResyncInterval, err))
+			requeueTime = defaultResyncInterval
 		}
 	} else {
-		// failed to parse the resync interval
-		logger.Error(err, fmt.Sprintf("failed to parse resync interval from syncConfig, using default of %v. [err=%v]", DEFAULT_RESYNC_INTERVAL, err))
-		requeueTime = DEFAULT_RESYNC_INTERVAL
+		// ResyncInterval not provided, use default based on InstantUpdates
+		logger.Info(fmt.Sprintf("resync interval not provided, using default of %v (instantUpdates=%v)", defaultResyncInterval, syncConfig.InstantUpdates))
+		requeueTime = defaultResyncInterval
 	}
 
 	// Check if the resource is already marked for deletion

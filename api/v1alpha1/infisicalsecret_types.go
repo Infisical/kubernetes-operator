@@ -176,7 +176,6 @@ type InfisicalSecretSpec struct {
 	// +kubebuilder:validation:Optional
 	ManagedKubeConfigMapReferences []ManagedKubeConfigMapConfig `json:"managedKubeConfigMapReferences"`
 
-	// +kubebuilder:default:=60
 	// +kubebuilder:validation:Optional
 	ResyncInterval int `json:"resyncInterval"`
 
@@ -199,7 +198,6 @@ type InfisicalSecretSyncConfig struct {
 	InstantUpdates bool `json:"instantUpdates"`
 
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:="60s"
 	ResyncInterval string `json:"resyncInterval"`
 }
 

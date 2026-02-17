@@ -26,6 +26,8 @@ controllerManager:
       requests:
         cpu: 10m
         memory: 64Mi
+    # -- Extra environment variables to add to the manager container
+    extraEnv: []
   podSecurityContext:
     runAsNonRoot: true
     seccompProfile:

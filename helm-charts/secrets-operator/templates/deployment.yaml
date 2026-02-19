@@ -34,6 +34,9 @@ spec:
         env:
         - name: KUBERNETES_CLUSTER_DOMAIN
           value: {{ quote .Values.kubernetesClusterDomain }}
+        {{- with .Values.controllerManager.manager.extraEnv }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
         image: {{ .Values.controllerManager.manager.image.repository }}:{{ .Values.controllerManager.manager.image.tag
           | default .Chart.AppVersion }}
         livenessProbe:

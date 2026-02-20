@@ -30,6 +30,8 @@ controllerManager:
         memory: 64Mi
     # -- Extra environment variables to add to the manager container
     extraEnv: []
+    # -- Extra volume mounts to add to the manager container
+    extraVolumeMounts: []
   podSecurityContext:
     runAsNonRoot: true
     seccompProfile:

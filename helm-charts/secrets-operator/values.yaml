@@ -49,6 +49,7 @@ scopedNamespaces: []
 
 scopedRBAC: false
 installCRDs: true
+configureBasicKubernetesAuth: false
 imagePullSecrets: []
 
 metricsService:

@@ -63,6 +63,10 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.controllerManager.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       terminationGracePeriodSeconds: 10
       nodeSelector: {{ toYaml .Values.controllerManager.nodeSelector | nindent 8 }}
       tolerations: {{ toYaml .Values.controllerManager.tolerations | nindent 8 }}

@@ -5,6 +5,8 @@ controllerManager:
     annotations: {}
   nodeSelector: {}
   tolerations: []
+  # -- Extra volumes to add to the pod
+  extraVolumes: []
   manager:
     args:
     - --metrics-bind-address=:8443

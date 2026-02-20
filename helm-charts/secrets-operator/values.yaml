@@ -7,6 +7,8 @@ controllerManager:
   tolerations: []
   # -- Extra volumes to add to the pod
   extraVolumes: []
+  # -- Extra init containers to add to the pod
+  extraInitContainers: []
   manager:
     args:
     - --metrics-bind-address=:8443

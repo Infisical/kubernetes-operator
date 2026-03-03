@@ -5,6 +5,10 @@ controllerManager:
     annotations: {}
   nodeSelector: {}
   tolerations: []
+  # -- Extra volumes to add to the pod
+  extraVolumes: []
+  # -- Extra init containers to add to the pod
+  extraInitContainers: []
   manager:
     args:
     - --metrics-bind-address=:8443
@@ -28,6 +32,8 @@ controllerManager:
         memory: 64Mi
     # -- Extra environment variables to add to the manager container
     extraEnv: []
+    # -- Extra volume mounts to add to the manager container
+    extraVolumeMounts: []
   podSecurityContext:
     runAsNonRoot: true
     seccompProfile:

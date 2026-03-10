@@ -1,0 +1,88 @@
+{{- if .Values.configureBasicKubernetesAuth }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "secrets-operator.fullname" . }}-token-setup
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation # we keep the job after successful creation so we can view logs afterwards
+  labels:
+    {{- include "secrets-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: token-setup
+spec:
+  activeDeadlineSeconds: 30  # Timeout after 30 seconds to prevent Helm from hanging
+  backoffLimit: 0  # Don't retry the Job if it fails
+  template:
+    metadata:
+      labels:
+        {{- include "secrets-operator.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: token-setup
+    spec:
+      serviceAccountName: {{ include "secrets-operator.serviceAccountName" . }}
+      restartPolicy: Never
+      containers:
+      - name: token-setup
+        image: bitnami/kubectl:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          echo "Patching service account infisical-token-reviewer..."
+          kubectl patch serviceaccount infisical-token-reviewer \
+            -p '{"secrets": [{"name": "infisical-token-reviewer-token"}]}' \
+            -n {{ .Release.Namespace }} || echo "Note: Service account may already be patched"
+          
+          echo "Waiting for token secret to be available..."
+          MAX_RETRIES=15
+          RETRY_COUNT=0
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if kubectl get secret infisical-token-reviewer-token -n {{ .Release.Namespace }} &>/dev/null; then
+              TOKEN=$(kubectl get secret infisical-token-reviewer-token -n {{ .Release.Namespace }} -o=jsonpath='{.data.token}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+              if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
+                # Get CA certificate from the secret
+                CA_CERT=$(kubectl get secret infisical-token-reviewer-token -n {{ .Release.Namespace }} -o=jsonpath='{.data.ca\.crt}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+                
+                echo ""
+                echo "=========================================="
+                echo "Installation complete."
+                echo ""
+                echo "Reviewer token:"
+                echo ""
+                echo "$TOKEN"
+                echo ""
+                echo ""
+                if [ -n "$CA_CERT" ]; then
+                  echo "CA certificate:"
+                  echo ""
+                  echo "$CA_CERT"
+                else
+                  echo "CA certificate: (not available in secret)"
+                  echo ""
+                fi
+                echo ""
+                echo "Kubernetes host:"
+                echo ""
+                echo "Unable to determine Kubernetes host. You can find your Kubernetes host by running 'kubectl cluster-info'."
+                echo "Ensure that the Kubernetes host is accessible by Infisical. If this is a private cluster, you may need to configure the Infisical Gateway to allow access to the Kubernetes host from Infisical."
+                echo ""
+                echo ""
+                echo "=========================================="
+                exit 0
+              fi
+            fi
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            echo "  Attempt $RETRY_COUNT/$MAX_RETRIES: Token not ready yet, waiting..."
+            sleep 1
+          done
+          
+          echo ""
+          echo "Warning: Token not available after $MAX_RETRIES attempts."
+          echo "Please check the secret manually with:"
+          echo "  kubectl get secret infisical-token-reviewer-token -n {{ .Release.Namespace }} -o=jsonpath='{.data.token}' | base64 --decode && echo"
+          exit 1
+{{- end }}
+

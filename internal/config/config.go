@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1alpha1"
 )
@@ -11,7 +12,14 @@ type InfisicalGlobalConfig struct {
 	TLS     *v1alpha1.TLSConfig `json:"tls,omitempty"`
 }
 
-var API_HOST_URL string = "https://app.infisical.com/api"
+func GetDefaultHostAPI() string {
+	if v := os.Getenv("INFISICAL_HOST_API"); v != "" {
+		return v
+	}
+	return "https://app.infisical.com/api"
+}
+
+var API_HOST_URL string = GetDefaultHostAPI()
 var API_CA_CERTIFICATE string = ""
 
 func ParseInfisicalGlobalConfig(rawMap map[string]string) (InfisicalGlobalConfig, error) {

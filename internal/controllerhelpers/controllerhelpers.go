@@ -268,7 +268,7 @@ func ReconcileStatefulSet(ctx context.Context, client controllerClient.Client, l
 func GetInfisicalConfigMap(ctx context.Context, client client.Client, isNamespaceScoped bool) (configMap config.InfisicalGlobalConfig, errToReturn error) {
 	// default key values
 	defaultConfigMapData := config.InfisicalGlobalConfig{
-		HostAPI: constants.INFISICAL_DOMAIN,
+		HostAPI: config.GetDefaultHostAPI(),
 	}
 
 	// this will never work if we're namespace scoped, because the operator can't read outside of its namespace by our current RBAC rules.

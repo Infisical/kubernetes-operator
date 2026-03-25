@@ -12,4 +12,6 @@ type ResourceVariables struct {
 	CancelCtx        context.CancelFunc
 	AuthDetails      AuthenticationDetails
 	ServerSentEvents *sse.ConnectionRegistry
+	ServerETag       string // ETag from last successful API response, used for If-None-Match
+	LastSecretsCount int    // Secret count from last successful fetch (returned on 304 path)
 }

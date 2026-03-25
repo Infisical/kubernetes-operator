@@ -731,13 +731,6 @@ func (r *InfisicalSecretReconciler) ReconcileInfisicalSecret(ctx context.Context
 		return resourceVariables.LastSecretsCount, nil
 	}
 
-	// Store new ETag for next reconciliation cycle
-	if result.ETag != "" {
-		resourceVariables.ServerETag = result.ETag
-	}
-	resourceVariables.LastSecretsCount = len(result.Secrets)
-	r.updateResourceVariables(*infisicalSecret, resourceVariables, resourceVariablesMap)
-
 	plainTextSecretsFromApi := result.Secrets
 	secretsCount := len(plainTextSecretsFromApi)
 	secretOwnerReferences := make(map[string]bool)
@@ -810,6 +803,12 @@ func (r *InfisicalSecretReconciler) ReconcileInfisicalSecret(ctx context.Context
 	}
 
 	r.deleteUnreferencedOwnedResources(ctx, logger, *infisicalSecret, secretOwnerReferences, configMapOwnerReferences)
+
+	if result.ETag != "" {
+		resourceVariables.ServerETag = result.ETag
+	}
+	resourceVariables.LastSecretsCount = secretsCount
+	r.updateResourceVariables(*infisicalSecret, resourceVariables, resourceVariablesMap)
 
 	return secretsCount, nil
 }

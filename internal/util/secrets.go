@@ -97,6 +97,9 @@ func GetPlainTextSecretsViaMachineIdentity(infisicalClient infisical.InfisicalCl
 
 		return SecretsResult{Secrets: environmentVariables, ETag: result.ETag}, nil
 	} else {
+		// Note: ETag caching is not supported for single-secret retrieval because the
+		// go-sdk's RetrieveSecretOptions does not accept an IfNoneMatch parameter.
+		// Every reconcile for a single-secret config will make a full API round-trip.
 		secret, err := infisicalClient.Secrets().Retrieve(infisical.RetrieveSecretOptions{
 			SecretKey:              secretScope.SecretName,
 			ProjectID:              secretScope.ProjectID,

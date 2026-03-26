@@ -1,6 +1,7 @@
 package util
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -15,6 +16,12 @@ type DecodedSymmetricEncryptionDetails = struct {
 	IV     []byte
 	Tag    []byte
 	Key    []byte
+}
+
+type SecretsResult struct {
+	Secrets     []model.SingleEnvironmentVariable
+	ETag        string
+	NotModified bool
 }
 
 func VerifyServiceToken(serviceToken string) (string, error) {
@@ -53,26 +60,31 @@ func GetServiceTokenDetails(infisicalToken string) (api.GetServiceTokenDetailsRe
 	return serviceTokenDetails, nil
 }
 
-func GetPlainTextSecretsViaMachineIdentity(infisicalClient infisical.InfisicalClientInterface, secretScope v1alpha1.MachineIdentityScopeInWorkspace) ([]model.SingleEnvironmentVariable, error) {
+func GetPlainTextSecretsViaMachineIdentity(infisicalClient infisical.InfisicalClientInterface, secretScope v1alpha1.MachineIdentityScopeInWorkspace, ifNoneMatch string) (SecretsResult, error) {
 
 	var environmentVariables []model.SingleEnvironmentVariable
 
 	if secretScope.SecretName == "" {
 
-		secrets, err := infisicalClient.Secrets().List(infisical.ListSecretsOptions{
+		result, err := infisicalClient.Secrets().ListSecrets(infisical.ListSecretsOptions{
 			ProjectID:              secretScope.ProjectID,
 			Environment:            secretScope.EnvSlug,
 			Recursive:              secretScope.Recursive,
 			SecretPath:             secretScope.SecretsPath,
 			IncludeImports:         true,
 			ExpandSecretReferences: true,
+			IfNoneMatch:            ifNoneMatch,
 		})
 
 		if err != nil {
-			return nil, fmt.Errorf("unable to get secrets. [err=%v]", err)
+			var notModifiedErr *infisical.NotModifiedError
+			if errors.As(err, &notModifiedErr) {
+				return SecretsResult{NotModified: true, ETag: ifNoneMatch}, nil
+			}
+			return SecretsResult{}, fmt.Errorf("unable to get secrets. [err=%v]", err)
 		}
 
-		for _, secret := range secrets {
+		for _, secret := range result.Secrets {
 
 			environmentVariables = append(environmentVariables, model.SingleEnvironmentVariable{
 				Key:        secret.SecretKey,
@@ -82,7 +94,12 @@ func GetPlainTextSecretsViaMachineIdentity(infisicalClient infisical.InfisicalCl
 				SecretPath: secret.SecretPath,
 			})
 		}
+
+		return SecretsResult{Secrets: environmentVariables, ETag: result.ETag}, nil
 	} else {
+		// Note: ETag caching is not supported for single-secret retrieval because the
+		// go-sdk's RetrieveSecretOptions does not accept an IfNoneMatch parameter.
+		// Every reconcile for a single-secret config will make a full API round-trip.
 		secret, err := infisicalClient.Secrets().Retrieve(infisical.RetrieveSecretOptions{
 			SecretKey:              secretScope.SecretName,
 			ProjectID:              secretScope.ProjectID,
@@ -93,7 +110,7 @@ func GetPlainTextSecretsViaMachineIdentity(infisicalClient infisical.InfisicalCl
 		})
 
 		if err != nil {
-			return nil, fmt.Errorf("unable to get single secret [secretName=%s]. [err=%v]", secretScope.SecretName, err)
+			return SecretsResult{}, fmt.Errorf("unable to get single secret [secretName=%s]. [err=%v]", secretScope.SecretName, err)
 		}
 
 		environmentVariables = append(environmentVariables, model.SingleEnvironmentVariable{
@@ -105,13 +122,13 @@ func GetPlainTextSecretsViaMachineIdentity(infisicalClient infisical.InfisicalCl
 		})
 	}
 
-	return environmentVariables, nil
+	return SecretsResult{Secrets: environmentVariables}, nil
 }
 
-func GetPlainTextSecretsViaServiceToken(infisicalClient infisical.InfisicalClientInterface, fullServiceToken string, envSlug string, secretPath string, recursive bool) ([]model.SingleEnvironmentVariable, error) {
+func GetPlainTextSecretsViaServiceToken(infisicalClient infisical.InfisicalClientInterface, fullServiceToken string, envSlug string, secretPath string, recursive bool, ifNoneMatch string) (SecretsResult, error) {
 	serviceTokenParts := strings.SplitN(fullServiceToken, ".", 4)
 	if len(serviceTokenParts) < 4 {
-		return nil, fmt.Errorf("invalid service token entered. Please double check your service token and try again")
+		return SecretsResult{}, fmt.Errorf("invalid service token entered. Please double check your service token and try again")
 	}
 
 	serviceToken := fmt.Sprintf("%v.%v.%v", serviceTokenParts[0], serviceTokenParts[1], serviceTokenParts[2])
@@ -124,30 +141,35 @@ func GetPlainTextSecretsViaServiceToken(infisicalClient infisical.InfisicalClien
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("unable to create resty client. [err=%v]", err)
+		return SecretsResult{}, fmt.Errorf("unable to create resty client. [err=%v]", err)
 	}
 
 	serviceTokenDetails, err := api.CallGetServiceTokenDetailsV2(httpClient)
 	if err != nil {
-		return nil, fmt.Errorf("unable to get service token details. [err=%v]", err)
+		return SecretsResult{}, fmt.Errorf("unable to get service token details. [err=%v]", err)
 	}
 
-	secrets, err := infisicalClient.Secrets().List(infisical.ListSecretsOptions{
+	result, err := infisicalClient.Secrets().ListSecrets(infisical.ListSecretsOptions{
 		ProjectID:              serviceTokenDetails.Workspace,
 		Environment:            envSlug,
 		Recursive:              recursive,
 		SecretPath:             secretPath,
 		IncludeImports:         true,
 		ExpandSecretReferences: true,
+		IfNoneMatch:            ifNoneMatch,
 	})
 
 	if err != nil {
-		return nil, err
+		var notModifiedErr *infisical.NotModifiedError
+		if errors.As(err, &notModifiedErr) {
+			return SecretsResult{NotModified: true, ETag: ifNoneMatch}, nil
+		}
+		return SecretsResult{}, err
 	}
 
 	var environmentVariables []model.SingleEnvironmentVariable
 
-	for _, secret := range secrets {
+	for _, secret := range result.Secrets {
 
 		environmentVariables = append(environmentVariables, model.SingleEnvironmentVariable{
 			Key:        secret.SecretKey,
@@ -158,14 +180,14 @@ func GetPlainTextSecretsViaServiceToken(infisicalClient infisical.InfisicalClien
 		})
 	}
 
-	return environmentVariables, nil
+	return SecretsResult{Secrets: environmentVariables, ETag: result.ETag}, nil
 
 }
 
 // Fetches plaintext secrets from an API endpoint using a service account.
 // The function fetches the service account details and keys, decrypts the workspace key, fetches the encrypted secrets for the specified project and environment, and decrypts the secrets using the decrypted workspace key.
 // Returns the plaintext secrets, encrypted secrets response, and any errors that occurred during the process.
-func GetPlainTextSecretsViaServiceAccount(infisicalClient infisical.InfisicalClientInterface, serviceAccountCreds model.ServiceAccountDetails, projectId string, environmentName string) ([]model.SingleEnvironmentVariable, error) {
+func GetPlainTextSecretsViaServiceAccount(infisicalClient infisical.InfisicalClientInterface, serviceAccountCreds model.ServiceAccountDetails, projectId string, environmentName string, ifNoneMatch string) (SecretsResult, error) {
 
 	httpClient, err := CreateRestyClient(model.CreateRestyClientOptions{
 		AccessToken: serviceAccountCreds.AccessKey,
@@ -174,17 +196,17 @@ func GetPlainTextSecretsViaServiceAccount(infisicalClient infisical.InfisicalCli
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("unable to create resty client. [err=%v]", err)
+		return SecretsResult{}, fmt.Errorf("unable to create resty client. [err=%v]", err)
 	}
 
 	serviceAccountDetails, err := api.CallGetServiceTokenAccountDetailsV2(httpClient)
 	if err != nil {
-		return nil, fmt.Errorf("GetPlainTextSecretsViaServiceAccount: unable to get service account details. [err=%v]", err)
+		return SecretsResult{}, fmt.Errorf("GetPlainTextSecretsViaServiceAccount: unable to get service account details. [err=%v]", err)
 	}
 
 	serviceAccountKeys, err := api.CallGetServiceAccountKeysV2(httpClient, api.GetServiceAccountKeysRequest{ServiceAccountId: serviceAccountDetails.ServiceAccount.ID})
 	if err != nil {
-		return nil, fmt.Errorf("GetPlainTextSecretsViaServiceAccount: unable to get service account key details. [err=%v]", err)
+		return SecretsResult{}, fmt.Errorf("GetPlainTextSecretsViaServiceAccount: unable to get service account key details. [err=%v]", err)
 	}
 
 	// find key for requested project
@@ -196,25 +218,30 @@ func GetPlainTextSecretsViaServiceAccount(infisicalClient infisical.InfisicalCli
 	}
 
 	if workspaceServiceAccountKey.ID == "" || workspaceServiceAccountKey.EncryptedKey == "" || workspaceServiceAccountKey.Nonce == "" || serviceAccountCreds.PublicKey == "" || serviceAccountCreds.PrivateKey == "" {
-		return nil, fmt.Errorf("unable to find key for [projectId=%s] [err=%v]. Ensure that the given service account has access to given projectId", projectId, err)
+		return SecretsResult{}, fmt.Errorf("unable to find key for [projectId=%s] [err=%v]. Ensure that the given service account has access to given projectId", projectId, err)
 	}
 
-	secrets, err := infisicalClient.Secrets().List(infisical.ListSecretsOptions{
+	result, err := infisicalClient.Secrets().ListSecrets(infisical.ListSecretsOptions{
 		ProjectID:              projectId,
 		Environment:            environmentName,
 		Recursive:              false,
 		SecretPath:             "/",
 		IncludeImports:         true,
 		ExpandSecretReferences: true,
+		IfNoneMatch:            ifNoneMatch,
 	})
 
 	if err != nil {
-		return nil, err
+		var notModifiedErr *infisical.NotModifiedError
+		if errors.As(err, &notModifiedErr) {
+			return SecretsResult{NotModified: true, ETag: ifNoneMatch}, nil
+		}
+		return SecretsResult{}, err
 	}
 
 	var environmentVariables []model.SingleEnvironmentVariable
 
-	for _, secret := range secrets {
+	for _, secret := range result.Secrets {
 		environmentVariables = append(environmentVariables, model.SingleEnvironmentVariable{
 			Key:        secret.SecretKey,
 			Value:      secret.SecretValue,
@@ -224,5 +251,5 @@ func GetPlainTextSecretsViaServiceAccount(infisicalClient infisical.InfisicalCli
 		})
 	}
 
-	return environmentVariables, nil
+	return SecretsResult{Secrets: environmentVariables, ETag: result.ETag}, nil
 }

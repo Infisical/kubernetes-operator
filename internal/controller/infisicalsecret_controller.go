@@ -39,7 +39,7 @@ import (
 	"github.com/go-logr/logr"
 )
 
-const DEFAULT_RESYNC_INTERVAL = time.Minute
+const DEFAULT_RESYNC_INTERVAL = time.Minute * 5
 const DEFAULT_RESYNC_INTERVAL_WITH_INSTANT_UPDATES = time.Hour
 
 // InfisicalSecretReconciler reconciles a InfisicalSecret object

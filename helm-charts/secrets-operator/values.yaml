@@ -8,6 +8,8 @@ controllerManager:
     annotations: {}
   nodeSelector: {}
   tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
   # -- Extra volumes to add to the pod
   extraVolumes: []
   # -- Extra init containers to add to the pod

@@ -3,7 +3,7 @@ hostAPI: "https://app.infisical.com/api"
 
 logger:
   # -- The output of the logs. Can be "stdout" or "stderr". Defaults to "stderr".
-  writer: "stdout"
+  writer: "stderr"
 
 controllerManager:
   serviceAccount:

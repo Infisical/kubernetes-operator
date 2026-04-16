@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	secretsv1alpha1 "github.com/Infisical/infisical/k8-operator/api/v1alpha1"
+	"github.com/Infisical/infisical/k8-operator/internal/config"
 	"github.com/Infisical/infisical/k8-operator/internal/controller"
 	"github.com/Infisical/infisical/k8-operator/internal/template"
 	// +kubebuilder:scaffold:imports
@@ -95,7 +96,13 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	// Resolve the SDK log writer once at startup from INFISICAL_LOG_WRITER
+	// (set by the Helm chart from .Values.logging.writer). Unset/empty
+	// defaults to stderr; invalid values fail fast.
+	logWriter := config.GetDefaultLogWriter()
+	config.API_LOG_WRITER = logWriter.Writer()
+
+	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts), zap.WriteTo(config.API_LOG_WRITER)))
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will

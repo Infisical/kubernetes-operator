@@ -40,6 +40,8 @@ spec:
           value: {{ quote .Values.kubernetesClusterDomain }}
         - name: INFISICAL_HOST_API
           value: {{ quote .Values.hostAPI }}
+        - name: INFISICAL_LOG_WRITER
+          value: {{ quote .Values.logger.writer }}
         {{- with .Values.controllerManager.manager.extraEnv }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

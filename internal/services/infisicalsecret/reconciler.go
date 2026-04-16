@@ -604,6 +604,7 @@ func (r *InfisicalSecretReconciler) getResourceVariables(infisicalSecret v1alpha
 			SiteUrl:       config.API_HOST_URL,
 			CaCertificate: config.API_CA_CERTIFICATE,
 			UserAgent:     constants.USER_AGENT_NAME,
+			LogWriter:     config.API_LOG_WRITER,
 		})
 
 		// SSE registry will be initialized lazily in OpenInstantUpdatesStream

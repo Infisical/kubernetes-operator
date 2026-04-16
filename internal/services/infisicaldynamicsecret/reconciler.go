@@ -121,6 +121,7 @@ func (r *InfisicalDynamicSecretReconciler) getResourceVariables(infisicalDynamic
 			SiteUrl:       config.API_HOST_URL,
 			CaCertificate: config.API_CA_CERTIFICATE,
 			UserAgent:     constants.USER_AGENT_NAME,
+			LogWriter:     config.API_LOG_WRITER,
 		})
 
 		resourceVariablesMap[string(infisicalDynamicSecret.UID)] = util.ResourceVariables{

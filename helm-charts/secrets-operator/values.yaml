@@ -1,6 +1,10 @@
 # -- The Infisical API host URL. This is the default host used when no hostAPI is set on the CRD or global ConfigMap.
 hostAPI: "https://app.infisical.com/api"
 
+logger: 
+  # -- The output of the logs. Can be "stdout" or "stderr". Defaults to "stderr".
+  writer: "stdout"
+
 controllerManager:
   serviceAccount:
     create: true

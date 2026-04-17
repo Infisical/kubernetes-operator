@@ -693,7 +693,6 @@ func (r *InfisicalSecretReconciler) ReconcileInfisicalSecret(ctx context.Context
 
 	resourceVariables := r.getResourceVariables(*infisicalSecret, resourceVariablesMap)
 	infisicalClient := resourceVariables.InfisicalClient
-	cancelCtx := resourceVariables.CancelCtx
 	authDetails := resourceVariables.AuthDetails
 	var err error
 
@@ -710,14 +709,9 @@ func (r *InfisicalSecretReconciler) ReconcileInfisicalSecret(ctx context.Context
 			return 0, fmt.Errorf("unable to authenticate [err=%s]", err)
 		}
 
-		r.updateResourceVariables(*infisicalSecret, util.ResourceVariables{
-			InfisicalClient:  infisicalClient,
-			CancelCtx:        cancelCtx,
-			AuthDetails:      authDetails,
-			ServerSentEvents: resourceVariables.ServerSentEvents, // Preserve existing SSE registry
-			ServerETag:       resourceVariables.ServerETag,       // Preserve ETag across re-auth
-			LastSecretsCount: resourceVariables.LastSecretsCount, // Preserve count across re-auth
-		}, resourceVariablesMap)
+		// Update the local resourceVariables so that the auth details are preserved when resourceVariables is written back to the map later in this function.
+		resourceVariables.AuthDetails = authDetails
+		r.updateResourceVariables(*infisicalSecret, resourceVariables, resourceVariablesMap)
 	}
 
 	previousETag := resourceVariables.ServerETag

@@ -2,10 +2,42 @@ package config
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1alpha1"
 )
+
+type SDKLogWriter string
+
+const (
+	Stderr SDKLogWriter = "stderr"
+	Stdout SDKLogWriter = "stdout"
+)
+
+func (w SDKLogWriter) Writer() io.Writer {
+	switch w {
+	case Stderr:
+		return os.Stderr
+	case Stdout:
+		return os.Stdout
+	default:
+		return os.Stderr
+	}
+}
+
+func parseSDKLogWriter(s string) SDKLogWriter {
+	if s == "" {
+		return Stderr
+	}
+	w := SDKLogWriter(s)
+	switch w {
+	case Stderr, Stdout:
+		return w
+	default:
+		return Stderr
+	}
+}
 
 type InfisicalGlobalConfig struct {
 	HostAPI string              `json:"hostAPI"`
@@ -19,8 +51,13 @@ func GetDefaultHostAPI() string {
 	return "https://app.infisical.com/api"
 }
 
+func GetDefaultLogWriter() SDKLogWriter {
+	return parseSDKLogWriter(os.Getenv("INFISICAL_LOG_WRITER"))
+}
+
 var API_HOST_URL string = GetDefaultHostAPI()
 var API_CA_CERTIFICATE string = ""
+var API_LOG_WRITER io.Writer = GetDefaultLogWriter().Writer()
 
 func ParseInfisicalGlobalConfig(rawMap map[string]string) (InfisicalGlobalConfig, error) {
 	config := InfisicalGlobalConfig{}

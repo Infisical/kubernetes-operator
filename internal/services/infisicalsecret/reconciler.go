@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"sort"
 	"strings"
@@ -119,7 +120,7 @@ func convertBinaryToStringMap(binaryMap map[string][]byte) map[string]string {
 	return stringMap
 }
 
-func (r *InfisicalSecretReconciler) createInfisicalManagedKubeResource(ctx context.Context, logger logr.Logger, infisicalSecret v1alpha1.InfisicalSecret, managedSecretReferenceInterface interface{}, secretsFromAPI []model.SingleEnvironmentVariable, ETag string, resourceType constants.ManagedKubeResourceType) error {
+func (r *InfisicalSecretReconciler) createInfisicalManagedKubeResource(ctx context.Context, logger logr.Logger, infisicalSecret v1alpha1.InfisicalSecret, managedSecretReferenceInterface interface{}, secretsFromAPI []model.SingleEnvironmentVariable, resourceType constants.ManagedKubeResourceType) error {
 	plainProcessedSecrets := make(map[string][]byte)
 
 	var managedTemplateData *v1alpha1.SecretTemplate
@@ -216,7 +217,7 @@ func (r *InfisicalSecretReconciler) createInfisicalManagedKubeResource(ctx conte
 
 		managedSecretReference := managedSecretReferenceInterface.(v1alpha1.ManagedKubeSecretConfig)
 
-		annotations[constants.SECRET_VERSION_ANNOTATION] = ETag
+		annotations[constants.SECRET_VERSION_ANNOTATION] = crypto.ComputeRenderedEtag(plainProcessedSecrets)
 		// create a new secret as specified by the managed secret spec of CRD
 		newKubeSecretInstance := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
@@ -406,7 +407,7 @@ func (r *InfisicalSecretReconciler) syncLabelsAndAnnotations(infisicalSecret v1a
 	return newAnnotations, newLabels
 }
 
-func (r *InfisicalSecretReconciler) updateInfisicalManagedKubeSecret(ctx context.Context, logger logr.Logger, infisicalSecret v1alpha1.InfisicalSecret, managedSecretReference v1alpha1.ManagedKubeSecretConfig, managedKubeSecret corev1.Secret, secretsFromAPI []model.SingleEnvironmentVariable, ETag string) error {
+func (r *InfisicalSecretReconciler) updateInfisicalManagedKubeSecret(ctx context.Context, logger logr.Logger, infisicalSecret v1alpha1.InfisicalSecret, managedSecretReference v1alpha1.ManagedKubeSecretConfig, managedKubeSecret corev1.Secret, secretsFromAPI []model.SingleEnvironmentVariable) error {
 	managedTemplateData := managedSecretReference.Template
 
 	plainProcessedSecrets := make(map[string][]byte)
@@ -446,11 +447,23 @@ func (r *InfisicalSecretReconciler) updateInfisicalManagedKubeSecret(ctx context
 		templateMetadata = managedTemplateData.Metadata
 	}
 	newAnnotations, newLabels := r.syncLabelsAndAnnotations(infisicalSecret, managedKubeSecret.ObjectMeta.Annotations, managedKubeSecret.ObjectMeta.Labels, templateMetadata)
+	newAnnotations[constants.SECRET_VERSION_ANNOTATION] = crypto.ComputeRenderedEtag(plainProcessedSecrets)
+
+	// Skip the apiserver write when the rendered output and metadata are unchanged. Without
+	// this, a sibling-secret change in the same Infisical scope flips the server-side ETag,
+	// which lands here as a 200, and an unconditional Update would bump the managed Secret's
+	// resourceVersion and trigger auto-reload restarts on Deployments that don't actually
+	// consume the changed key. See ENG-5058.
+	if maps.EqualFunc(managedKubeSecret.Data, plainProcessedSecrets, bytes.Equal) &&
+		maps.Equal(managedKubeSecret.ObjectMeta.Annotations, newAnnotations) &&
+		maps.Equal(managedKubeSecret.ObjectMeta.Labels, newLabels) {
+		logger.Info("Managed Kubernetes secret already up to date, skipping update")
+		return nil
+	}
 
 	managedKubeSecret.ObjectMeta.Labels = newLabels
 	managedKubeSecret.ObjectMeta.Annotations = newAnnotations
 	managedKubeSecret.Data = plainProcessedSecrets
-	managedKubeSecret.ObjectMeta.Annotations[constants.SECRET_VERSION_ANNOTATION] = ETag
 
 	err := r.Client.Update(ctx, &managedKubeSecret)
 	if err != nil {
@@ -461,7 +474,7 @@ func (r *InfisicalSecretReconciler) updateInfisicalManagedKubeSecret(ctx context
 	return nil
 }
 
-func (r *InfisicalSecretReconciler) updateInfisicalManagedConfigMap(ctx context.Context, logger logr.Logger, infisicalSecret v1alpha1.InfisicalSecret, managedConfigMapReference v1alpha1.ManagedKubeConfigMapConfig, managedConfigMap corev1.ConfigMap, secretsFromAPI []model.SingleEnvironmentVariable, ETag string) error {
+func (r *InfisicalSecretReconciler) updateInfisicalManagedConfigMap(ctx context.Context, logger logr.Logger, infisicalSecret v1alpha1.InfisicalSecret, managedConfigMapReference v1alpha1.ManagedKubeConfigMapConfig, managedConfigMap corev1.ConfigMap, secretsFromAPI []model.SingleEnvironmentVariable) error {
 	managedTemplateData := managedConfigMapReference.Template
 
 	plainProcessedSecrets := make(map[string][]byte)
@@ -501,11 +514,21 @@ func (r *InfisicalSecretReconciler) updateInfisicalManagedConfigMap(ctx context.
 		templateMetadata = managedTemplateData.Metadata
 	}
 	newAnnotations, newLabels := r.syncLabelsAndAnnotations(infisicalSecret, managedConfigMap.ObjectMeta.Annotations, managedConfigMap.ObjectMeta.Labels, templateMetadata)
+	newAnnotations[constants.SECRET_VERSION_ANNOTATION] = crypto.ComputeRenderedEtag(plainProcessedSecrets)
+
+	newData := convertBinaryToStringMap(plainProcessedSecrets)
+
+	// See ENG-5058 / updateInfisicalManagedKubeSecret for rationale.
+	if maps.Equal(managedConfigMap.Data, newData) &&
+		maps.Equal(managedConfigMap.ObjectMeta.Annotations, newAnnotations) &&
+		maps.Equal(managedConfigMap.ObjectMeta.Labels, newLabels) {
+		logger.Info("Managed Kubernetes config map already up to date, skipping update")
+		return nil
+	}
 
 	managedConfigMap.ObjectMeta.Labels = newLabels
 	managedConfigMap.ObjectMeta.Annotations = newAnnotations
-	managedConfigMap.Data = convertBinaryToStringMap(plainProcessedSecrets)
-	managedConfigMap.ObjectMeta.Annotations[constants.SECRET_VERSION_ANNOTATION] = ETag
+	managedConfigMap.Data = newData
 
 	err := r.Client.Update(ctx, &managedConfigMap)
 	if err != nil {
@@ -749,13 +772,12 @@ func (r *InfisicalSecretReconciler) ReconcileInfisicalSecret(ctx context.Context
 				return 0, fmt.Errorf("something went wrong when fetching the managed Kubernetes secret [%w]", err)
 			}
 
-			newEtag := crypto.ComputeEtag([]byte(fmt.Sprintf("%v", plainTextSecretsFromApi)))
 			if managedKubeSecret == nil {
-				if err := r.createInfisicalManagedKubeResource(ctx, logger, *infisicalSecret, managedSecretReference, plainTextSecretsFromApi, newEtag, constants.MANAGED_KUBE_RESOURCE_TYPE_SECRET); err != nil {
+				if err := r.createInfisicalManagedKubeResource(ctx, logger, *infisicalSecret, managedSecretReference, plainTextSecretsFromApi, constants.MANAGED_KUBE_RESOURCE_TYPE_SECRET); err != nil {
 					return 0, fmt.Errorf("failed to create managed secret [err=%s]", err)
 				}
 			} else {
-				if err := r.updateInfisicalManagedKubeSecret(ctx, logger, *infisicalSecret, managedSecretReference, *managedKubeSecret, plainTextSecretsFromApi, newEtag); err != nil {
+				if err := r.updateInfisicalManagedKubeSecret(ctx, logger, *infisicalSecret, managedSecretReference, *managedKubeSecret, plainTextSecretsFromApi); err != nil {
 					return 0, fmt.Errorf("failed to update managed secret [err=%s]", err)
 				}
 			}
@@ -783,13 +805,12 @@ func (r *InfisicalSecretReconciler) ReconcileInfisicalSecret(ctx context.Context
 				return 0, fmt.Errorf("something went wrong when fetching the managed Kubernetes config map [%w]", err)
 			}
 
-			newEtag := crypto.ComputeEtag([]byte(fmt.Sprintf("%v", plainTextSecretsFromApi)))
 			if managedKubeConfigMap == nil {
-				if err := r.createInfisicalManagedKubeResource(ctx, logger, *infisicalSecret, managedConfigMapReference, plainTextSecretsFromApi, newEtag, constants.MANAGED_KUBE_RESOURCE_TYPE_CONFIG_MAP); err != nil {
+				if err := r.createInfisicalManagedKubeResource(ctx, logger, *infisicalSecret, managedConfigMapReference, plainTextSecretsFromApi, constants.MANAGED_KUBE_RESOURCE_TYPE_CONFIG_MAP); err != nil {
 					return 0, fmt.Errorf("failed to create managed config map [err=%s]", err)
 				}
 			} else {
-				if err := r.updateInfisicalManagedConfigMap(ctx, logger, *infisicalSecret, managedConfigMapReference, *managedKubeConfigMap, plainTextSecretsFromApi, newEtag); err != nil {
+				if err := r.updateInfisicalManagedConfigMap(ctx, logger, *infisicalSecret, managedConfigMapReference, *managedKubeConfigMap, plainTextSecretsFromApi); err != nil {
 					return 0, fmt.Errorf("failed to update managed config map [err=%s]", err)
 				}
 			}

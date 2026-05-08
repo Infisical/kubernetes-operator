@@ -43,6 +43,7 @@ import (
 	secretsv1beta1 "github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/config"
 	"github.com/Infisical/infisical/k8-operator/internal/controller"
+	controllerv1beta1 "github.com/Infisical/infisical/k8-operator/internal/controller/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/template"
 	// +kubebuilder:scaffold:imports
 )
@@ -280,6 +281,15 @@ func main() {
 		IsNamespaceScoped: isNamespaceScoped,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InfisicalDynamicSecret")
+		os.Exit(1)
+	}
+	if err := (&controllerv1beta1.InfisicalConnectionReconciler{
+		Client:            mgr.GetClient(),
+		Scheme:            mgr.GetScheme(),
+		BaseLogger:        ctrl.Log,
+		IsNamespaceScoped: isNamespaceScoped,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "InfisicalConnection")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

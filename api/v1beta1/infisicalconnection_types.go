@@ -22,6 +22,7 @@ import (
 
 // InfisicalConnection is the Schema for the infisicalconnection API.
 // +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
 type InfisicalConnection struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -33,7 +34,7 @@ type InfisicalConnection struct {
 // InfisicalConnectionSpec defines how the operator connects to a Infisical instance
 type InfisicalConnectionSpec struct {
 	// +kubebuilder:validation:Required
-	Host string `json:"host"`
+	Host string `json:"host" default:"https://app.infisical.com"`
 
 	// +kubebuilder:validation:Optional
 	TLS TLSConfig `json:"tls"`
@@ -41,7 +42,7 @@ type InfisicalConnectionSpec struct {
 
 // InfisicalConnectionStatus defines the observed state of InfisicalConnection
 type InfisicalConnectionStatus struct {
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	Conditions []metav1.Condition `json:"conditions"`
 }
 
 // InfisicalConnectionList contains a list of InfisicalConnection.

@@ -58,7 +58,7 @@ rules:
   - secrets.infisical.com
   resources:
   - clustergenerators
-  - infisicalconnection
+  - infisicalconnections
   - infisicaldynamicsecrets
   - infisicalpushsecrets
   - infisicalsecrets
@@ -73,7 +73,7 @@ rules:
 - apiGroups:
   - secrets.infisical.com
   resources:
-  - infisicalconnection/finalizers
+  - infisicalconnections/finalizers
   - infisicaldynamicsecrets/finalizers
   - infisicalpushsecrets/finalizers
   - infisicalsecrets/finalizers
@@ -82,7 +82,7 @@ rules:
 - apiGroups:
   - secrets.infisical.com
   resources:
-  - infisicalconnection/status
+  - infisicalconnections/status
   - infisicaldynamicsecrets/status
   - infisicalpushsecrets/status
   - infisicalsecrets/status

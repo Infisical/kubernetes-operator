@@ -21,6 +21,7 @@ import (
 )
 
 // InfisicalConnection is the Schema for the infisicalconnection API.
+// +kubebuilder:object:root=true
 type InfisicalConnection struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -40,5 +41,17 @@ type InfisicalConnectionSpec struct {
 
 // InfisicalConnectionStatus defines the observed state of InfisicalConnection
 type InfisicalConnectionStatus struct {
-	Conditions []metav1.Condition `json:"conditions"`
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// InfisicalConnectionList contains a list of InfisicalConnection.
+// +kubebuilder:object:root=true
+type InfisicalConnectionList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []InfisicalConnection `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&InfisicalConnection{}, &InfisicalConnectionList{})
 }

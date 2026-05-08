@@ -3,4 +3,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: example.com/k8-operator
-  newTag: latest
+  newTag: v0.0.1

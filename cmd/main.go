@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	secretsv1alpha1 "github.com/Infisical/infisical/k8-operator/api/v1alpha1"
+	secretsv1beta1 "github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/config"
 	"github.com/Infisical/infisical/k8-operator/internal/controller"
 	"github.com/Infisical/infisical/k8-operator/internal/template"
@@ -55,6 +56,8 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(secretsv1alpha1.AddToScheme(scheme))
+
+	utilruntime.Must(secretsv1beta1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 

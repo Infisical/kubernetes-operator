@@ -518,7 +518,6 @@ func (r *InfisicalSecretReconciler) updateInfisicalManagedConfigMap(ctx context.
 
 	newData := convertBinaryToStringMap(plainProcessedSecrets)
 
-	// See ENG-5058 / updateInfisicalManagedKubeSecret for rationale.
 	if maps.Equal(managedConfigMap.Data, newData) &&
 		maps.Equal(managedConfigMap.ObjectMeta.Annotations, newAnnotations) &&
 		maps.Equal(managedConfigMap.ObjectMeta.Labels, newLabels) {

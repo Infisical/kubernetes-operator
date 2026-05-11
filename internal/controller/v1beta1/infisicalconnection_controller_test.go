@@ -54,6 +54,13 @@ var _ = Describe("InfisicalConnection Controller", func() {
 				expectReady: true,
 			},
 			{
+				name: "valid-host-with-api-suffix",
+				connOpts: []InfisicalConnectionOpt{WithSpec(secretsv1beta1.InfisicalConnectionSpec{
+					Host: "https://app.infisical.com/api",
+				})},
+				expectReady: true,
+			},
+			{
 				name: "invalid-host",
 				connOpts: []InfisicalConnectionOpt{WithSpec(secretsv1beta1.InfisicalConnectionSpec{
 					Host: "https://invalid.not-a-real-host.example",

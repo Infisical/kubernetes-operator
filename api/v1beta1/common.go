@@ -3,17 +3,17 @@ package v1beta1
 type TLSConfig struct {
 	// Reference to secret containing CA cert
 	// +kubebuilder:validation:Optional
-	CaRef CaReference `json:"caRef,omitempty"`
+	CaCertificate CaCertificate `json:"caCertificate,omitempty"`
 }
 
-type CaReference struct {
+type CaCertificate struct {
 	// The name of the Kubernetes Secret
 	// +kubebuilder:validation:Required
-	SecretName string `json:"secretName"`
+	SecretName string `json:"name"`
 
 	// The namespace where the Kubernetes Secret is located
 	// +kubebuilder:validation:Required
-	SecretNamespace string `json:"secretNamespace"`
+	SecretNamespace string `json:"namespace"`
 
 	// +kubebuilder:validation:Required
 	// The name of the secret property with the CA certificate value

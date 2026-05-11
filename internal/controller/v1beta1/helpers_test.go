@@ -42,7 +42,7 @@ func WithSpec(spec secretsv1beta1.InfisicalConnectionSpec) InfisicalConnectionOp
 func WithTLS(secretName, secretNamespace, secretKey string) InfisicalConnectionOpt {
 	return func(o *infisicalConnectionOpts) {
 		o.Spec.TLS = secretsv1beta1.TLSConfig{
-			CaRef: secretsv1beta1.CaReference{
+			CaCertificate: secretsv1beta1.CaCertificate{
 				SecretName:      secretName,
 				SecretNamespace: secretNamespace,
 				SecretKey:       secretKey,

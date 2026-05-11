@@ -35,7 +35,7 @@ type InfisicalConnectionHandler struct {
 	IsNamespaceScoped bool
 }
 
-func (h *InfisicalConnectionHandler) getInfisicalCaCertificate(ctx context.Context, caRef v1beta1.CaReference) (string, error) {
+func (h *InfisicalConnectionHandler) getInfisicalCaCertificate(ctx context.Context, caRef v1beta1.CaCertificate) (string, error) {
 	secret, err := util.GetKubeSecretByNamespacedName(ctx, h.Client, types.NamespacedName{
 		Namespace: caRef.SecretNamespace,
 		Name:      caRef.SecretName,
@@ -62,8 +62,8 @@ func (h *InfisicalConnectionHandler) TestConnection(ctx context.Context, infisic
 		SetBaseURL(hostURL).
 		SetHeader("User-Agent", constants.USER_AGENT_NAME)
 
-	if infisicalConnection.Spec.TLS.CaRef.SecretName != "" {
-		caCert, err := h.getInfisicalCaCertificate(ctx, infisicalConnection.Spec.TLS.CaRef)
+	if infisicalConnection.Spec.TLS.CaCertificate.SecretName != "" {
+		caCert, err := h.getInfisicalCaCertificate(ctx, infisicalConnection.Spec.TLS.CaCertificate)
 		if err != nil {
 			return fmt.Errorf("failed to resolve CA certificate: %w", err)
 		}
@@ -74,7 +74,7 @@ func (h *InfisicalConnectionHandler) TestConnection(ctx context.Context, infisic
 		}
 
 		if ok := caCertPool.AppendCertsFromPEM([]byte(caCert)); !ok {
-			return fmt.Errorf("failed to parse CA certificate from secret %s/%s", infisicalConnection.Spec.TLS.CaRef.SecretNamespace, infisicalConnection.Spec.TLS.CaRef.SecretName)
+			return fmt.Errorf("failed to parse CA certificate from secret %s/%s", infisicalConnection.Spec.TLS.CaCertificate.SecretNamespace, infisicalConnection.Spec.TLS.CaCertificate.SecretName)
 		}
 
 		httpClient.SetTLSClientConfig(&tls.Config{

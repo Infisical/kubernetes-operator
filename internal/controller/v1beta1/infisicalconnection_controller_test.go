@@ -79,9 +79,11 @@ var _ = Describe("InfisicalConnection Controller", func() {
 					fn(&o)
 				}
 
-				if o.Spec.TLS.CaRef.SecretName != "" {
-					createSelfSignedCACertSecret(ctx, o.Spec.TLS.CaRef.SecretName, o.Spec.TLS.CaRef.SecretNamespace, o.Spec.TLS.CaRef.SecretKey)
-					DeferCleanup(func() { deleteSecret(ctx, o.Spec.TLS.CaRef.SecretName, o.Spec.TLS.CaRef.SecretNamespace) })
+				if o.Spec.TLS.CaCertificate.SecretName != "" {
+					createSelfSignedCACertSecret(ctx, o.Spec.TLS.CaCertificate.SecretName, o.Spec.TLS.CaCertificate.SecretNamespace, o.Spec.TLS.CaCertificate.SecretKey)
+					DeferCleanup(func() {
+						deleteSecret(ctx, o.Spec.TLS.CaCertificate.SecretName, o.Spec.TLS.CaCertificate.SecretNamespace)
+					})
 				}
 
 				createInfisicalConnection(ctx, opts...)
@@ -116,4 +118,3 @@ var _ = Describe("InfisicalConnection Controller", func() {
 		}
 	})
 })
-

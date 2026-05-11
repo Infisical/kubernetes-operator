@@ -73,7 +73,6 @@ rules:
 - apiGroups:
   - secrets.infisical.com
   resources:
-  - infisicalconnections/finalizers
   - infisicaldynamicsecrets/finalizers
   - infisicalpushsecrets/finalizers
   - infisicalsecrets/finalizers

@@ -53,13 +53,12 @@ func ConvertIntervalToDuration(resyncInterval *string) (time.Duration, error) {
 }
 
 func AppendAPIEndpoint(address string) string {
-	if strings.HasSuffix(address, "/api") {
-		return address
+	trimmedPath := strings.TrimRight(address, "/")
+	if strings.HasSuffix(trimmedPath, "/api") {
+		return trimmedPath
 	}
-	if address[len(address)-1] == '/' {
-		return address + "api"
-	}
-	return address + "/api"
+
+	return trimmedPath + "/api"
 }
 
 func IsNamespaceScopedError(err error, isNamespaceScoped bool) bool {

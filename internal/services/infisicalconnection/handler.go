@@ -103,7 +103,7 @@ func (r *InfisicalConnectionHandler) SetReconcileConditionStatus(ctx context.Con
 		meta.SetStatusCondition(&infisicalConnection.Status.Conditions, metav1.Condition{
 			Type:    "secrets.infisical.com/IsReady",
 			Status:  metav1.ConditionTrue,
-			Reason:  "OK",
+			Reason:  "Ok",
 			Message: "InfisicalConnection is ready to be used.",
 		})
 	} else {

@@ -41,6 +41,8 @@ import (
 
 	secretsv1alpha1 "github.com/Infisical/infisical/k8-operator/api/v1alpha1"
 	secretsv1beta1 "github.com/Infisical/infisical/k8-operator/api/v1beta1"
+	"github.com/Infisical/infisical/k8-operator/internal/auth"
+	inmemoryCache "github.com/Infisical/infisical/k8-operator/internal/cache"
 	"github.com/Infisical/infisical/k8-operator/internal/config"
 	"github.com/Infisical/infisical/k8-operator/internal/controller"
 	controllerv1beta1 "github.com/Infisical/infisical/k8-operator/internal/controller/v1beta1"
@@ -254,6 +256,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	authCache := inmemoryCache.NewAuthCache()
+	defer authCache.Cleanup()
+
+	authStrategyResolver := auth.NewAuthStrategyResolver(mgr.GetClient(), authCache, ctrl.Log)
+
 	template.InitializeTemplateFunctions()
 
 	if err := (&controller.InfisicalSecretReconciler{
@@ -288,6 +295,16 @@ func main() {
 		Scheme:            mgr.GetScheme(),
 		BaseLogger:        ctrl.Log,
 		IsNamespaceScoped: isNamespaceScoped,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "InfisicalConnection")
+		os.Exit(1)
+	}
+	if err := (&controllerv1beta1.InfisicalAuthReconciler{
+		Client:            mgr.GetClient(),
+		Scheme:            mgr.GetScheme(),
+		BaseLogger:        ctrl.Log,
+		IsNamespaceScoped: isNamespaceScoped,
+		AuthResolver:      authStrategyResolver,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InfisicalConnection")
 		os.Exit(1)

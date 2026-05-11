@@ -40,10 +40,10 @@ type InfisicalConnectionHandler struct {
 	IsNamespaceScoped bool
 }
 
-func (h *InfisicalConnectionHandler) getInfisicalCaCertificate(ctx context.Context, caRef *v1beta1.CaCertificate) (string, error) {
+func (h *InfisicalConnectionHandler) getInfisicalCaCertificate(ctx context.Context, caRef *v1beta1.SecretReference) (string, error) {
 	secret, err := util.GetKubeSecretByNamespacedName(ctx, h.Client, types.NamespacedName{
-		Namespace: caRef.SecretNamespace,
-		Name:      caRef.SecretName,
+		Namespace: caRef.Namespace,
+		Name:      caRef.Name,
 	})
 	if err != nil {
 		if util.IsNamespaceScopedError(err, h.IsNamespaceScoped) {
@@ -52,9 +52,9 @@ func (h *InfisicalConnectionHandler) getInfisicalCaCertificate(ctx context.Conte
 		return "", fmt.Errorf("unable to fetch CA certificate secret [err=%w]", err)
 	}
 
-	caCert := string(secret.Data[caRef.SecretKey])
+	caCert := string(secret.Data[caRef.Key])
 	if caCert == "" {
-		return "", fmt.Errorf("CA certificate key %q is empty in secret %s/%s", caRef.SecretKey, caRef.SecretNamespace, caRef.SecretName)
+		return "", fmt.Errorf("CA certificate key %q is empty in secret %s/%s", caRef.Key, caRef.Namespace, caRef.Name)
 	}
 
 	return caCert, nil
@@ -102,7 +102,7 @@ func (h *InfisicalConnectionHandler) TestConnection(ctx context.Context, infisic
 		}
 
 		if ok := caCertPool.AppendCertsFromPEM([]byte(caCert)); !ok {
-			return fmt.Errorf("failed to parse CA certificate from secret %s/%s", infisicalConnection.Spec.TLS.CaCertificate.SecretNamespace, infisicalConnection.Spec.TLS.CaCertificate.SecretName)
+			return fmt.Errorf("failed to parse CA certificate from secret %s/%s", infisicalConnection.Spec.TLS.CaCertificate.Namespace, infisicalConnection.Spec.TLS.CaCertificate.Name)
 		}
 
 		httpClient.SetTLSClientConfig(&tls.Config{

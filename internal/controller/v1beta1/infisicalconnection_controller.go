@@ -28,7 +28,6 @@ func (r *InfisicalConnectionReconciler) GetLogger(req ctrl.Request) logr.Logger 
 
 // +kubebuilder:rbac:groups=secrets.infisical.com,resources=infisicalconnections,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=secrets.infisical.com,resources=infisicalconnections/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=secrets.infisical.com,resources=infisicalconnections/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=list;watch;get;update

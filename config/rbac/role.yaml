@@ -82,7 +82,6 @@ rules:
 - apiGroups:
   - secrets.infisical.com
   resources:
-  - infisicalconnections/status
   - infisicaldynamicsecrets/status
   - infisicalpushsecrets/status
   - infisicalsecrets/status

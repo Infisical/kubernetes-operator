@@ -31,4 +31,7 @@ resources:
 # - infisicalsecret_admin_role.yaml
 # - infisicalsecret_editor_role.yaml
 # - infisicalsecret_viewer_role.yaml
+# - infisicalconnection_admin_role.yaml
+# - infisicalconnection_editor_role.yaml
+# - infisicalconnection_viewer_role.yaml
 

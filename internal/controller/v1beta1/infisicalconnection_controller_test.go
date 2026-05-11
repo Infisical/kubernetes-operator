@@ -18,67 +18,102 @@ package v1beta1_test
 
 import (
 	"context"
+	"fmt"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	secretsv1beta1 "github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/controller/v1beta1"
 )
 
-var _ = Describe("InfisicalDynamicSecret Controller", func() {
+var _ = Describe("InfisicalConnection Controller", func() {
 	Context("When reconciling a resource", func() {
-		const resourceName = "infisical-connection"
-
 		ctx := context.Background()
 
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+		type testCase struct {
+			name        string
+			connOpts    []InfisicalConnectionOpt
+			expectReady bool
 		}
-		infisicalConnection := &secretsv1beta1.InfisicalConnection{}
 
-		BeforeEach(func() {
-			By("creating the custom resource for the Kind InfisicalDynamicSecret")
-			err := k8sClient.Get(ctx, typeNamespacedName, infisicalConnection)
-			if err != nil && errors.IsNotFound(err) {
-				resource := &secretsv1beta1.InfisicalConnection{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
-					},
+		entries := []testCase{
+			{
+				name:        "empty-host",
+				connOpts:    []InfisicalConnectionOpt{WithSpec(secretsv1beta1.InfisicalConnectionSpec{})},
+				expectReady: true,
+			},
+			{
+				name: "valid-host",
+				connOpts: []InfisicalConnectionOpt{WithSpec(secretsv1beta1.InfisicalConnectionSpec{
+					Host: "https://app.infisical.com",
+				})},
+				expectReady: true,
+			},
+			{
+				name: "invalid-host",
+				connOpts: []InfisicalConnectionOpt{WithSpec(secretsv1beta1.InfisicalConnectionSpec{
+					Host: "https://invalid.not-a-real-host.example",
+				})},
+				expectReady: false,
+			},
+			{
+				name: "self-sign-tls-cert",
+				connOpts: []InfisicalConnectionOpt{
+					WithSpec(secretsv1beta1.InfisicalConnectionSpec{Host: "https://app.infisical.com"}),
+					WithTLS("tls-ca-cert", "default", "ca.crt"),
+				},
+				expectReady: true,
+			},
+		}
+
+		for _, tc := range entries {
+			It(fmt.Sprintf("should handle %s", tc.name), func() {
+				resourceName := fmt.Sprintf("conn-%s", tc.name)
+				opts := append([]InfisicalConnectionOpt{WithName(resourceName)}, tc.connOpts...)
+				o := defaultInfisicalConnectionOpts()
+				for _, fn := range opts {
+					fn(&o)
 				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
-			}
-		})
 
-		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &secretsv1beta1.InfisicalConnection{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
+				if o.Spec.TLS.CaRef.SecretName != "" {
+					createSelfSignedCACertSecret(ctx, o.Spec.TLS.CaRef.SecretName, o.Spec.TLS.CaRef.SecretNamespace, o.Spec.TLS.CaRef.SecretKey)
+					DeferCleanup(func() { deleteSecret(ctx, o.Spec.TLS.CaRef.SecretName, o.Spec.TLS.CaRef.SecretNamespace) })
+				}
 
-			By("Cleanup the specific resource instance InfisicalConnection")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-		})
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := &v1beta1.InfisicalConnectionReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
+				createInfisicalConnection(ctx, opts...)
+				DeferCleanup(func() { deleteInfisicalConnection(ctx, WithName(resourceName)) })
 
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
+				controllerReconciler := &v1beta1.InfisicalConnectionReconciler{
+					Client: k8sClient,
+					Scheme: k8sClient.Scheme(),
+				}
+
+				namespacedName := types.NamespacedName{Name: resourceName, Namespace: "default"}
+				_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: namespacedName,
+				})
+
+				resource := &secretsv1beta1.InfisicalConnection{}
+				Expect(k8sClient.Get(ctx, namespacedName, resource)).To(Succeed())
+				Expect(resource.Status.Conditions).NotTo(BeEmpty())
+
+				statusCondition := resource.Status.Conditions[0]
+
+				if tc.expectReady {
+					Expect(err).NotTo(HaveOccurred())
+					Expect(statusCondition.Status).To(Equal(metav1.ConditionTrue))
+					Expect(statusCondition.Message).To(Equal("InfisicalConnection is ready to be used."))
+				} else {
+					Expect(err).To(HaveOccurred())
+					Expect(statusCondition.Status).To(Equal(metav1.ConditionFalse))
+					Expect(statusCondition.Message).To(HavePrefix("InfisicalConnection is not ready to be used due to an error:"))
+				}
 			})
-			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
-		})
+		}
 	})
 })
+

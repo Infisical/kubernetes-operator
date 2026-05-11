@@ -101,15 +101,14 @@ func (r *InfisicalConnectionHandler) SetReconcileConditionStatus(ctx context.Con
 
 	if errorToConditionOn == nil {
 		meta.SetStatusCondition(&infisicalConnection.Status.Conditions, metav1.Condition{
-			Type:   "secrets.infisical.com/is-ready",
-			Status: metav1.ConditionTrue,
-
+			Type:    "secrets.infisical.com/IsReady",
+			Status:  metav1.ConditionTrue,
 			Reason:  "OK",
 			Message: "InfisicalConnection is ready to be used.",
 		})
 	} else {
 		meta.SetStatusCondition(&infisicalConnection.Status.Conditions, metav1.Condition{
-			Type:    "secrets.infisical.com/is-ready",
+			Type:    "secrets.infisical.com/IsReady",
 			Status:  metav1.ConditionFalse,
 			Reason:  "Error",
 			Message: fmt.Sprintf("InfisicalConnection is not ready to be used due to an error: %v", errorToConditionOn),

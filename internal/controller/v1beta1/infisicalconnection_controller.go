@@ -9,11 +9,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	secretsv1beta1 "github.com/Infisical/infisical/k8-operator/api/v1beta1"
-	"github.com/Infisical/infisical/k8-operator/internal/constants"
 	"github.com/Infisical/infisical/k8-operator/internal/services/infisicalconnection"
 )
 
@@ -57,32 +55,9 @@ func (r *InfisicalConnectionReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, fmt.Errorf("unable to fetch Infisical Connection CRD from cluster: %w", err)
 	}
 
-	// Add finalizer if it doesn't exist
-	// TODO: we might not need this as this CRD doesn't create any external resources in k8s
-	if !controllerutil.ContainsFinalizer(&infisicalConnectionCRD, constants.INFISICAL_CONNECTION_FINALIZER_NAME) {
-		controllerutil.AddFinalizer(&infisicalConnectionCRD, constants.INFISICAL_CONNECTION_FINALIZER_NAME)
-		if err := r.Update(ctx, &infisicalConnectionCRD); err != nil {
-			return ctrl.Result{}, err
-		}
-		// Return early - the update will trigger a new reconcile with the fresh object. We can only update the CRD once or we'll see "the object has been modified; please apply your changes to the latest version and try again"
-		return ctrl.Result{}, nil
-	}
-
-	// Check if it's being deleted
+	// If it's being deleted, we should not attempt to do anything
+	// As this is a simple CRD, we don't need a finalizer to cleanup either.
 	if !infisicalConnectionCRD.DeletionTimestamp.IsZero() {
-		logger.Info("Handling deletion of InfisicalDynamicSecret")
-		if controllerutil.ContainsFinalizer(&infisicalConnectionCRD, constants.INFISICAL_CONNECTION_FINALIZER_NAME) {
-			// We remove finalizers before running deletion logic to be completely safe from stuck resources
-			infisicalConnectionCRD.ObjectMeta.Finalizers = []string{}
-			if err := r.Update(ctx, &infisicalConnectionCRD); err != nil {
-				logger.Error(err, fmt.Sprintf("Error removing finalizers from InfisicalDynamicSecret %s", infisicalConnectionCRD.Name))
-				return ctrl.Result{}, err
-			}
-
-			// TODO: Delete handling
-			// We can remove the finalizer if we don't have to handle anything here.
-			return ctrl.Result{}, nil
-		}
 		return ctrl.Result{}, nil
 	}
 

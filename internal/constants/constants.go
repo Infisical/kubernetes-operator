@@ -24,8 +24,6 @@ const INFISICAL_DOMAIN = "https://app.infisical.com/api"
 const INFISICAL_PUSH_SECRET_FINALIZER_NAME = "pushsecret.secrets.infisical.com/finalizer"
 const INFISICAL_DYNAMIC_SECRET_FINALIZER_NAME = "dynamicsecret.secrets.infisical.com/finalizer"
 
-const INFISICAL_CONNECTION_FINALIZER_NAME = "connection.secrets.infisical.com/finalizer"
-
 type PushSecretReplacePolicy string
 type PushSecretDeletionPolicy string
 

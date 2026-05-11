@@ -73,18 +73,19 @@ rules:
 - apiGroups:
   - secrets.infisical.com
   resources:
-  - infisicaldynamicsecrets/finalizers
-  - infisicalpushsecrets/finalizers
-  - infisicalsecrets/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - secrets.infisical.com
-  resources:
+  - infisicalconnections/status
   - infisicaldynamicsecrets/status
   - infisicalpushsecrets/status
   - infisicalsecrets/status
   verbs:
   - get
   - patch
+  - update
+- apiGroups:
+  - secrets.infisical.com
+  resources:
+  - infisicaldynamicsecrets/finalizers
+  - infisicalpushsecrets/finalizers
+  - infisicalsecrets/finalizers
+  verbs:
   - update

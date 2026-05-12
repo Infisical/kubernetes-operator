@@ -2,16 +2,18 @@ package v1beta1
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/api/errors"
+	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	secretsv1beta1 "github.com/Infisical/infisical/k8-operator/api/v1beta1"
+	"github.com/Infisical/infisical/k8-operator/internal/model"
 	"github.com/Infisical/infisical/k8-operator/internal/services/infisicalconnection"
 )
 
@@ -38,41 +40,45 @@ func (r *InfisicalConnectionReconciler) GetLogger(req ctrl.Request) logr.Logger 
 
 func (r *InfisicalConnectionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.GetLogger(req)
+	handler := infisicalconnection.NewInfisicalConnectionHandler(r.Client, r.Scheme, r.IsNamespaceScoped)
 
-	var infisicalConnectionCRD secretsv1beta1.InfisicalConnection
-
-	err := r.Get(ctx, req.NamespacedName, &infisicalConnectionCRD)
+	connection, err := handler.GetInfisicalConnection(ctx, req.NamespacedName)
 	if err != nil {
-		if errors.IsNotFound(err) {
+		if k8sErrors.IsNotFound(err) {
 			logger.Info("Infisical Connection CRD not found")
 			return ctrl.Result{
 				RequeueAfter: 0,
 			}, nil
 		}
 
-		logger.Error(err, "Unable to fetch Infisical Connection CRD from cluster")
-		return ctrl.Result{}, fmt.Errorf("unable to fetch Infisical Connection CRD from cluster: %w", err)
+		handler.SetReconcileConditionStatus(ctx, logger, connection, err)
+
+		if errors.Is(err, model.ErrValidation) {
+			// We should not retry as spec is invalid
+			return ctrl.Result{}, nil
+		}
+
+		// Any other error should be retried by k8s
+		return ctrl.Result{}, fmt.Errorf("unable to fetch a ready connection: %w", err)
 	}
 
 	// If it's being deleted, we should not attempt to do anything
 	// As this is a simple CRD, we don't need a finalizer to cleanup either.
-	if !infisicalConnectionCRD.DeletionTimestamp.IsZero() {
+	if !connection.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, nil
 	}
 
-	handler := infisicalconnection.NewInfisicalConnectionHandler(r.Client, r.Scheme, r.IsNamespaceScoped)
-
-	if err := handler.TestConnection(ctx, infisicalConnectionCRD); err != nil {
+	if err := handler.TestConnection(ctx, connection); err != nil {
 		logger.Error(err, "Unable to test connection")
 
-		handler.SetReconcileConditionStatus(ctx, logger, &infisicalConnectionCRD, err)
+		handler.SetReconcileConditionStatus(ctx, logger, connection, err)
 
 		// Kubernetes will retry this in exponential backoff
 		// This will ensure if it's a transient issue, it will be retried and solved.
 		return ctrl.Result{}, err
 	}
 
-	handler.SetReconcileConditionStatus(ctx, logger, &infisicalConnectionCRD, nil)
+	handler.SetReconcileConditionStatus(ctx, logger, connection, nil)
 
 	return ctrl.Result{}, nil
 }

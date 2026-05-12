@@ -56,7 +56,7 @@ func defaultInfisicalConnectionOpts() infisicalConnectionOpts {
 		Name:      "infisical-connection",
 		Namespace: "default",
 		Spec: secretsv1beta1.InfisicalConnectionSpec{
-			Host: "https://app.infisical.com",
+			Host: "",
 		},
 	}
 }

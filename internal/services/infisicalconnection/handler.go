@@ -1,6 +1,7 @@
 package infisicalconnection
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -8,9 +9,11 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/http"
+	"os"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/constants"
+	"github.com/Infisical/infisical/k8-operator/internal/model"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
 	"github.com/go-logr/logr"
 	"github.com/go-resty/resty/v2"
@@ -60,7 +63,25 @@ type apiStatusResponse struct {
 	Message string `json:"message"`
 }
 
-func (h *InfisicalConnectionHandler) TestConnection(ctx context.Context, infisicalConnection v1beta1.InfisicalConnection) error {
+func (h *InfisicalConnectionHandler) GetInfisicalConnection(ctx context.Context, namespacedName types.NamespacedName) (*v1beta1.InfisicalConnection, error) {
+	var connection v1beta1.InfisicalConnection
+	err := h.Client.Get(ctx, namespacedName, &connection)
+	if err != nil {
+		return nil, err
+	}
+
+	connection.Spec.Host = cmp.Or(connection.Spec.Host, os.Getenv("INFISICAL_HOST_API"))
+	// Even after trying to get the value from the CRD and from the env variables
+	// it is still empty, we should let the user know.
+	if connection.Spec.Host == "" {
+		// we return the connection so we can set the status in the condition
+		return &connection, fmt.Errorf("%w: .spec.host is empty", model.ErrValidation)
+	}
+
+	return &connection, nil
+}
+
+func (h *InfisicalConnectionHandler) TestConnection(ctx context.Context, infisicalConnection *v1beta1.InfisicalConnection) error {
 	hostURL := util.AppendAPIEndpoint(infisicalConnection.Spec.Host)
 
 	httpClient := resty.New().
@@ -91,9 +112,6 @@ func (h *InfisicalConnectionHandler) TestConnection(ctx context.Context, infisic
 	if err != nil {
 		return fmt.Errorf("unable to reach Infisical at %s: %w", hostURL, err)
 	}
-
-	fmt.Println(resp.Status())
-	fmt.Println(string(resp.Body()))
 
 	if resp.StatusCode() != http.StatusOK {
 		return fmt.Errorf("unexpected status from Infisical at %s/status: %s", hostURL, resp.Status())

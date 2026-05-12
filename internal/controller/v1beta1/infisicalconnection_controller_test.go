@@ -19,6 +19,7 @@ package v1beta1_test
 import (
 	"context"
 	"fmt"
+	"os"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -38,13 +39,20 @@ var _ = Describe("InfisicalConnection Controller", func() {
 			name        string
 			connOpts    []InfisicalConnectionOpt
 			expectReady bool
+			envMap      map[string]string
 		}
 
 		entries := []testCase{
 			{
 				name:        "empty-host",
-				connOpts:    []InfisicalConnectionOpt{WithSpec(secretsv1beta1.InfisicalConnectionSpec{})},
+				expectReady: false,
+			},
+			{
+				name:        "valid-host-from-env",
 				expectReady: true,
+				envMap: map[string]string{
+					"INFISICAL_HOST_API": "https://us.infisical.com",
+				},
 			},
 			{
 				name: "valid-host",
@@ -79,6 +87,18 @@ var _ = Describe("InfisicalConnection Controller", func() {
 
 		for _, tc := range entries {
 			It(fmt.Sprintf("should handle %s", tc.name), func() {
+				if tc.envMap != nil {
+					for k, v := range tc.envMap {
+						os.Setenv(k, v)
+					}
+
+					DeferCleanup(func() {
+						for k := range tc.envMap {
+							os.Unsetenv(k)
+						}
+					})
+				}
+
 				resourceName := fmt.Sprintf("conn-%s", tc.name)
 				opts := append([]InfisicalConnectionOpt{WithName(resourceName)}, tc.connOpts...)
 				o := defaultInfisicalConnectionOpts()

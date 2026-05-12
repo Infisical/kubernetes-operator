@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/go-logr/logr"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -51,6 +52,11 @@ func (r *InfisicalConnectionReconciler) Reconcile(ctx context.Context, req ctrl.
 			}, nil
 		}
 
+		if connection == nil {
+			// Some other k8s API error, we should retry
+			return ctrl.Result{}, fmt.Errorf("unable to fetch connection: %w", err)
+		}
+
 		handler.SetReconcileConditionStatus(ctx, logger, connection, err)
 
 		if errors.Is(err, model.ErrValidation) {
@@ -80,7 +86,12 @@ func (r *InfisicalConnectionReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	handler.SetReconcileConditionStatus(ctx, logger, connection, nil)
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{
+		// We keep reconciling every 5 minutes to ensure the connection is still healthy
+		// This helps identifing: host downtime, TLS cert rotation issues, and any other
+		// runtime issue that might happen.
+		RequeueAfter: 5 * time.Minute,
+	}, nil
 }
 
 func (r *InfisicalConnectionReconciler) SetupWithManager(mgr ctrl.Manager) error {

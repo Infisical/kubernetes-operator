@@ -10,6 +10,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/constants"
@@ -86,7 +87,8 @@ func (h *InfisicalConnectionHandler) TestConnection(ctx context.Context, infisic
 
 	httpClient := resty.New().
 		SetBaseURL(hostURL).
-		SetHeader("User-Agent", constants.USER_AGENT_NAME)
+		SetHeader("User-Agent", constants.USER_AGENT_NAME).
+		SetTimeout(30 * time.Second)
 
 	if tlsConfig := infisicalConnection.Spec.TLS; tlsConfig != nil && tlsConfig.CaCertificate != nil {
 		caCert, err := h.getInfisicalCaCertificate(ctx, infisicalConnection.Spec.TLS.CaCertificate)
@@ -137,17 +139,19 @@ func (r *InfisicalConnectionHandler) SetReconcileConditionStatus(ctx context.Con
 
 	if errorToConditionOn == nil {
 		meta.SetStatusCondition(&infisicalConnection.Status.Conditions, metav1.Condition{
-			Type:    "secrets.infisical.com/IsReady",
-			Status:  metav1.ConditionTrue,
-			Reason:  "Ok",
-			Message: "InfisicalConnection is ready to be used.",
+			Type:               "secrets.infisical.com/IsReady",
+			Status:             metav1.ConditionTrue,
+			Reason:             "Ok",
+			Message:            "InfisicalConnection is ready to be used.",
+			ObservedGeneration: infisicalConnection.Generation,
 		})
 	} else {
 		meta.SetStatusCondition(&infisicalConnection.Status.Conditions, metav1.Condition{
-			Type:    "secrets.infisical.com/IsReady",
-			Status:  metav1.ConditionFalse,
-			Reason:  "Error",
-			Message: fmt.Sprintf("InfisicalConnection is not ready to be used due to an error: %v", errorToConditionOn),
+			Type:               "secrets.infisical.com/IsReady",
+			Status:             metav1.ConditionFalse,
+			Reason:             "Error",
+			Message:            fmt.Sprintf("InfisicalConnection is not ready to be used due to an error: %v", errorToConditionOn),
+			ObservedGeneration: infisicalConnection.Generation,
 		})
 	}
 

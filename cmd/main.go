@@ -40,8 +40,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	secretsv1alpha1 "github.com/Infisical/infisical/k8-operator/api/v1alpha1"
+	secretsv1beta1 "github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/config"
 	"github.com/Infisical/infisical/k8-operator/internal/controller"
+	controllerv1beta1 "github.com/Infisical/infisical/k8-operator/internal/controller/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/template"
 	// +kubebuilder:scaffold:imports
 )
@@ -55,6 +57,8 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(secretsv1alpha1.AddToScheme(scheme))
+
+	utilruntime.Must(secretsv1beta1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -277,6 +281,15 @@ func main() {
 		IsNamespaceScoped: isNamespaceScoped,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InfisicalDynamicSecret")
+		os.Exit(1)
+	}
+	if err := (&controllerv1beta1.InfisicalConnectionReconciler{
+		Client:            mgr.GetClient(),
+		Scheme:            mgr.GetScheme(),
+		BaseLogger:        ctrl.Log,
+		IsNamespaceScoped: isNamespaceScoped,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "InfisicalConnection")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

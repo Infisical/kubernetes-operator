@@ -39,6 +39,7 @@ var _ = Describe("InfisicalConnection Controller", func() {
 			name        string
 			connOpts    []InfisicalConnectionOpt
 			expectReady bool
+			expectErr   bool
 			envMap      map[string]string
 		}
 
@@ -68,6 +69,7 @@ var _ = Describe("InfisicalConnection Controller", func() {
 				name:        "invalid-host",
 				connOpts:    []InfisicalConnectionOpt{WithAddress("https://invalid.not-a-real-host.example")},
 				expectReady: false,
+				expectErr:   true,
 			},
 			{
 				name: "self-sign-tls-cert",
@@ -126,12 +128,16 @@ var _ = Describe("InfisicalConnection Controller", func() {
 
 				statusCondition := resource.Status.Conditions[0]
 
-				if tc.expectReady {
+				if tc.expectErr {
+					Expect(err).To(HaveOccurred())
+				} else {
 					Expect(err).NotTo(HaveOccurred())
+				}
+
+				if tc.expectReady {
 					Expect(statusCondition.Status).To(Equal(metav1.ConditionTrue))
 					Expect(statusCondition.Message).To(Equal("InfisicalConnection is ready to be used."))
 				} else {
-					Expect(err).To(HaveOccurred())
 					Expect(statusCondition.Status).To(Equal(metav1.ConditionFalse))
 					Expect(statusCondition.Message).To(HavePrefix("InfisicalConnection is not ready to be used due to an error:"))
 				}

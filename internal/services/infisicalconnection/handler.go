@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"math/rand/v2"
 	"net/http"
@@ -35,7 +36,7 @@ type InfisicalConnectionHandler struct {
 	IsNamespaceScoped bool
 }
 
-func (h *InfisicalConnectionHandler) getInfisicalCaCertificate(ctx context.Context, caRef v1beta1.CaCertificate) (string, error) {
+func (h *InfisicalConnectionHandler) getInfisicalCaCertificate(ctx context.Context, caRef *v1beta1.CaCertificate) (string, error) {
 	secret, err := util.GetKubeSecretByNamespacedName(ctx, h.Client, types.NamespacedName{
 		Namespace: caRef.SecretNamespace,
 		Name:      caRef.SecretName,
@@ -55,6 +56,10 @@ func (h *InfisicalConnectionHandler) getInfisicalCaCertificate(ctx context.Conte
 	return caCert, nil
 }
 
+type apiStatusResponse struct {
+	Message string `json:"message"`
+}
+
 func (h *InfisicalConnectionHandler) TestConnection(ctx context.Context, infisicalConnection v1beta1.InfisicalConnection) error {
 	hostURL := util.AppendAPIEndpoint(infisicalConnection.Spec.Host)
 
@@ -62,7 +67,7 @@ func (h *InfisicalConnectionHandler) TestConnection(ctx context.Context, infisic
 		SetBaseURL(hostURL).
 		SetHeader("User-Agent", constants.USER_AGENT_NAME)
 
-	if infisicalConnection.Spec.TLS.CaCertificate.SecretName != "" {
+	if tlsConfig := infisicalConnection.Spec.TLS; tlsConfig != nil && tlsConfig.CaCertificate != nil {
 		caCert, err := h.getInfisicalCaCertificate(ctx, infisicalConnection.Spec.TLS.CaCertificate)
 		if err != nil {
 			return fmt.Errorf("failed to resolve CA certificate: %w", err)
@@ -87,8 +92,21 @@ func (h *InfisicalConnectionHandler) TestConnection(ctx context.Context, infisic
 		return fmt.Errorf("unable to reach Infisical at %s: %w", hostURL, err)
 	}
 
+	fmt.Println(resp.Status())
+	fmt.Println(string(resp.Body()))
+
 	if resp.StatusCode() != http.StatusOK {
 		return fmt.Errorf("unexpected status from Infisical at %s/status: %s", hostURL, resp.Status())
+	}
+
+	var response = apiStatusResponse{}
+	err = json.Unmarshal(resp.Body(), &response)
+	if err != nil {
+		return fmt.Errorf("unexpected status from Infisical at %s/status: invalid JSON", hostURL)
+	}
+
+	if response.Message != "Ok" {
+		return fmt.Errorf("unexpected status from Infisical at %s/status: expected Ok, got %q", hostURL, response.Message)
 	}
 
 	return nil

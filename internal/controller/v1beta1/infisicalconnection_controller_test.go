@@ -86,7 +86,7 @@ var _ = Describe("InfisicalConnection Controller", func() {
 					fn(&o)
 				}
 
-				if o.Spec.TLS.CaCertificate.SecretName != "" {
+				if o.Spec.TLS != nil && o.Spec.TLS.CaCertificate != nil {
 					createSelfSignedCACertSecret(ctx, o.Spec.TLS.CaCertificate.SecretName, o.Spec.TLS.CaCertificate.SecretNamespace, o.Spec.TLS.CaCertificate.SecretKey)
 					DeferCleanup(func() {
 						deleteSecret(ctx, o.Spec.TLS.CaCertificate.SecretName, o.Spec.TLS.CaCertificate.SecretNamespace)

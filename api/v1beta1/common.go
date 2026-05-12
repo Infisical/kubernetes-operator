@@ -3,7 +3,7 @@ package v1beta1
 type TLSConfig struct {
 	// Reference to secret containing CA cert
 	// +kubebuilder:validation:Optional
-	CaCertificate CaCertificate `json:"caCertificate,omitempty"`
+	CaCertificate *CaCertificate `json:"caCertificate,omitempty"`
 }
 
 type CaCertificate struct {

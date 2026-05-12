@@ -38,7 +38,7 @@ type InfisicalConnectionSpec struct {
 	Host string `json:"host,omitempty"`
 
 	// +kubebuilder:validation:Optional
-	TLS TLSConfig `json:"tls"`
+	TLS *TLSConfig `json:"tls"`
 }
 
 // InfisicalConnectionStatus defines the observed state of InfisicalConnection

@@ -3,7 +3,7 @@ kind: InfisicalConnection
 metadata:
   name: infisicalconnection-demo
 spec:
-  host: https://app.infisical.com
+  address: https://app.infisical.com
   tls:
     caCertificate:
       name: secretName

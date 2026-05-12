@@ -34,7 +34,7 @@ type InfisicalConnection struct {
 // InfisicalConnectionSpec defines how the operator connects to a Infisical instance
 type InfisicalConnectionSpec struct {
 	// +kubebuilder:validation:Optional
-	Host string `json:"host,omitempty"`
+	Address string `json:"address,omitempty"`
 
 	// +kubebuilder:validation:Optional
 	TLS *TLSConfig `json:"tls"`

@@ -35,8 +35,8 @@ func WithNamespace(namespace string) InfisicalConnectionOpt {
 	return func(o *infisicalConnectionOpts) { o.Namespace = namespace }
 }
 
-func WithSpec(spec secretsv1beta1.InfisicalConnectionSpec) InfisicalConnectionOpt {
-	return func(o *infisicalConnectionOpts) { o.Spec = spec }
+func WithAddress(address string) InfisicalConnectionOpt {
+	return func(o *infisicalConnectionOpts) { o.Spec.Address = address }
 }
 
 func WithTLS(secretName, secretNamespace, secretKey string) InfisicalConnectionOpt {
@@ -56,7 +56,7 @@ func defaultInfisicalConnectionOpts() infisicalConnectionOpts {
 		Name:      "infisical-connection",
 		Namespace: "default",
 		Spec: secretsv1beta1.InfisicalConnectionSpec{
-			Host: "",
+			Address: "",
 		},
 	}
 }

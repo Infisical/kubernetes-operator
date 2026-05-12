@@ -42,8 +42,7 @@ spec:
             description: InfisicalConnectionSpec defines how the operator connects to
               a Infisical instance
             properties:
-              host:
-                default: https://app.infisical.com
+              address:
                 type: string
               tls:
                 properties:

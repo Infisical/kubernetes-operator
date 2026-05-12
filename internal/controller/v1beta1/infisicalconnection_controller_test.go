@@ -55,30 +55,24 @@ var _ = Describe("InfisicalConnection Controller", func() {
 				},
 			},
 			{
-				name: "valid-host",
-				connOpts: []InfisicalConnectionOpt{WithSpec(secretsv1beta1.InfisicalConnectionSpec{
-					Host: "https://app.infisical.com",
-				})},
+				name:        "valid-host",
+				connOpts:    []InfisicalConnectionOpt{WithAddress("https://app.infisical.com")},
 				expectReady: true,
 			},
 			{
-				name: "valid-host-with-api-suffix",
-				connOpts: []InfisicalConnectionOpt{WithSpec(secretsv1beta1.InfisicalConnectionSpec{
-					Host: "https://app.infisical.com/api",
-				})},
+				name:        "valid-host-with-api-suffix",
+				connOpts:    []InfisicalConnectionOpt{WithAddress("https://app.infisical.com/api")},
 				expectReady: true,
 			},
 			{
-				name: "invalid-host",
-				connOpts: []InfisicalConnectionOpt{WithSpec(secretsv1beta1.InfisicalConnectionSpec{
-					Host: "https://invalid.not-a-real-host.example",
-				})},
+				name:        "invalid-host",
+				connOpts:    []InfisicalConnectionOpt{WithAddress("https://invalid.not-a-real-host.example")},
 				expectReady: false,
 			},
 			{
 				name: "self-sign-tls-cert",
 				connOpts: []InfisicalConnectionOpt{
-					WithSpec(secretsv1beta1.InfisicalConnectionSpec{Host: "https://app.infisical.com"}),
+					WithAddress("https://app.infisical.com"),
 					WithTLS("tls-ca-cert", "default", "ca.crt"),
 				},
 				expectReady: true,

@@ -71,19 +71,19 @@ func (h *InfisicalConnectionHandler) GetInfisicalConnection(ctx context.Context,
 		return nil, err
 	}
 
-	connection.Spec.Host = cmp.Or(connection.Spec.Host, os.Getenv("INFISICAL_HOST_API"))
+	connection.Spec.Address = cmp.Or(connection.Spec.Address, os.Getenv("INFISICAL_HOST_API"))
 	// Even after trying to get the value from the CRD and from the env variables
 	// it is still empty, we should let the user know.
-	if connection.Spec.Host == "" {
+	if connection.Spec.Address == "" {
 		// we return the connection so we can set the status in the condition
-		return &connection, fmt.Errorf("%w: .spec.host is empty", model.ErrValidation)
+		return &connection, fmt.Errorf("%w: .spec.address is empty", model.ErrValidation)
 	}
 
 	return &connection, nil
 }
 
 func (h *InfisicalConnectionHandler) TestConnection(ctx context.Context, infisicalConnection *v1beta1.InfisicalConnection) error {
-	hostURL := util.AppendAPIEndpoint(infisicalConnection.Spec.Host)
+	hostURL := util.AppendAPIEndpoint(infisicalConnection.Spec.Address)
 
 	httpClient := resty.New().
 		SetBaseURL(hostURL).

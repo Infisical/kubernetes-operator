@@ -1,0 +1,11 @@
+apiVersion: secrets.infisical.com/v1beta1
+kind: InfisicalAuth
+metadata:
+  name: infisicalauth-gcp-id-token-demo
+spec:
+  infisicalConnectionRef:
+    name: infisicalconnection-demo
+    namespace: default
+  method: gcp-id-token
+  gcpIdToken:
+    identityId: <machine-identity-id>

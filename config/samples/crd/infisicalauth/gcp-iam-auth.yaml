@@ -1,0 +1,12 @@
+apiVersion: secrets.infisical.com/v1beta1
+kind: InfisicalAuth
+metadata:
+  name: infisicalauth-gcp-iam-demo
+spec:
+  infisicalConnectionRef:
+    name: infisicalconnection-demo
+    namespace: default
+  method: gcp-iam
+  gcpIam:
+    identityId: <machine-identity-id>
+    serviceAccountKeyFilePath: /path/to/service-account-key.json

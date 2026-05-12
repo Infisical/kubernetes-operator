@@ -1,0 +1,18 @@
+apiVersion: secrets.infisical.com/v1beta1
+kind: InfisicalAuth
+metadata:
+  name: infisicalauth-universal-demo
+spec:
+  infisicalConnectionRef:
+    name: infisicalconnection-demo
+    namespace: default
+  method: universal
+  universal:
+    clientIdRef:
+      name: universal-auth-credentials
+      namespace: default
+      key: clientId
+    clientSecretRef:
+      name: universal-auth-credentials
+      namespace: default
+      key: clientSecret

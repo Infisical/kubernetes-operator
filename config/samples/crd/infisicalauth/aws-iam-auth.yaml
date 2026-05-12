@@ -1,0 +1,11 @@
+apiVersion: secrets.infisical.com/v1beta1
+kind: InfisicalAuth
+metadata:
+  name: infisicalauth-aws-iam-demo
+spec:
+  infisicalConnectionRef:
+    name: infisicalconnection-demo
+    namespace: default
+  method: aws-iam
+  awsIam:
+    identityId: <machine-identity-id>

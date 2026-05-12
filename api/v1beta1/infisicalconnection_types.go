@@ -23,8 +23,8 @@ import (
 // InfisicalConnection is the Schema for the infisicalconnection API.
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="Address",type=string,JSONPath=`.spec.address`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+// +kubebuilder:printcolumn:name="Address",type=string,JSONPath=`.spec.address`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="secrets.infisical.com/IsReady")].status`
 type InfisicalConnection struct {
 	metav1.TypeMeta   `json:",inline"`

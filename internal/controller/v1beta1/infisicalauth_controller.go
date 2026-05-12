@@ -66,15 +66,7 @@ func (r *InfisicalAuthReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	handler := infisicalauth.NewInfisicalAuthHandler(r.Client, r.Scheme, r.IsNamespaceScoped, r.AuthResolver)
-	err = handler.ValidateAuth(ctx, logger, &authCRD)
-	if err != nil {
-		handler.SetReconcileConditionStatus(ctx, logger, &authCRD, err)
-
-		// No reason in retry, auth is invalid. User must update CRD to trigger a new Reconcile
-		return ctrl.Result{}, nil
-	}
-
-	err = handler.Authenticate(ctx, logger, &authCRD)
+	err = handler.ValidateAndAuthenticate(ctx, logger, &authCRD)
 	handler.SetReconcileConditionStatus(ctx, logger, &authCRD, err)
 
 	return ctrl.Result{}, nil

@@ -1,8 +1,10 @@
 package auth
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
@@ -105,7 +107,7 @@ func (r *AuthStrategyResolver) Authenticate(
 	}
 
 	conn := model.InfisicalConnection{
-		Host:          connection.Spec.Address,
+		Host:          cmp.Or(connection.Spec.Address, os.Getenv("INFISICAL_HOST_API")),
 		CaCertificate: caCertificate,
 	}
 
@@ -116,9 +118,14 @@ func (r *AuthStrategyResolver) Authenticate(
 
 	// we make TTL slightly smaller than the token to ensure that if we get the token from cache
 	// it's still good for a few moments and we can do the secret sync with it.
-	ttl := time.Duration(authResult.MachineIdentity.ExpiresIn)*time.Second - time.Minute
-	r.cache.Set(cacheKey, authResult, ttl)
+	originalTTL := time.Duration(authResult.MachineIdentity.ExpiresIn) * time.Second
+	ttl := originalTTL - time.Minute
+	if ttl <= 0 {
+		// Token TTL is so short that it makes no sense to remove time
+		ttl = originalTTL
+	}
 
+	r.cache.Set(cacheKey, authResult, ttl)
 	r.logger.Info(fmt.Sprintf("successful authentication with %q, caching credentials for %v", auth.Spec.Method, ttl))
 
 	return authResult, nil

@@ -20,7 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// InfisicalConnection is the Schema for the infisicalconnection API.
+// InfisicalAuth is the Schema for the InfisicalAuth API.
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Method",type=string,JSONPath=`.spec.method`
@@ -30,8 +30,8 @@ type InfisicalAuth struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   InfisicalAuthSpec         `json:"spec,omitempty"`
-	Status InfisicalConnectionStatus `json:"status,omitempty"`
+	Spec   InfisicalAuthSpec   `json:"spec,omitempty"`
+	Status InfisicalAuthStatus `json:"status,omitempty"`
 }
 
 type InfisicalAuthSpec struct {
@@ -122,6 +122,11 @@ type InfisicalConnectionRef struct {
 	Namespace string `json:"namespace"`
 }
 
+// InfisicalAuthStatus defines the observed state of InfisicalAuth
+type InfisicalAuthStatus struct {
+	Conditions []metav1.Condition `json:"conditions"`
+}
+
 // +kubebuilder:validation:Enum=universal;kubernetes;aws-iam;azure;gcp-id-token;gcp-iam;ldap
 type InfisicalAuthMethod string
 
@@ -135,7 +140,7 @@ const (
 	UniversalAuth  InfisicalAuthMethod = "universal"
 )
 
-// InfisicalAuthList contains a list of InfisicalConnection.
+// InfisicalAuthList contains a list of InfisicalAuth.
 // +kubebuilder:object:root=true
 type InfisicalAuthList struct {
 	metav1.TypeMeta `json:",inline"`

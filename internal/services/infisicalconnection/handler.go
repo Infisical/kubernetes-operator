@@ -64,6 +64,10 @@ type apiStatusResponse struct {
 	Message string `json:"message"`
 }
 
+func (h *InfisicalConnectionHandler) ResolveAddress(connection *v1beta1.InfisicalConnection) string {
+	return cmp.Or(connection.Spec.Address, os.Getenv("INFISICAL_HOST_API"))
+}
+
 func (h *InfisicalConnectionHandler) GetInfisicalConnection(ctx context.Context, namespacedName types.NamespacedName) (*v1beta1.InfisicalConnection, error) {
 	var connection v1beta1.InfisicalConnection
 	err := h.Client.Get(ctx, namespacedName, &connection)
@@ -71,19 +75,15 @@ func (h *InfisicalConnectionHandler) GetInfisicalConnection(ctx context.Context,
 		return nil, err
 	}
 
-	connection.Spec.Address = cmp.Or(connection.Spec.Address, os.Getenv("INFISICAL_HOST_API"))
-	// Even after trying to get the value from the CRD and from the env variables
-	// it is still empty, we should let the user know.
-	if connection.Spec.Address == "" {
-		// we return the connection so we can set the status in the condition
-		return &connection, fmt.Errorf("%w: .spec.address is empty", model.ErrValidation)
+	if h.ResolveAddress(&connection) == "" {
+		return &connection, fmt.Errorf("%w: .spec.address is empty and INFISICAL_HOST_API env var is not set", model.ErrValidation)
 	}
 
 	return &connection, nil
 }
 
 func (h *InfisicalConnectionHandler) TestConnection(ctx context.Context, infisicalConnection *v1beta1.InfisicalConnection) error {
-	hostURL := util.AppendAPIEndpoint(infisicalConnection.Spec.Address)
+	hostURL := util.AppendAPIEndpoint(h.ResolveAddress(infisicalConnection))
 
 	httpClient := resty.New().
 		SetBaseURL(hostURL).

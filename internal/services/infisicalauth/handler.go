@@ -48,25 +48,21 @@ func (h *InfisicalAuthHandler) getInfisicalConnection(ctx context.Context, conne
 		return nil, fmt.Errorf("Unable to fetch Infisical Connection CRD from cluster: %w", err)
 	}
 
-	if len(conn.Status.Conditions) == 0 || conn.Status.Conditions[0].Status != metav1.ConditionTrue {
+	readyCond := meta.FindStatusCondition(conn.Status.Conditions, "secrets.infisical.com/IsReady")
+	if readyCond == nil || readyCond.Status != metav1.ConditionTrue {
 		return nil, fmt.Errorf("InfisicalConnection is not ready")
 	}
 
 	return &conn, nil
 }
 
-func (r *InfisicalAuthHandler) ValidateAuth(ctx context.Context, logger logr.Logger, infisicalAuth *v1beta1.InfisicalAuth) error {
-	_, err := r.getInfisicalConnection(ctx, infisicalAuth.Spec.InfisicalConnectionRef)
+func (r *InfisicalAuthHandler) ValidateAndAuthenticate(ctx context.Context, logger logr.Logger, infisicalAuth *v1beta1.InfisicalAuth) error {
+	conn, err := r.getInfisicalConnection(ctx, infisicalAuth.Spec.InfisicalConnectionRef)
 	if err != nil {
 		return err
 	}
 
-	return r.authResolver.Validate(ctx, infisicalAuth)
-}
-
-func (r *InfisicalAuthHandler) Authenticate(ctx context.Context, logger logr.Logger, infisicalAuth *v1beta1.InfisicalAuth) error {
-	conn, err := r.getInfisicalConnection(ctx, infisicalAuth.Spec.InfisicalConnectionRef)
-	if err != nil {
+	if err := r.authResolver.Validate(ctx, infisicalAuth); err != nil {
 		return err
 	}
 
@@ -106,7 +102,7 @@ func (r *InfisicalAuthHandler) SetReconcileConditionStatus(ctx context.Context, 
 
 		meta.SetStatusCondition(&infisicalAuth.Status.Conditions, metav1.Condition{
 			Type:               "secrets.infisical.com/AuthMethod",
-			Status:             metav1.ConditionTrue,
+			Status:             metav1.ConditionFalse,
 			Reason:             "Ok",
 			Message:            string(infisicalAuth.Spec.Method),
 			ObservedGeneration: infisicalAuth.Generation,

@@ -306,7 +306,7 @@ func main() {
 		IsNamespaceScoped: isNamespaceScoped,
 		AuthResolver:      authStrategyResolver,
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "InfisicalConnection")
+		setupLog.Error(err, "unable to create controller", "controller", "InfisicalAuth")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

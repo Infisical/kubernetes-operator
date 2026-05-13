@@ -23,6 +23,7 @@ import (
 // InfisicalAuth is the Schema for the InfisicalAuth API.
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Connection",type=string,JSONPath=`.spec.infisicalConnectionRef.name`
 // +kubebuilder:printcolumn:name="Method",type=string,JSONPath=`.spec.method`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="secrets.infisical.com/IsReady")].status`

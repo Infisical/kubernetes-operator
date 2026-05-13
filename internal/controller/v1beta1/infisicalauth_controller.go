@@ -12,7 +12,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	secretsv1beta1 "github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
@@ -76,7 +75,9 @@ func (r *InfisicalAuthReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 func (r *InfisicalAuthReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&secretsv1beta1.InfisicalAuth{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&secretsv1beta1.InfisicalAuth{}, builder.WithPredicates(&SpecChangedPredicate{
+			AuthResolver: r.AuthResolver,
+		})).
 		// Watch for secret references that got updated
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.findAuthCRDsReferencingSecret)).
 		// Watch for updates on the referenced infisicalConnection, including status updates

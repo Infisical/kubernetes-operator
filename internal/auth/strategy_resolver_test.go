@@ -166,7 +166,6 @@ var _ = Describe("Cache behavior", func() {
 		cacheKey := cache.ClientCacheKey{
 			Name:      authCR.GetName(),
 			Namespace: authCR.GetNamespace(),
-			Method:    string(authCR.Spec.Method),
 		}
 		authCache.Delete(cacheKey)
 

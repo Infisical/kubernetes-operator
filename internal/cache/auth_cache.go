@@ -10,7 +10,6 @@ import (
 type ClientCacheKey struct {
 	Name      string
 	Namespace string
-	Method    string
 }
 
 type AuthCache struct {

@@ -86,7 +86,6 @@ func (r *AuthStrategyResolver) Authenticate(
 	cacheKey := cache.ClientCacheKey{
 		Name:      auth.GetObjectMeta().GetName(),
 		Namespace: auth.GetObjectMeta().GetNamespace(),
-		Method:    string(auth.Spec.Method),
 	}
 
 	if v, found := r.cache.Get(cacheKey); found {
@@ -127,8 +126,9 @@ func (r *AuthStrategyResolver) DeleteCacheEntry(auth *v1beta1.InfisicalAuth) {
 	cacheKey := cache.ClientCacheKey{
 		Name:      auth.GetObjectMeta().GetName(),
 		Namespace: auth.GetObjectMeta().GetNamespace(),
-		Method:    string(auth.Spec.Method),
 	}
+
+	r.logger.Info(fmt.Sprintf("deleting credential for %q", auth.Spec.Method))
 
 	r.cache.Delete(cacheKey)
 }

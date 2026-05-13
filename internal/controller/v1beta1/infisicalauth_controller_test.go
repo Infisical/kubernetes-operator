@@ -207,7 +207,12 @@ var _ = Describe("InfisicalAuth Controller", func() {
 				_, err := reconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: namespacedName,
 				})
-				Expect(err).NotTo(HaveOccurred())
+
+				if tc.expectReady {
+					Expect(err).NotTo(HaveOccurred())
+				} else {
+					Expect(err).To(HaveOccurred())
+				}
 
 				resource := &secretsv1beta1.InfisicalAuth{}
 				Expect(k8sClient.Get(ctx, namespacedName, resource)).To(Succeed())
@@ -218,7 +223,7 @@ var _ = Describe("InfisicalAuth Controller", func() {
 
 				if tc.expectReady {
 					Expect(isReady.Status).To(Equal(metav1.ConditionTrue))
-					Expect(isReady.Message).To(Equal("InfisicalConnection is ready to be used."))
+					Expect(isReady.Message).To(Equal("InfisicalAuth is ready to be used."))
 
 					authMethod := findCondition(resource.Status.Conditions, "secrets.infisical.com/AuthMethod")
 					Expect(authMethod).NotTo(BeNil())

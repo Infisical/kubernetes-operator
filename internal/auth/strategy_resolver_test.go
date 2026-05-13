@@ -176,8 +176,7 @@ var _ = Describe("Cache behavior", func() {
 	})
 
 	It("should call the provider again after the cache TTL expires", func() {
-		// ExpiresIn=62 → TTL = 62s - 60s = 2s. Sleep 3s to ensure expiry even under CI load.
-		fake.result.MachineIdentity.ExpiresIn = 62
+		fake.result.MachineIdentity.ExpiresIn = 2 // 2 seconds
 
 		result1, err := resolver.Authenticate(ctx, conn, authCR)
 		Expect(err).NotTo(HaveOccurred())

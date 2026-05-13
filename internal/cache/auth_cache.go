@@ -1,10 +1,12 @@
 package cache
 
 import (
+	"fmt"
+	"sync"
 	"time"
 
 	"github.com/Infisical/infisical/k8-operator/internal/model"
-	"github.com/jellydator/ttlcache/v3"
+	"github.com/dgraph-io/badger/v4"
 )
 
 type ClientCacheKey struct {
@@ -12,33 +14,63 @@ type ClientCacheKey struct {
 	Namespace string
 }
 
+func (k ClientCacheKey) String() string {
+	return fmt.Sprintf("%s/%s", k.Namespace, k.Name)
+}
+
 type AuthCache struct {
-	cache *ttlcache.Cache[ClientCacheKey, *model.AuthenticationResult]
+	db     *badger.DB
+	values sync.Map
 }
 
 func NewAuthCache() *AuthCache {
-	c := ttlcache.New[ClientCacheKey, *model.AuthenticationResult]()
-	go c.Start()
-	return &AuthCache{cache: c}
+	opts := badger.DefaultOptions("").WithInMemory(true).WithLogger(nil)
+	db, err := badger.Open(opts)
+	if err != nil {
+		panic(fmt.Sprintf("failed to open badger: %v", err))
+	}
+	return &AuthCache{db: db}
 }
 
 func (c *AuthCache) Get(key ClientCacheKey) (*model.AuthenticationResult, bool) {
-	item := c.cache.Get(key)
-	if item == nil {
+	k := key.String()
+
+	err := c.db.View(func(txn *badger.Txn) error {
+		_, err := txn.Get([]byte(k))
+		return err
+	})
+	if err != nil {
+		c.values.Delete(k)
 		return nil, false
 	}
-	return item.Value(), true
+
+	v, ok := c.values.Load(k)
+	if !ok {
+		return nil, false
+	}
+	return v.(*model.AuthenticationResult), true
 }
 
 func (c *AuthCache) Set(key ClientCacheKey, value *model.AuthenticationResult, ttl time.Duration) {
-	c.cache.Set(key, value, ttl)
+	k := key.String()
+	c.db.Update(func(txn *badger.Txn) error {
+		e := badger.NewEntry([]byte(k), []byte{1})
+		if ttl > 0 {
+			e = e.WithTTL(ttl)
+		}
+		return txn.SetEntry(e)
+	})
+	c.values.Store(k, value)
 }
 
 func (c *AuthCache) Delete(key ClientCacheKey) {
-	c.cache.Delete(key)
+	k := key.String()
+	c.db.Update(func(txn *badger.Txn) error {
+		return txn.Delete([]byte(k))
+	})
+	c.values.Delete(k)
 }
 
 func (c *AuthCache) Cleanup() {
-	c.cache.Stop()
-	c.cache.DeleteAll()
+	c.db.Close()
 }

@@ -34,7 +34,7 @@ func (f *fakeAuthStrategy) Authenticate(_ context.Context, _ *model.InfisicalCon
 var _ = Describe("Registry", func() {
 	It("should return an error for an unsupported auth method", func() {
 		authCache := cache.NewAuthCache()
-		registry := auth.NewAuthStrategyResolver(k8sClient, authCache, logr.New(nil))
+		registry := auth.NewAuthStrategyResolver(k8sClient, authCache, logr.New(nil), false)
 		authCR := newInfisicalAuth("unsupported-method")
 
 		err := registry.Validate(ctx, authCR)
@@ -44,7 +44,7 @@ var _ = Describe("Registry", func() {
 
 	It("should delegate to the correct provider via the registry", func() {
 		authCache := cache.NewAuthCache()
-		registry := auth.NewAuthStrategyResolver(k8sClient, authCache, logr.New(nil))
+		registry := auth.NewAuthStrategyResolver(k8sClient, authCache, logr.New(nil), false)
 
 		type registryTestCase struct {
 			name   string
@@ -58,8 +58,8 @@ var _ = Describe("Registry", func() {
 				method: secretsv1beta1.KubernetesAuth,
 				setup: func(authCR *secretsv1beta1.InfisicalAuth) {
 					authCR.Spec.Kubernetes = &secretsv1beta1.KubernetesAuthConfig{
-						IdentityID:         "id",
-						ServiceAccountName: "default",
+						AutoCreateServiceAccountToken: true,
+						ServiceAccountRef:             secretsv1beta1.NamespacedName{Name: "default", Namespace: "default"},
 					}
 				},
 			},
@@ -68,7 +68,7 @@ var _ = Describe("Registry", func() {
 				method: secretsv1beta1.AWSIamAuth,
 				setup: func(authCR *secretsv1beta1.InfisicalAuth) {
 					authCR.Spec.AWSIam = &secretsv1beta1.AWSIamAuthConfig{
-						IdentityID: "id",
+						IdentityIDRef: secretsv1beta1.SecretReference{Name: "aws-id", Namespace: "default", Key: "value"},
 					}
 				},
 			},
@@ -76,14 +76,14 @@ var _ = Describe("Registry", func() {
 				name:   "azure",
 				method: secretsv1beta1.AzureAuth,
 				setup: func(authCR *secretsv1beta1.InfisicalAuth) {
-					authCR.Spec.Azure = &secretsv1beta1.AzureAuthConfig{IdentityID: "id"}
+					authCR.Spec.Azure = &secretsv1beta1.AzureAuthConfig{IdentityIDRef: secretsv1beta1.SecretReference{Name: "azure-id", Namespace: "default", Key: "value"}}
 				},
 			},
 			{
 				name:   "gcp-id-token",
 				method: secretsv1beta1.GCPIdTokenAuth,
 				setup: func(authCR *secretsv1beta1.InfisicalAuth) {
-					authCR.Spec.GCPIdToken = &secretsv1beta1.GCPIdTokenAuthConfig{IdentityID: "id"}
+					authCR.Spec.GCPIdToken = &secretsv1beta1.GCPIdTokenAuthConfig{IdentityIDRef: secretsv1beta1.SecretReference{Name: "gcp-id-token-id", Namespace: "default", Key: "value"}}
 				},
 			},
 			{
@@ -91,7 +91,7 @@ var _ = Describe("Registry", func() {
 				method: secretsv1beta1.GCPIamAuth,
 				setup: func(authCR *secretsv1beta1.InfisicalAuth) {
 					authCR.Spec.GCPIam = &secretsv1beta1.GCPIamAuthConfig{
-						IdentityID:                "id",
+						IdentityIDRef:             secretsv1beta1.SecretReference{Name: "gcp-iam-id", Namespace: "default", Key: "value"},
 						ServiceAccountKeyFilePath: "/path",
 					}
 				},

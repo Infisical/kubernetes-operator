@@ -166,7 +166,7 @@ var _ = Describe("InfisicalAuth Controller", func() {
 					},
 					Spec: secretsv1beta1.InfisicalAuthSpec{
 						Method: tc.method,
-						InfisicalConnectionRef: secretsv1beta1.InfisicalConnectionRef{
+						InfisicalConnectionRef: secretsv1beta1.NamespacedName{
 							Name:      connName,
 							Namespace: "default",
 						},

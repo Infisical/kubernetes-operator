@@ -10,7 +10,7 @@ import (
 
 var _ = Describe("GCP IAM Auth", func() {
 	It("should fail when .spec.gcp-iam is nil", func() {
-		provider := auth.NewGCPIamAuth()
+		provider := auth.NewGCPIamAuth(k8sClient)
 		authCR := newInfisicalAuth(secretsv1beta1.GCPIamAuth)
 
 		err := provider.Validate(ctx, authCR)
@@ -19,10 +19,10 @@ var _ = Describe("GCP IAM Auth", func() {
 	})
 
 	It("should succeed when .spec.gcp-iam is set", func() {
-		provider := auth.NewGCPIamAuth()
+		provider := auth.NewGCPIamAuth(k8sClient)
 		authCR := newInfisicalAuth(secretsv1beta1.GCPIamAuth)
 		authCR.Spec.GCPIam = &secretsv1beta1.GCPIamAuthConfig{
-			IdentityID:                "identity-123",
+			IdentityIDRef:             secretsv1beta1.SecretReference{Name: "gcp-iam-identity-id", Namespace: "default", Key: "value"},
 			ServiceAccountKeyFilePath: "/var/run/secrets/gcp/key.json",
 		}
 

@@ -10,7 +10,7 @@ import (
 
 var _ = Describe("AWS IAM Auth", func() {
 	It("should fail when .spec.aws-iam is nil", func() {
-		provider := auth.NewAWSIamAuth()
+		provider := auth.NewAWSIamAuth(k8sClient)
 		authCR := newInfisicalAuth(secretsv1beta1.AWSIamAuth)
 
 		err := provider.Validate(ctx, authCR)
@@ -19,10 +19,10 @@ var _ = Describe("AWS IAM Auth", func() {
 	})
 
 	It("should succeed when .spec.aws-iam is set", func() {
-		provider := auth.NewAWSIamAuth()
+		provider := auth.NewAWSIamAuth(k8sClient)
 		authCR := newInfisicalAuth(secretsv1beta1.AWSIamAuth)
 		authCR.Spec.AWSIam = &secretsv1beta1.AWSIamAuthConfig{
-			IdentityID: "identity-123",
+			IdentityIDRef: secretsv1beta1.SecretReference{Name: "aws-identity-id", Namespace: "default", Key: "value"},
 		}
 
 		Expect(provider.Validate(ctx, authCR)).To(Succeed())

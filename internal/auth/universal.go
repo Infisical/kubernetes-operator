@@ -20,6 +20,10 @@ func NewUniversalAuth(c client.Client) InfisicalAuthStrategy {
 }
 
 func (u *universalAuth) Validate(ctx context.Context, auth *v1beta1.InfisicalAuth) error {
+	if auth == nil {
+		return ErrInvalidAuthObject
+	}
+
 	if auth.Spec.Universal == nil {
 		return fmt.Errorf("auth method is %q but .spec.universal is not set", v1beta1.UniversalAuth)
 	}
@@ -39,6 +43,10 @@ func (u *universalAuth) Authenticate(
 	connection *model.InfisicalConnection,
 	auth *v1beta1.InfisicalAuth,
 ) (*model.AuthenticationResult, error) {
+	if auth == nil {
+		return nil, ErrInvalidAuthObject
+	}
+
 	clientId, err := util.ResolveSecretReference(ctx, u.client, auth.Spec.Universal.ClientIdRef, ".spec.universal.clientIdRef")
 	if err != nil {
 		return nil, err
@@ -50,8 +58,9 @@ func (u *universalAuth) Authenticate(
 	}
 
 	sdkClient := infisicalSdk.NewInfisicalClient(ctx, infisicalSdk.Config{
-		SiteUrl:       connection.Host,
-		CaCertificate: connection.CaCertificate,
+		SiteUrl:          connection.Host,
+		CaCertificate:    connection.CaCertificate,
+		AutoTokenRefresh: false,
 	})
 
 	cred, err := sdkClient.Auth().UniversalAuthLogin(string(clientId), string(clientSecret))

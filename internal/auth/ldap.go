@@ -20,6 +20,10 @@ func NewLDAPAuth(c client.Client) InfisicalAuthStrategy {
 }
 
 func (l *ldapAuth) Validate(ctx context.Context, auth *v1beta1.InfisicalAuth) error {
+	if auth == nil {
+		return ErrInvalidAuthObject
+	}
+
 	if auth.Spec.LDAP == nil {
 		return fmt.Errorf("auth method is %q but .spec.ldap is not set", v1beta1.LDAPAuth)
 	}
@@ -42,6 +46,10 @@ func (l *ldapAuth) Authenticate(
 	connection *model.InfisicalConnection,
 	auth *v1beta1.InfisicalAuth,
 ) (*model.AuthenticationResult, error) {
+	if auth == nil {
+		return nil, ErrInvalidAuthObject
+	}
+
 	username, err := util.ResolveSecretReference(ctx, l.client, auth.Spec.LDAP.UsernameRef, ".spec.ldap.usernameRef")
 	if err != nil {
 		return nil, err
@@ -58,8 +66,9 @@ func (l *ldapAuth) Authenticate(
 	}
 
 	sdkClient := infisicalSdk.NewInfisicalClient(ctx, infisicalSdk.Config{
-		SiteUrl:       connection.Host,
-		CaCertificate: connection.CaCertificate,
+		SiteUrl:          connection.Host,
+		CaCertificate:    connection.CaCertificate,
+		AutoTokenRefresh: false,
 	})
 
 	cred, err := sdkClient.Auth().LdapAuthLogin(string(identityID), string(username), string(password))

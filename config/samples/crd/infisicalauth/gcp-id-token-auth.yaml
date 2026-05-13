@@ -8,4 +8,7 @@ spec:
     namespace: default
   method: gcp-id-token
   gcpIdToken:
-    identityId: <machine-identity-id>
+    identityIdRef:
+      name: gcp-id-token-credentials
+      namespace: default
+      key: identityId

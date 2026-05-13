@@ -8,4 +8,7 @@ spec:
     namespace: default
   method: azure
   azure:
-    identityId: <machine-identity-id>
+    identityIdRef:
+      name: azure-credentials
+      namespace: default
+      key: identityId

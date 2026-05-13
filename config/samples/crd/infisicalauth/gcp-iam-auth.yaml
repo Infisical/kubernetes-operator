@@ -8,5 +8,8 @@ spec:
     namespace: default
   method: gcp-iam
   gcpIam:
-    identityId: <machine-identity-id>
+    identityIdRef:
+      name: gcp-iam-credentials
+      namespace: default
+      key: identityId
     serviceAccountKeyFilePath: /path/to/service-account-key.json

@@ -10,7 +10,7 @@ import (
 
 var _ = Describe("GCP ID Token Auth", func() {
 	It("should fail when .spec.gcp-id-token is nil", func() {
-		provider := auth.NewGCPIdTokenAuth()
+		provider := auth.NewGCPIdTokenAuth(k8sClient)
 		authCR := newInfisicalAuth(secretsv1beta1.GCPIdTokenAuth)
 
 		err := provider.Validate(ctx, authCR)
@@ -19,10 +19,10 @@ var _ = Describe("GCP ID Token Auth", func() {
 	})
 
 	It("should succeed when .spec.gcp-id-token is set", func() {
-		provider := auth.NewGCPIdTokenAuth()
+		provider := auth.NewGCPIdTokenAuth(k8sClient)
 		authCR := newInfisicalAuth(secretsv1beta1.GCPIdTokenAuth)
 		authCR.Spec.GCPIdToken = &secretsv1beta1.GCPIdTokenAuthConfig{
-			IdentityID: "identity-123",
+			IdentityIDRef: secretsv1beta1.SecretReference{Name: "gcp-id-token-identity-id", Namespace: "default", Key: "value"},
 		}
 
 		Expect(provider.Validate(ctx, authCR)).To(Succeed())

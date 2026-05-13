@@ -259,7 +259,7 @@ func main() {
 	authCache := inmemoryCache.NewAuthCache()
 	defer authCache.Cleanup()
 
-	authStrategyResolver := auth.NewAuthStrategyResolver(mgr.GetClient(), authCache, ctrl.Log)
+	authStrategyResolver := auth.NewAuthStrategyResolver(mgr.GetClient(), authCache, ctrl.Log, isNamespaceScoped)
 
 	template.InitializeTemplateFunctions()
 

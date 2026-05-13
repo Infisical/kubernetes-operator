@@ -8,5 +8,10 @@ spec:
     namespace: default
   method: kubernetes
   kubernetes:
-    identityId: <machine-identity-id>
-    serviceAccountName: default
+    identityIdRef:
+      name: kubernetes-credentials
+      namespace: default
+      key: identityId
+    serviceAccountRef:
+      name: default
+      namespace: default

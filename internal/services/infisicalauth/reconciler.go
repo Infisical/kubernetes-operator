@@ -6,6 +6,8 @@ import (
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
+	"github.com/Infisical/infisical/k8-operator/internal/model"
+	"github.com/Infisical/infisical/k8-operator/internal/util"
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -21,7 +23,7 @@ type InfisicalAuthReconciler struct {
 	authResolver      *auth.AuthStrategyResolver
 }
 
-func (r *InfisicalAuthReconciler) getInfisicalConnection(ctx context.Context, connectionRef v1beta1.InfisicalConnectionRef) (*v1beta1.InfisicalConnection, error) {
+func (r *InfisicalAuthReconciler) getInfisicalConnection(ctx context.Context, connectionRef v1beta1.NamespacedName) (*v1beta1.InfisicalConnection, error) {
 	conn := v1beta1.InfisicalConnection{}
 
 	err := r.Client.Get(ctx, types.NamespacedName{
@@ -29,6 +31,9 @@ func (r *InfisicalAuthReconciler) getInfisicalConnection(ctx context.Context, co
 		Namespace: connectionRef.Namespace,
 	}, &conn)
 	if err != nil {
+		if util.IsNamespaceScopedError(err, r.IsNamespaceScoped) {
+			return nil, model.NewNamespaceScopedError(err, "InfisicalConnection")
+		}
 		return nil, fmt.Errorf("Unable to fetch Infisical Connection CRD from cluster: %w", err)
 	}
 

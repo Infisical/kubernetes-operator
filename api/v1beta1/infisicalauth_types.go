@@ -37,7 +37,7 @@ type InfisicalAuth struct {
 
 type InfisicalAuthSpec struct {
 	// +kubebuilder:validation:Required
-	InfisicalConnectionRef InfisicalConnectionRef `json:"infisicalConnectionRef"`
+	InfisicalConnectionRef NamespacedName `json:"infisicalConnectionRef"`
 
 	// +kubebuilder:validation:Required
 	Method InfisicalAuthMethod `json:"method"`
@@ -74,21 +74,29 @@ type UniversalAuthConfig struct {
 
 type KubernetesAuthConfig struct {
 	// +kubebuilder:validation:Required
-	IdentityID string `json:"identityId"`
+	IdentityIDRef SecretReference `json:"identityIdRef"`
 
+	// +kubebuilder:validation:Required
+	ServiceAccountRef NamespacedName `json:"serviceAccountRef"`
+
+	// Optionally automatically create a service account token for the configured service account.
+	// If this is set to `true`, the operator will automatically create a service account token for the configured service account.
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:="default"
-	ServiceAccountName string `json:"serviceAccountName"`
+	AutoCreateServiceAccountToken bool `json:"autoCreateServiceAccountToken"`
+
+	// The audiences to use for the service account token. This is only relevant if `autoCreateServiceAccountToken` is true.
+	// +kubebuilder:validation:Optional
+	ServiceAccountTokenAudiences []string `json:"serviceAccountTokenAudiences"`
 }
 
 type AWSIamAuthConfig struct {
 	// +kubebuilder:validation:Required
-	IdentityID string `json:"identityId"`
+	IdentityIDRef SecretReference `json:"identityIdRef"`
 }
 
 type AzureAuthConfig struct {
 	// +kubebuilder:validation:Required
-	IdentityID string `json:"identityId"`
+	IdentityIDRef SecretReference `json:"identityIdRef"`
 
 	// +kubebuilder:validation:Optional
 	Resource string `json:"resource"`
@@ -96,12 +104,12 @@ type AzureAuthConfig struct {
 
 type GCPIdTokenAuthConfig struct {
 	// +kubebuilder:validation:Required
-	IdentityID string `json:"identityId"`
+	IdentityIDRef SecretReference `json:"identityIdRef"`
 }
 
 type GCPIamAuthConfig struct {
 	// +kubebuilder:validation:Required
-	IdentityID string `json:"identityId"`
+	IdentityIDRef SecretReference `json:"identityIdRef"`
 
 	// +kubebuilder:validation:Required
 	ServiceAccountKeyFilePath string `json:"serviceAccountKeyFilePath"`
@@ -118,7 +126,7 @@ type LDAPAuthConfig struct {
 	IdentityIDRef SecretReference `json:"identityIdRef"`
 }
 
-type InfisicalConnectionRef struct {
+type NamespacedName struct {
 	// +kubebuilder:validation:Required
 	Name string `json:"name"`
 

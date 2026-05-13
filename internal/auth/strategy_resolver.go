@@ -3,6 +3,7 @@ package auth
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -14,6 +15,8 @@ import (
 	"github.com/go-logr/logr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+var ErrInvalidAuthObject = errors.New("invalid auth object")
 
 type InfisicalAuthStrategy interface {
 	Validate(context.Context, *v1beta1.InfisicalAuth) error
@@ -27,7 +30,7 @@ type AuthStrategyResolver struct {
 	logger  logr.Logger
 }
 
-func NewAuthStrategyResolver(client client.Client, cache *cache.AuthCache, logger logr.Logger) *AuthStrategyResolver {
+func NewAuthStrategyResolver(client client.Client, cache *cache.AuthCache, logger logr.Logger, isNamespaceScoped bool) *AuthStrategyResolver {
 	r := &AuthStrategyResolver{
 		entries: make(map[v1beta1.InfisicalAuthMethod]InfisicalAuthStrategy),
 		client:  client,
@@ -36,11 +39,11 @@ func NewAuthStrategyResolver(client client.Client, cache *cache.AuthCache, logge
 	}
 
 	r.add(v1beta1.UniversalAuth, NewUniversalAuth(client))
-	r.add(v1beta1.KubernetesAuth, NewKubernetesAuth(client))
-	r.add(v1beta1.AWSIamAuth, NewAWSIamAuth())
-	r.add(v1beta1.AzureAuth, NewAzureAuth())
-	r.add(v1beta1.GCPIdTokenAuth, NewGCPIdTokenAuth())
-	r.add(v1beta1.GCPIamAuth, NewGCPIamAuth())
+	r.add(v1beta1.KubernetesAuth, NewKubernetesAuth(client, isNamespaceScoped))
+	r.add(v1beta1.AWSIamAuth, NewAWSIamAuth(client))
+	r.add(v1beta1.AzureAuth, NewAzureAuth(client))
+	r.add(v1beta1.GCPIdTokenAuth, NewGCPIdTokenAuth(client))
+	r.add(v1beta1.GCPIamAuth, NewGCPIamAuth(client))
 	r.add(v1beta1.LDAPAuth, NewLDAPAuth(client))
 
 	return r
@@ -65,6 +68,10 @@ func (r *AuthStrategyResolver) add(method v1beta1.InfisicalAuthMethod, provider 
 }
 
 func (r *AuthStrategyResolver) Validate(ctx context.Context, auth *v1beta1.InfisicalAuth) error {
+	if auth == nil {
+		return ErrInvalidAuthObject
+	}
+
 	provider, found := r.entries[auth.Spec.Method]
 	if !found {
 		return fmt.Errorf("unsupported auth method: %q", auth.Spec.Method)
@@ -78,6 +85,10 @@ func (r *AuthStrategyResolver) Authenticate(
 	connection *v1beta1.InfisicalConnection,
 	auth *v1beta1.InfisicalAuth,
 ) (*model.AuthenticationResult, error) {
+	if auth == nil {
+		return nil, ErrInvalidAuthObject
+	}
+
 	provider, found := r.entries[auth.Spec.Method]
 	if !found {
 		return nil, fmt.Errorf("unsupported auth method: %q", auth.Spec.Method)
@@ -115,7 +126,8 @@ func (r *AuthStrategyResolver) Authenticate(
 		return nil, err
 	}
 
-	ttl := time.Duration(authResult.MachineIdentity.ExpiresIn) * time.Second
+	// Use 70% of the TTL as a safe-guard
+	ttl := time.Duration(float64(authResult.MachineIdentity.ExpiresIn)*0.7) * time.Second
 	r.cache.Set(cacheKey, authResult, ttl)
 	r.logger.Info(fmt.Sprintf("successful authentication with %q, caching credentials for %v", auth.Spec.Method, ttl))
 

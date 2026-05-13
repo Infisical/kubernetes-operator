@@ -6,16 +6,26 @@ import (
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
+	"github.com/Infisical/infisical/k8-operator/internal/util"
 	infisicalSdk "github.com/infisical/go-sdk"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type azureAuth struct{}
+type azureAuth struct {
+	client client.Client
+}
 
-func NewAzureAuth() InfisicalAuthStrategy {
-	return &azureAuth{}
+func NewAzureAuth(client client.Client) InfisicalAuthStrategy {
+	return &azureAuth{
+		client: client,
+	}
 }
 
 func (a *azureAuth) Validate(ctx context.Context, auth *v1beta1.InfisicalAuth) error {
+	if auth == nil {
+		return ErrInvalidAuthObject
+	}
+
 	if auth.Spec.Azure == nil {
 		return fmt.Errorf("auth method is %q but .spec.azure is not set", v1beta1.AzureAuth)
 	}
@@ -28,12 +38,22 @@ func (a *azureAuth) Authenticate(
 	connection *model.InfisicalConnection,
 	auth *v1beta1.InfisicalAuth,
 ) (*model.AuthenticationResult, error) {
+	if auth == nil {
+		return nil, ErrInvalidAuthObject
+	}
+
 	sdkClient := infisicalSdk.NewInfisicalClient(ctx, infisicalSdk.Config{
-		SiteUrl:       connection.Host,
-		CaCertificate: connection.CaCertificate,
+		SiteUrl:          connection.Host,
+		CaCertificate:    connection.CaCertificate,
+		AutoTokenRefresh: false,
 	})
 
-	cred, err := sdkClient.Auth().AzureAuthLogin(auth.Spec.Azure.IdentityID, auth.Spec.Azure.Resource)
+	identityID, err := util.ResolveSecretReference(ctx, a.client, auth.Spec.Azure.IdentityIDRef, ".spec.azure.identityIdRef")
+	if err != nil {
+		return nil, err
+	}
+
+	cred, err := sdkClient.Auth().AzureAuthLogin(string(identityID), auth.Spec.Azure.Resource)
 	if err != nil {
 		return nil, fmt.Errorf("unable to authenticate with Azure: %w", err)
 	}

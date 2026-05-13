@@ -6,16 +6,26 @@ import (
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
+	"github.com/Infisical/infisical/k8-operator/internal/util"
 	infisicalSdk "github.com/infisical/go-sdk"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type gcpIdTokenAuth struct{}
+type gcpIdTokenAuth struct {
+	client client.Client
+}
 
-func NewGCPIdTokenAuth() InfisicalAuthStrategy {
-	return &gcpIdTokenAuth{}
+func NewGCPIdTokenAuth(client client.Client) InfisicalAuthStrategy {
+	return &gcpIdTokenAuth{
+		client: client,
+	}
 }
 
 func (g *gcpIdTokenAuth) Validate(ctx context.Context, auth *v1beta1.InfisicalAuth) error {
+	if auth == nil {
+		return ErrInvalidAuthObject
+	}
+
 	if auth.Spec.GCPIdToken == nil {
 		return fmt.Errorf("auth method is %q but .spec.gcp-id-token is not set", v1beta1.GCPIdTokenAuth)
 	}
@@ -28,12 +38,22 @@ func (g *gcpIdTokenAuth) Authenticate(
 	connection *model.InfisicalConnection,
 	auth *v1beta1.InfisicalAuth,
 ) (*model.AuthenticationResult, error) {
+	if auth == nil {
+		return nil, ErrInvalidAuthObject
+	}
+
 	sdkClient := infisicalSdk.NewInfisicalClient(ctx, infisicalSdk.Config{
-		SiteUrl:       connection.Host,
-		CaCertificate: connection.CaCertificate,
+		SiteUrl:          connection.Host,
+		CaCertificate:    connection.CaCertificate,
+		AutoTokenRefresh: false,
 	})
 
-	cred, err := sdkClient.Auth().GcpIdTokenAuthLogin(auth.Spec.GCPIdToken.IdentityID)
+	identityID, err := util.ResolveSecretReference(ctx, g.client, auth.Spec.GCPIdToken.IdentityIDRef, ".spec.gcpIdToken.identityIdRef")
+	if err != nil {
+		return nil, err
+	}
+
+	cred, err := sdkClient.Auth().GcpIdTokenAuthLogin(string(identityID))
 	if err != nil {
 		return nil, fmt.Errorf("unable to authenticate with GCP ID Token: %w", err)
 	}

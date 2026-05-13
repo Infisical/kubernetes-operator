@@ -8,4 +8,7 @@ spec:
     namespace: default
   method: aws-iam
   awsIam:
-    identityId: <machine-identity-id>
+    identityIdRef:
+      name: aws-iam-credentials
+      namespace: default
+      key: identityId

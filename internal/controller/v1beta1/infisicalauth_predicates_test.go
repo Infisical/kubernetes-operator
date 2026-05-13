@@ -27,7 +27,15 @@ func newAuthCRD(name, namespace string, generation int64, method secretsv1beta1.
 		Spec: secretsv1beta1.InfisicalAuthSpec{
 			Method: method,
 			Kubernetes: &secretsv1beta1.KubernetesAuthConfig{
-				IdentityID: identityID,
+				IdentityIDRef: secretsv1beta1.SecretReference{
+					Name:      identityID,
+					Namespace: namespace,
+					Key:       "identity-id",
+				},
+				ServiceAccountRef: secretsv1beta1.NamespacedName{
+					Name:      "sa",
+					Namespace: namespace,
+				},
 			},
 		},
 	}

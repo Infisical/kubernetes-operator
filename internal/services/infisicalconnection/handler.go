@@ -72,6 +72,9 @@ func (h *InfisicalConnectionHandler) GetInfisicalConnection(ctx context.Context,
 	var connection v1beta1.InfisicalConnection
 	err := h.Client.Get(ctx, namespacedName, &connection)
 	if err != nil {
+		if util.IsNamespaceScopedError(err, h.IsNamespaceScoped) {
+			return nil, model.NewNamespaceScopedError(err, "InfisicalConnection")
+		}
 		return nil, err
 	}
 

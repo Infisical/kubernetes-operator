@@ -15,7 +15,9 @@ import (
 
 	secretsv1beta1 "github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
+	"github.com/Infisical/infisical/k8-operator/internal/model"
 	"github.com/Infisical/infisical/k8-operator/internal/services/infisicalauth"
+	"github.com/Infisical/infisical/k8-operator/internal/util"
 )
 
 type InfisicalAuthReconciler struct {
@@ -47,6 +49,10 @@ func (r *InfisicalAuthReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	err := r.Get(ctx, req.NamespacedName, &authCRD)
 	if err != nil {
+		if util.IsNamespaceScopedError(err, r.IsNamespaceScoped) {
+			return ctrl.Result{}, model.NewNamespaceScopedError(err, "InfisicalAuth")
+		}
+
 		if errors.IsNotFound(err) {
 			logger.Info("Infisical Auth CRD not found")
 			return ctrl.Result{

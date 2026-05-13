@@ -61,6 +61,8 @@ spec:
                 properties:
                   identityId:
                     type: string
+                  resource:
+                    type: string
                 required:
                 - identityId
                 type: object

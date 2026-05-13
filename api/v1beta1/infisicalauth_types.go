@@ -88,6 +88,9 @@ type AWSIamAuthConfig struct {
 type AzureAuthConfig struct {
 	// +kubebuilder:validation:Required
 	IdentityID string `json:"identityId"`
+
+	// +kubebuilder:validation:Optional
+	Resource string `json:"resource"`
 }
 
 type GCPIdTokenAuthConfig struct {

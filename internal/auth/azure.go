@@ -33,7 +33,7 @@ func (a *azureAuth) Authenticate(
 		CaCertificate: connection.CaCertificate,
 	})
 
-	cred, err := sdkClient.Auth().AzureAuthLogin(auth.Spec.Azure.IdentityID, "")
+	cred, err := sdkClient.Auth().AzureAuthLogin(auth.Spec.Azure.IdentityID, auth.Spec.Azure.Resource)
 	if err != nil {
 		return nil, fmt.Errorf("unable to authenticate with Azure: %w", err)
 	}

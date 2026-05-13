@@ -116,17 +116,19 @@ func (r *AuthStrategyResolver) Authenticate(
 		return nil, err
 	}
 
-	// we make TTL slightly smaller than the token to ensure that if we get the token from cache
-	// it's still good for a few moments and we can do the secret sync with it.
-	originalTTL := time.Duration(authResult.MachineIdentity.ExpiresIn) * time.Second
-	ttl := originalTTL - time.Minute
-	if ttl <= 0 {
-		// Token TTL is so short that it makes no sense to remove time
-		ttl = originalTTL
-	}
-
+	ttl := time.Duration(authResult.MachineIdentity.ExpiresIn) * time.Second
 	r.cache.Set(cacheKey, authResult, ttl)
 	r.logger.Info(fmt.Sprintf("successful authentication with %q, caching credentials for %v", auth.Spec.Method, ttl))
 
 	return authResult, nil
+}
+
+func (r *AuthStrategyResolver) DeleteCacheEntry(auth *v1beta1.InfisicalAuth) {
+	cacheKey := cache.ClientCacheKey{
+		Name:      auth.GetObjectMeta().GetName(),
+		Namespace: auth.GetObjectMeta().GetNamespace(),
+		Method:    string(auth.Spec.Method),
+	}
+
+	r.cache.Delete(cacheKey)
 }

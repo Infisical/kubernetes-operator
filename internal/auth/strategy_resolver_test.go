@@ -177,7 +177,8 @@ var _ = Describe("Cache behavior", func() {
 	})
 
 	It("should call the provider again after the cache TTL expires", func() {
-		fake.result.MachineIdentity.ExpiresIn = 61 // 61 seconds
+		// ExpiresIn=62 → TTL = 62s - 60s = 2s. Sleep 3s to ensure expiry even under CI load.
+		fake.result.MachineIdentity.ExpiresIn = 62
 
 		result1, err := resolver.Authenticate(ctx, conn, authCR)
 		Expect(err).NotTo(HaveOccurred())
@@ -189,7 +190,7 @@ var _ = Describe("Cache behavior", func() {
 		Expect(result2).NotTo(BeNil())
 		Expect(fake.callCount).To(Equal(1))
 
-		time.Sleep(1500 * time.Millisecond)
+		time.Sleep(3 * time.Second)
 
 		result3, err := resolver.Authenticate(ctx, conn, authCR)
 		Expect(err).NotTo(HaveOccurred())

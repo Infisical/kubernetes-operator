@@ -80,7 +80,7 @@ func (r *InfisicalAuthHandler) SetReconcileConditionStatus(ctx context.Context, 
 			Type:               "secrets.infisical.com/IsReady",
 			Status:             metav1.ConditionTrue,
 			Reason:             "Ok",
-			Message:            "InfisicalConnection is ready to be used.",
+			Message:            "InfisicalAuth is ready to be used.",
 			ObservedGeneration: infisicalAuth.Generation,
 		})
 

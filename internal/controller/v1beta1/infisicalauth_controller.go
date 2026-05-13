@@ -62,6 +62,8 @@ func (r *InfisicalAuthReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// If it's being deleted, we should not attempt to do anything
 	// As this is a simple CRD, we don't need a finalizer to cleanup either.
 	if !authCRD.DeletionTimestamp.IsZero() {
+		// If we are deleting the CRD, we must ensure cache is cleaned for this one.
+		r.AuthResolver.DeleteCacheEntry(&authCRD)
 		return ctrl.Result{}, nil
 	}
 
@@ -69,7 +71,7 @@ func (r *InfisicalAuthReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	err = handler.ValidateAndAuthenticate(ctx, logger, &authCRD)
 	handler.SetReconcileConditionStatus(ctx, logger, &authCRD, err)
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{}, err
 }
 
 func (r *InfisicalAuthReconciler) SetupWithManager(mgr ctrl.Manager) error {

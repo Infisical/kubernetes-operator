@@ -21,7 +21,7 @@ func NewUniversalAuth(c client.Client) InfisicalAuthStrategy {
 
 func (u *universalAuth) Validate(ctx context.Context, auth *v1beta1.InfisicalAuth) error {
 	if auth == nil {
-		return ErrInvalidAuthObject
+		return model.ErrInvalidAuthObject
 	}
 
 	if auth.Spec.Universal == nil {
@@ -43,8 +43,16 @@ func (u *universalAuth) Authenticate(
 	connection *model.InfisicalConnection,
 	auth *v1beta1.InfisicalAuth,
 ) (*model.AuthenticationResult, error) {
+	if connection == nil {
+		return nil, model.ErrInvalidConnectionObject
+	}
+
 	if auth == nil {
-		return nil, ErrInvalidAuthObject
+		return nil, model.ErrInvalidAuthObject
+	}
+
+	if auth.Spec.Universal == nil {
+		return nil, fmt.Errorf("%w: spec.universal is nil", model.ErrInvalidAuthObject)
 	}
 
 	clientId, err := util.ResolveSecretReference(ctx, u.client, auth.Spec.Universal.ClientIdRef, ".spec.universal.clientIdRef")

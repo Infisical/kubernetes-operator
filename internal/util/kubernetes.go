@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1alpha1"
+	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/constants"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
 	corev1 "k8s.io/api/core/v1"
@@ -180,4 +181,22 @@ func GetInfisicalServiceAccountCredentialsFromKubeSecret(ctx context.Context, re
 	}
 
 	return model.ServiceAccountDetails{AccessKey: string(accessKeyFromSecret), PrivateKey: string(privateKeyFromSecret), PublicKey: string(publicKeyFromSecret)}, nil
+}
+
+func ResolveSecretReference(ctx context.Context, client client.Client, ref v1beta1.SecretReference, fieldPath string) ([]byte, error) {
+	secret := &corev1.Secret{}
+	err := client.Get(ctx, types.NamespacedName{
+		Name:      ref.Name,
+		Namespace: ref.Namespace,
+	}, secret)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch secret for %s (secret %s/%s): %w", fieldPath, ref.Namespace, ref.Name, err)
+	}
+
+	val, ok := secret.Data[ref.Key]
+	if !ok || len(val) == 0 {
+		return nil, fmt.Errorf("secret %s/%s has no value for key %q (referenced by %s)", ref.Namespace, ref.Name, ref.Key, fieldPath)
+	}
+
+	return val, nil
 }

@@ -23,7 +23,7 @@ func NewAzureAuth(client client.Client) InfisicalAuthStrategy {
 
 func (a *azureAuth) Validate(ctx context.Context, auth *v1beta1.InfisicalAuth) error {
 	if auth == nil {
-		return ErrInvalidAuthObject
+		return model.ErrInvalidAuthObject
 	}
 
 	if auth.Spec.Azure == nil {
@@ -38,8 +38,16 @@ func (a *azureAuth) Authenticate(
 	connection *model.InfisicalConnection,
 	auth *v1beta1.InfisicalAuth,
 ) (*model.AuthenticationResult, error) {
+	if connection == nil {
+		return nil, model.ErrInvalidConnectionObject
+	}
+
 	if auth == nil {
-		return nil, ErrInvalidAuthObject
+		return nil, model.ErrInvalidAuthObject
+	}
+
+	if auth.Spec.Azure == nil {
+		return nil, fmt.Errorf("%w: spec.azure is nil", model.ErrInvalidAuthObject)
 	}
 
 	sdkClient := infisicalSdk.NewInfisicalClient(ctx, infisicalSdk.Config{

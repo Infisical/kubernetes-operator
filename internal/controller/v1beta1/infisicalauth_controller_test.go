@@ -19,11 +19,13 @@ package v1beta1_test
 import (
 	"context"
 	"fmt"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -184,7 +186,8 @@ var _ = Describe("InfisicalAuth Controller", func() {
 					}
 				})
 
-				authCache := cache.NewAuthCache()
+				authCache, err := cache.NewAuthCache()
+				Expect(err).ToNot(HaveOccurred())
 				DeferCleanup(func() { authCache.Cleanup() })
 
 				var resolver *auth.AuthStrategyResolver
@@ -204,7 +207,7 @@ var _ = Describe("InfisicalAuth Controller", func() {
 				}
 
 				namespacedName := types.NamespacedName{Name: resourceName, Namespace: "default"}
-				_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				_, err = reconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: namespacedName,
 				})
 
@@ -246,3 +249,107 @@ func findCondition(conditions []metav1.Condition, condType string) *metav1.Condi
 	}
 	return nil
 }
+
+func newAuthCRD(name, namespace string, generation int64, method secretsv1beta1.InfisicalAuthMethod, identityID string) *secretsv1beta1.InfisicalAuth {
+	return &secretsv1beta1.InfisicalAuth{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       name,
+			Namespace:  namespace,
+			Generation: generation,
+		},
+		Spec: secretsv1beta1.InfisicalAuthSpec{
+			Method: method,
+			Kubernetes: &secretsv1beta1.KubernetesAuthConfig{
+				IdentityIDRef: secretsv1beta1.SecretReference{
+					Name:      identityID,
+					Namespace: namespace,
+					Key:       "identity-id",
+				},
+				ServiceAccountRef: secretsv1beta1.NamespacedName{
+					Name:      "sa",
+					Namespace: namespace,
+				},
+			},
+		},
+	}
+}
+
+func seedCache(c *cache.AuthCache, name, namespace string) {
+	c.Set(cache.ClientCacheKey{
+		Name:      name,
+		Namespace: namespace,
+	}, &model.AuthenticationResult{
+		MachineIdentity: infisicalSdk.MachineIdentityCredential{
+			AccessToken: "cached-token",
+		},
+	}, 5*time.Minute)
+}
+
+func cacheHasEntry(c *cache.AuthCache, name, namespace string) bool {
+	_, found := c.Get(cache.ClientCacheKey{
+		Name:      name,
+		Namespace: namespace,
+	})
+	return found
+}
+
+var _ = Describe("SpecChangedPredicate", func() {
+	const (
+		authName      = "auth-1"
+		authNamespace = "default"
+		method        = secretsv1beta1.KubernetesAuth
+	)
+
+	var (
+		authCache *cache.AuthCache
+		predicate *controllerv1beta1.SpecChangedPredicate
+	)
+
+	BeforeEach(func() {
+		var err error
+		authCache, err = cache.NewAuthCache()
+		Expect(err).ToNot(HaveOccurred())
+		seedCache(authCache, authName, authNamespace)
+
+		resolver := auth.NewAuthStrategyResolverForTesting(authCache, nil)
+		predicate = &controllerv1beta1.SpecChangedPredicate{
+			AuthResolver: resolver,
+		}
+	})
+
+	AfterEach(func() {
+		if authCache != nil {
+			authCache.Cleanup()
+		}
+	})
+
+	It("should skip reconcile and keep cache when generation is unchanged", func() {
+		result := predicate.Update(event.UpdateEvent{
+			ObjectOld: newAuthCRD(authName, authNamespace, 1, method, "id-1"),
+			ObjectNew: newAuthCRD(authName, authNamespace, 1, method, "id-1"),
+		})
+
+		Expect(result).To(BeFalse())
+		Expect(cacheHasEntry(authCache, authName, authNamespace)).To(BeTrue())
+	})
+
+	It("should reconcile but keep cache when generation changed and spec is identical", func() {
+		result := predicate.Update(event.UpdateEvent{
+			ObjectOld: newAuthCRD(authName, authNamespace, 1, method, "id-1"),
+			ObjectNew: newAuthCRD(authName, authNamespace, 2, method, "id-1"),
+		})
+
+		Expect(result).To(BeTrue())
+		Expect(cacheHasEntry(authCache, authName, authNamespace)).To(BeTrue())
+	})
+
+	It("should reconcile and evict cache when spec changed", func() {
+		result := predicate.Update(event.UpdateEvent{
+			ObjectOld: newAuthCRD(authName, authNamespace, 1, method, "id-1"),
+			ObjectNew: newAuthCRD(authName, authNamespace, 2, method, "id-2"),
+		})
+
+		Expect(result).To(BeTrue())
+		Expect(cacheHasEntry(authCache, authName, authNamespace)).To(BeFalse())
+	})
+})

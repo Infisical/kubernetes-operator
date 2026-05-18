@@ -9,16 +9,16 @@ import (
 )
 
 var _ = Describe("GCP IAM Auth", func() {
-	It("should fail when .spec.gcp-iam is nil", func() {
+	It("should fail when .spec.gcpIam is nil", func() {
 		provider := auth.NewGCPIamAuth(k8sClient)
 		authCR := newInfisicalAuth(secretsv1beta1.GCPIamAuth)
 
 		err := provider.Validate(ctx, authCR)
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring(".spec.gcp-iam is not set"))
+		Expect(err.Error()).To(ContainSubstring(".spec.gcpIam is not set"))
 	})
 
-	It("should succeed when .spec.gcp-iam is set", func() {
+	It("should succeed when .spec.gcpIam is set", func() {
 		provider := auth.NewGCPIamAuth(k8sClient)
 		authCR := newInfisicalAuth(secretsv1beta1.GCPIamAuth)
 		authCR.Spec.GCPIam = &secretsv1beta1.GCPIamAuthConfig{

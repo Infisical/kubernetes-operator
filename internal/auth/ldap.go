@@ -21,7 +21,7 @@ func NewLDAPAuth(c client.Client) InfisicalAuthStrategy {
 
 func (l *ldapAuth) Validate(ctx context.Context, auth *v1beta1.InfisicalAuth) error {
 	if auth == nil {
-		return ErrInvalidAuthObject
+		return model.ErrInvalidAuthObject
 	}
 
 	if auth.Spec.LDAP == nil {
@@ -46,8 +46,16 @@ func (l *ldapAuth) Authenticate(
 	connection *model.InfisicalConnection,
 	auth *v1beta1.InfisicalAuth,
 ) (*model.AuthenticationResult, error) {
+	if connection == nil {
+		return nil, model.ErrInvalidConnectionObject
+	}
+
 	if auth == nil {
-		return nil, ErrInvalidAuthObject
+		return nil, model.ErrInvalidAuthObject
+	}
+
+	if auth.Spec.LDAP == nil {
+		return nil, fmt.Errorf("%w: spec.ldap is nil", model.ErrInvalidAuthObject)
 	}
 
 	username, err := util.ResolveSecretReference(ctx, l.client, auth.Spec.LDAP.UsernameRef, ".spec.ldap.usernameRef")

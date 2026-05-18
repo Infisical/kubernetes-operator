@@ -9,16 +9,16 @@ import (
 )
 
 var _ = Describe("AWS IAM Auth", func() {
-	It("should fail when .spec.aws-iam is nil", func() {
+	It("should fail when .spec.awsIam is nil", func() {
 		provider := auth.NewAWSIamAuth(k8sClient)
 		authCR := newInfisicalAuth(secretsv1beta1.AWSIamAuth)
 
 		err := provider.Validate(ctx, authCR)
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring(".spec.aws-iam is not set"))
+		Expect(err.Error()).To(ContainSubstring(".spec.awsIam is not set"))
 	})
 
-	It("should succeed when .spec.aws-iam is set", func() {
+	It("should succeed when .spec.awsIam is set", func() {
 		provider := auth.NewAWSIamAuth(k8sClient)
 		authCR := newInfisicalAuth(secretsv1beta1.AWSIamAuth)
 		authCR.Spec.AWSIam = &secretsv1beta1.AWSIamAuthConfig{

@@ -9,16 +9,16 @@ import (
 )
 
 var _ = Describe("GCP ID Token Auth", func() {
-	It("should fail when .spec.gcp-id-token is nil", func() {
+	It("should fail when .spec.gcpIdToken is nil", func() {
 		provider := auth.NewGCPIdTokenAuth(k8sClient)
 		authCR := newInfisicalAuth(secretsv1beta1.GCPIdTokenAuth)
 
 		err := provider.Validate(ctx, authCR)
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring(".spec.gcp-id-token is not set"))
+		Expect(err.Error()).To(ContainSubstring(".spec.gcpIdToken is not set"))
 	})
 
-	It("should succeed when .spec.gcp-id-token is set", func() {
+	It("should succeed when .spec.gcpIdToken is set", func() {
 		provider := auth.NewGCPIdTokenAuth(k8sClient)
 		authCR := newInfisicalAuth(secretsv1beta1.GCPIdTokenAuth)
 		authCR.Spec.GCPIdToken = &secretsv1beta1.GCPIdTokenAuthConfig{

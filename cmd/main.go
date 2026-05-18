@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -256,7 +257,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	authCache := inmemoryCache.NewAuthCache()
+	authCache, err := inmemoryCache.NewAuthCache(
+		// If token TTL is less than 10 seconds, we ignore it don't
+		// persist it on the cache
+		inmemoryCache.WithMinTTLThreshold(10 * time.Second),
+	)
+	if err != nil {
+		setupLog.Error(err, "unable to start auth cache")
+		os.Exit(1)
+	}
 	defer authCache.Cleanup()
 
 	authStrategyResolver := auth.NewAuthStrategyResolver(mgr.GetClient(), authCache, ctrl.Log, isNamespaceScoped)

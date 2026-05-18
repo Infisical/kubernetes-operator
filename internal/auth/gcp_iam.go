@@ -23,11 +23,11 @@ func NewGCPIamAuth(client client.Client) InfisicalAuthStrategy {
 
 func (g *gcpIamAuth) Validate(ctx context.Context, auth *v1beta1.InfisicalAuth) error {
 	if auth == nil {
-		return ErrInvalidAuthObject
+		return model.ErrInvalidAuthObject
 	}
 
 	if auth.Spec.GCPIam == nil {
-		return fmt.Errorf("auth method is %q but .spec.gcp-iam is not set", v1beta1.GCPIamAuth)
+		return fmt.Errorf("auth method is %q but .spec.gcpIam is not set", v1beta1.GCPIamAuth)
 	}
 
 	return nil
@@ -38,8 +38,16 @@ func (g *gcpIamAuth) Authenticate(
 	connection *model.InfisicalConnection,
 	auth *v1beta1.InfisicalAuth,
 ) (*model.AuthenticationResult, error) {
+	if connection == nil {
+		return nil, model.ErrInvalidConnectionObject
+	}
+
 	if auth == nil {
-		return nil, ErrInvalidAuthObject
+		return nil, model.ErrInvalidAuthObject
+	}
+
+	if auth.Spec.GCPIam == nil {
+		return nil, fmt.Errorf("%w: spec.gcpIam is nil", model.ErrInvalidAuthObject)
 	}
 
 	sdkClient := infisicalSdk.NewInfisicalClient(ctx, infisicalSdk.Config{

@@ -65,7 +65,12 @@ type apiStatusResponse struct {
 }
 
 func (h *InfisicalConnectionHandler) ResolveAddress(connection *v1beta1.InfisicalConnection) string {
-	return cmp.Or(connection.Spec.Address, os.Getenv("INFISICAL_HOST_API"))
+	hostAPIFromEnv := os.Getenv("INFISICAL_HOST_API")
+	if connection == nil {
+		return hostAPIFromEnv
+	}
+
+	return cmp.Or(connection.Spec.Address, hostAPIFromEnv)
 }
 
 func (h *InfisicalConnectionHandler) GetInfisicalConnection(ctx context.Context, namespacedName types.NamespacedName) (*v1beta1.InfisicalConnection, error) {

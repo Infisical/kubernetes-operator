@@ -23,11 +23,11 @@ func NewGCPIdTokenAuth(client client.Client) InfisicalAuthStrategy {
 
 func (g *gcpIdTokenAuth) Validate(ctx context.Context, auth *v1beta1.InfisicalAuth) error {
 	if auth == nil {
-		return ErrInvalidAuthObject
+		return model.ErrInvalidAuthObject
 	}
 
 	if auth.Spec.GCPIdToken == nil {
-		return fmt.Errorf("auth method is %q but .spec.gcp-id-token is not set", v1beta1.GCPIdTokenAuth)
+		return fmt.Errorf("auth method is %q but .spec.gcpIdToken is not set", v1beta1.GCPIdTokenAuth)
 	}
 
 	return nil
@@ -38,8 +38,16 @@ func (g *gcpIdTokenAuth) Authenticate(
 	connection *model.InfisicalConnection,
 	auth *v1beta1.InfisicalAuth,
 ) (*model.AuthenticationResult, error) {
+	if connection == nil {
+		return nil, model.ErrInvalidConnectionObject
+	}
+
 	if auth == nil {
-		return nil, ErrInvalidAuthObject
+		return nil, model.ErrInvalidAuthObject
+	}
+
+	if auth.Spec.GCPIdToken == nil {
+		return nil, fmt.Errorf("%w: spec.gcpIdToken is nil", model.ErrInvalidAuthObject)
 	}
 
 	sdkClient := infisicalSdk.NewInfisicalClient(ctx, infisicalSdk.Config{

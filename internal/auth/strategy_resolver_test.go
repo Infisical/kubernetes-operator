@@ -33,17 +33,21 @@ func (f *fakeAuthStrategy) Authenticate(_ context.Context, _ *model.InfisicalCon
 
 var _ = Describe("Registry", func() {
 	It("should return an error for an unsupported auth method", func() {
-		authCache := cache.NewAuthCache()
+		authCache, err := cache.NewAuthCache()
+		Expect(err).ToNot(HaveOccurred())
+
 		registry := auth.NewAuthStrategyResolver(k8sClient, authCache, logr.New(nil), false)
 		authCR := newInfisicalAuth("unsupported-method")
 
-		err := registry.Validate(ctx, authCR)
+		err = registry.Validate(ctx, authCR)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("unsupported auth method"))
 	})
 
 	It("should delegate to the correct provider via the registry", func() {
-		authCache := cache.NewAuthCache()
+		authCache, err := cache.NewAuthCache()
+		Expect(err).ToNot(HaveOccurred())
+
 		registry := auth.NewAuthStrategyResolver(k8sClient, authCache, logr.New(nil), false)
 
 		type registryTestCase struct {
@@ -58,8 +62,7 @@ var _ = Describe("Registry", func() {
 				method: secretsv1beta1.KubernetesAuth,
 				setup: func(authCR *secretsv1beta1.InfisicalAuth) {
 					authCR.Spec.Kubernetes = &secretsv1beta1.KubernetesAuthConfig{
-						AutoCreateServiceAccountToken: true,
-						ServiceAccountRef:             secretsv1beta1.NamespacedName{Name: "default", Namespace: "default"},
+						ServiceAccountRef: secretsv1beta1.NamespacedName{Name: "default", Namespace: "default"},
 					}
 				},
 			},
@@ -117,12 +120,15 @@ var _ = Describe("Cache behavior", func() {
 	)
 
 	BeforeEach(func() {
-		authCache = cache.NewAuthCache()
+		var err error
+		authCache, err = cache.NewAuthCache(cache.WithMinTTLThreshold(1 * time.Second))
+		Expect(err).ToNot(HaveOccurred())
 
 		fake = &fakeAuthStrategy{
 			result: &model.AuthenticationResult{
 				MachineIdentity: infisicalSdk.MachineIdentityCredential{
 					AccessToken:       "fake-token",
+					ExpiresIn:         600,
 					AccessTokenMaxTTL: 300,
 				},
 			},
@@ -176,7 +182,7 @@ var _ = Describe("Cache behavior", func() {
 	})
 
 	It("should call the provider again after the cache TTL expires", func() {
-		fake.result.MachineIdentity.ExpiresIn = 2 // 2 seconds
+		fake.result.MachineIdentity.ExpiresIn = 3 // 70% = 2.1s TTL, above 1s threshold
 
 		result1, err := resolver.Authenticate(ctx, conn, authCR)
 		Expect(err).NotTo(HaveOccurred())

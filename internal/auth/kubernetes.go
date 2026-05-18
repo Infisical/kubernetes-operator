@@ -25,7 +25,7 @@ func NewKubernetesAuth(c client.Client, namespaceScoped bool) InfisicalAuthStrat
 
 func (k *kubernetesAuth) Validate(ctx context.Context, auth *v1beta1.InfisicalAuth) error {
 	if auth == nil {
-		return ErrInvalidAuthObject
+		return model.ErrInvalidAuthObject
 	}
 
 	k8s := auth.Spec.Kubernetes
@@ -33,17 +33,8 @@ func (k *kubernetesAuth) Validate(ctx context.Context, auth *v1beta1.InfisicalAu
 		return fmt.Errorf("auth method is %q but .spec.kubernetes is not set", v1beta1.KubernetesAuth)
 	}
 
-	if !k8s.AutoCreateServiceAccountToken {
-		// If we are not going to create it, the secret must exist
-		if _, err := util.ResolveSecretReference(ctx, k.client, k8s.IdentityIDRef, ".spec.kubernetes.identityIdRef"); err != nil {
-			return err
-		}
-	} else {
-		// But here the SA doesn't exist, we are going to create it, so we just need to ensure
-		// name and namespace are set.
-		if k8s.ServiceAccountRef.Name == "" || k8s.ServiceAccountRef.Namespace == "" {
-			return fmt.Errorf(`"serviceAccountRef.name" and "serviceAccountRef.namespace" are required when "autoCreateServiceAccountToken" is enabled`)
-		}
+	if k8s.ServiceAccountRef.Name == "" || k8s.ServiceAccountRef.Namespace == "" {
+		return fmt.Errorf(`"serviceAccountRef.name" and "serviceAccountRef.namespace" are required when "autoCreateServiceAccountToken" is enabled`)
 	}
 
 	return nil
@@ -54,8 +45,16 @@ func (k *kubernetesAuth) Authenticate(
 	connection *model.InfisicalConnection,
 	auth *v1beta1.InfisicalAuth,
 ) (*model.AuthenticationResult, error) {
+	if connection == nil {
+		return nil, model.ErrInvalidConnectionObject
+	}
+
 	if auth == nil {
-		return nil, ErrInvalidAuthObject
+		return nil, model.ErrInvalidAuthObject
+	}
+
+	if auth.Spec.Kubernetes == nil {
+		return nil, fmt.Errorf("%w: spec.kubernetes is nil", model.ErrInvalidAuthObject)
 	}
 
 	identityID, err := util.ResolveSecretReference(ctx, k.client, auth.Spec.Kubernetes.IdentityIDRef, ".spec.kubernetes.identityIdRef")

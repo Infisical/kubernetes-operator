@@ -3,7 +3,6 @@ package auth
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -15,8 +14,6 @@ import (
 	"github.com/go-logr/logr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
-
-var ErrInvalidAuthObject = errors.New("invalid auth object")
 
 type InfisicalAuthStrategy interface {
 	Validate(context.Context, *v1beta1.InfisicalAuth) error
@@ -69,7 +66,7 @@ func (r *AuthStrategyResolver) add(method v1beta1.InfisicalAuthMethod, provider 
 
 func (r *AuthStrategyResolver) Validate(ctx context.Context, auth *v1beta1.InfisicalAuth) error {
 	if auth == nil {
-		return ErrInvalidAuthObject
+		return model.ErrInvalidAuthObject
 	}
 
 	provider, found := r.entries[auth.Spec.Method]
@@ -85,8 +82,12 @@ func (r *AuthStrategyResolver) Authenticate(
 	connection *v1beta1.InfisicalConnection,
 	auth *v1beta1.InfisicalAuth,
 ) (*model.AuthenticationResult, error) {
+	if connection == nil {
+		return nil, model.ErrInvalidConnectionObject
+	}
+
 	if auth == nil {
-		return nil, ErrInvalidAuthObject
+		return nil, model.ErrInvalidAuthObject
 	}
 
 	provider, found := r.entries[auth.Spec.Method]
@@ -135,12 +136,16 @@ func (r *AuthStrategyResolver) Authenticate(
 }
 
 func (r *AuthStrategyResolver) DeleteCacheEntry(auth *v1beta1.InfisicalAuth) {
+	if auth == nil {
+		r.logger.Info("DeleteCacheEntry called with nil auth, skipping")
+		return
+	}
+
 	cacheKey := cache.ClientCacheKey{
 		Name:      auth.GetObjectMeta().GetName(),
 		Namespace: auth.GetObjectMeta().GetNamespace(),
 	}
 
 	r.logger.Info(fmt.Sprintf("deleting credential for %q", auth.Spec.Method))
-
 	r.cache.Delete(cacheKey)
 }

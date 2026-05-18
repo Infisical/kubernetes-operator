@@ -46,6 +46,10 @@ func (r *InfisicalAuthReconciler) getInfisicalConnection(ctx context.Context, co
 }
 
 func (r *InfisicalAuthReconciler) ValidateAndAuthenticate(ctx context.Context, logger logr.Logger, infisicalAuth *v1beta1.InfisicalAuth) error {
+	if infisicalAuth == nil {
+		return model.ErrInvalidAuthObject
+	}
+
 	conn, err := r.getInfisicalConnection(ctx, infisicalAuth.Spec.InfisicalConnectionRef)
 	if err != nil {
 		return err

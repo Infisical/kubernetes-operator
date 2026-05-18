@@ -63,7 +63,12 @@ func (k *kubernetesAuth) Authenticate(
 		return nil, err
 	}
 
-	saToken, err := k.getServiceAccount(ctx, auth)
+	serviceAccount, err := k.getServiceAccount(ctx, auth)
+	if err != nil {
+		return nil, err
+	}
+
+	saToken, err := k.getServiceAccountToken(ctx, auth, serviceAccount)
 	if err != nil {
 		return nil, err
 	}
@@ -82,70 +87,55 @@ func (k *kubernetesAuth) Authenticate(
 	return &model.AuthenticationResult{MachineIdentity: cred, SdkClient: sdkClient}, nil
 }
 
-func (k *kubernetesAuth) getServiceAccount(ctx context.Context, auth *v1beta1.InfisicalAuth) (string, error) {
+func (k *kubernetesAuth) getServiceAccount(ctx context.Context, auth *v1beta1.InfisicalAuth) (*corev1.ServiceAccount, error) {
+	k8s := auth.Spec.Kubernetes
+	key := client.ObjectKey{
+		Namespace: k8s.ServiceAccountRef.Namespace,
+		Name:      k8s.ServiceAccountRef.Name,
+	}
+
+	sa := &corev1.ServiceAccount{}
+	if err := k.client.Get(ctx, key, sa); err != nil {
+		if util.IsNamespaceScopedError(err, k.namespaceScoped) {
+			return nil, model.NewNamespaceScopedError(err, "service account")
+		}
+		return nil, fmt.Errorf("unable to get service account: %w", err)
+	}
+
+	return sa, nil
+}
+
+func (k *kubernetesAuth) getServiceAccountToken(ctx context.Context, auth *v1beta1.InfisicalAuth, serviceAccount *corev1.ServiceAccount) (string, error) {
 	k8s := auth.Spec.Kubernetes
 
-	if k8s.AutoCreateServiceAccountToken {
-		restClient, err := util.GetRestClientFromClient()
-		if err != nil {
-			return "", fmt.Errorf("unable to get REST client: %w", err)
-		}
-
-		tokenRequest := &authenticationv1.TokenRequest{
-			Spec: authenticationv1.TokenRequestSpec{
-				ExpirationSeconds: ptr.To[int64](600),
-			},
-		}
-
-		if len(k8s.ServiceAccountTokenAudiences) > 0 {
-			tokenRequest.Spec.Audiences = k8s.ServiceAccountTokenAudiences
-		}
-
-		saRef := auth.Spec.Kubernetes.ServiceAccountRef
-
-		result := &authenticationv1.TokenRequest{}
-		err = restClient.
-			Post().
-			Namespace(saRef.Namespace).
-			Resource("serviceaccounts").
-			Name(saRef.Name).
-			SubResource("token").
-			Body(tokenRequest).
-			Do(ctx).
-			Into(result)
-		if err != nil {
-			return "", fmt.Errorf("unable to create service account token: %w", err)
-		}
-
-		return result.Status.Token, nil
-	}
-
-	serviceAccount := &corev1.ServiceAccount{}
-	err := k.client.Get(ctx, client.ObjectKey{Name: k8s.ServiceAccountRef.Name, Namespace: k8s.ServiceAccountRef.Namespace}, serviceAccount)
+	restClient, err := util.GetRestClientFromClient()
 	if err != nil {
-		if util.IsNamespaceScopedError(err, k.namespaceScoped) {
-			return "", model.NewNamespaceScopedError(err, "service account")
-		}
-		return "", err
+		return "", fmt.Errorf("unable to get REST client: %w", err)
 	}
 
-	if len(serviceAccount.Secrets) == 0 {
-		return "", fmt.Errorf("no secrets found for service account %s", k8s.ServiceAccountRef.Name)
+	tokenRequest := &authenticationv1.TokenRequest{
+		Spec: authenticationv1.TokenRequestSpec{
+			ExpirationSeconds: ptr.To[int64](600),
+		},
 	}
 
-	secretName := serviceAccount.Secrets[0].Name
+	if len(k8s.ServiceAccountTokenAudiences) > 0 {
+		tokenRequest.Spec.Audiences = k8s.ServiceAccountTokenAudiences
+	}
 
-	secret := &corev1.Secret{}
-	err = k.client.Get(ctx, client.ObjectKey{Name: secretName, Namespace: k8s.ServiceAccountRef.Namespace}, secret)
+	result := &authenticationv1.TokenRequest{}
+	err = restClient.
+		Post().
+		Namespace(serviceAccount.Namespace).
+		Resource("serviceaccounts").
+		Name(serviceAccount.Name).
+		SubResource("token").
+		Body(tokenRequest).
+		Do(ctx).
+		Into(result)
 	if err != nil {
-		if util.IsNamespaceScopedError(err, k.namespaceScoped) {
-			return "", model.NewNamespaceScopedError(err, "service account token secret")
-		}
-		return "", err
+		return "", fmt.Errorf("unable to create service account token: %w", err)
 	}
 
-	token := secret.Data["token"]
-
-	return string(token), nil
-
+	return result.Status.Token, nil
 }

@@ -40,10 +40,10 @@ type InfisicalConnectionHandler struct {
 	IsNamespaceScoped bool
 }
 
-func (h *InfisicalConnectionHandler) getInfisicalCaCertificate(ctx context.Context, caRef *v1beta1.CaCertificate) (string, error) {
+func (h *InfisicalConnectionHandler) getInfisicalCaCertificate(ctx context.Context, caRef *v1beta1.SecretReference) (string, error) {
 	secret, err := util.GetKubeSecretByNamespacedName(ctx, h.Client, types.NamespacedName{
-		Namespace: caRef.SecretNamespace,
-		Name:      caRef.SecretName,
+		Namespace: caRef.Namespace,
+		Name:      caRef.Name,
 	})
 	if err != nil {
 		if util.IsNamespaceScopedError(err, h.IsNamespaceScoped) {
@@ -52,9 +52,9 @@ func (h *InfisicalConnectionHandler) getInfisicalCaCertificate(ctx context.Conte
 		return "", fmt.Errorf("unable to fetch CA certificate secret [err=%w]", err)
 	}
 
-	caCert := string(secret.Data[caRef.SecretKey])
+	caCert := string(secret.Data[caRef.Key])
 	if caCert == "" {
-		return "", fmt.Errorf("CA certificate key %q is empty in secret %s/%s", caRef.SecretKey, caRef.SecretNamespace, caRef.SecretName)
+		return "", fmt.Errorf("CA certificate key %q is empty in secret %s/%s", caRef.Key, caRef.Namespace, caRef.Name)
 	}
 
 	return caCert, nil
@@ -64,26 +64,34 @@ type apiStatusResponse struct {
 	Message string `json:"message"`
 }
 
+func (h *InfisicalConnectionHandler) ResolveAddress(connection *v1beta1.InfisicalConnection) string {
+	hostAPIFromEnv := os.Getenv("INFISICAL_HOST_API")
+	if connection == nil {
+		return hostAPIFromEnv
+	}
+
+	return cmp.Or(connection.Spec.Address, hostAPIFromEnv)
+}
+
 func (h *InfisicalConnectionHandler) GetInfisicalConnection(ctx context.Context, namespacedName types.NamespacedName) (*v1beta1.InfisicalConnection, error) {
 	var connection v1beta1.InfisicalConnection
 	err := h.Client.Get(ctx, namespacedName, &connection)
 	if err != nil {
+		if util.IsNamespaceScopedError(err, h.IsNamespaceScoped) {
+			return nil, model.NewNamespaceScopedError(err, "InfisicalConnection")
+		}
 		return nil, err
 	}
 
-	connection.Spec.Address = cmp.Or(connection.Spec.Address, os.Getenv("INFISICAL_HOST_API"))
-	// Even after trying to get the value from the CRD and from the env variables
-	// it is still empty, we should let the user know.
-	if connection.Spec.Address == "" {
-		// we return the connection so we can set the status in the condition
-		return &connection, fmt.Errorf("%w: .spec.address is empty", model.ErrValidation)
+	if h.ResolveAddress(&connection) == "" {
+		return &connection, fmt.Errorf("%w: .spec.address is empty and INFISICAL_HOST_API env var is not set", model.ErrValidation)
 	}
 
 	return &connection, nil
 }
 
 func (h *InfisicalConnectionHandler) TestConnection(ctx context.Context, infisicalConnection *v1beta1.InfisicalConnection) error {
-	hostURL := util.AppendAPIEndpoint(infisicalConnection.Spec.Address)
+	hostURL := util.AppendAPIEndpoint(h.ResolveAddress(infisicalConnection))
 
 	httpClient := resty.New().
 		SetBaseURL(hostURL).
@@ -102,7 +110,7 @@ func (h *InfisicalConnectionHandler) TestConnection(ctx context.Context, infisic
 		}
 
 		if ok := caCertPool.AppendCertsFromPEM([]byte(caCert)); !ok {
-			return fmt.Errorf("failed to parse CA certificate from secret %s/%s", infisicalConnection.Spec.TLS.CaCertificate.SecretNamespace, infisicalConnection.Spec.TLS.CaCertificate.SecretName)
+			return fmt.Errorf("failed to parse CA certificate from secret %s/%s", infisicalConnection.Spec.TLS.CaCertificate.Namespace, infisicalConnection.Spec.TLS.CaCertificate.Name)
 		}
 
 		httpClient.SetTLSClientConfig(&tls.Config{

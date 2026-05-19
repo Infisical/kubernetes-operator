@@ -42,10 +42,10 @@ func WithAddress(address string) InfisicalConnectionOpt {
 func WithTLS(secretName, secretNamespace, secretKey string) InfisicalConnectionOpt {
 	return func(o *infisicalConnectionOpts) {
 		o.Spec.TLS = &secretsv1beta1.TLSConfig{
-			CaCertificate: &secretsv1beta1.CaCertificate{
-				SecretName:      secretName,
-				SecretNamespace: secretNamespace,
-				SecretKey:       secretKey,
+			CaCertificate: &secretsv1beta1.SecretReference{
+				Name:      secretName,
+				Namespace: secretNamespace,
+				Key:       secretKey,
 			},
 		}
 	}

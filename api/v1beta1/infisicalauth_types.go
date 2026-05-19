@@ -1,0 +1,160 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package v1beta1
+
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// InfisicalAuth is the Schema for the InfisicalAuth API.
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Connection",type=string,JSONPath=`.spec.infisicalConnectionRef.name`
+// +kubebuilder:printcolumn:name="Method",type=string,JSONPath=`.spec.method`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="secrets.infisical.com/IsReady")].status`
+type InfisicalAuth struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   InfisicalAuthSpec   `json:"spec,omitempty"`
+	Status InfisicalAuthStatus `json:"status,omitempty"`
+}
+
+type InfisicalAuthSpec struct {
+	// +kubebuilder:validation:Required
+	InfisicalConnectionRef NamespacedName `json:"infisicalConnectionRef"`
+
+	// +kubebuilder:validation:Required
+	Method InfisicalAuthMethod `json:"method"`
+
+	// +kubebuilder:validation:Optional
+	Universal *UniversalAuthConfig `json:"universal,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	Kubernetes *KubernetesAuthConfig `json:"kubernetes,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	AWSIam *AWSIamAuthConfig `json:"awsIam,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	Azure *AzureAuthConfig `json:"azure,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	GCPIdToken *GCPIdTokenAuthConfig `json:"gcpIdToken,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	GCPIam *GCPIamAuthConfig `json:"gcpIam,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	LDAP *LDAPAuthConfig `json:"ldap,omitempty"`
+}
+
+type UniversalAuthConfig struct {
+	// +kubebuilder:validation:Required
+	ClientIdRef SecretReference `json:"clientIdRef"`
+
+	// +kubebuilder:validation:Required
+	ClientSecretRef SecretReference `json:"clientSecretRef"`
+}
+
+type KubernetesAuthConfig struct {
+	// +kubebuilder:validation:Required
+	IdentityIDRef SecretReference `json:"identityIdRef"`
+
+	// +kubebuilder:validation:Required
+	ServiceAccountRef NamespacedName `json:"serviceAccountRef"`
+
+	// The audiences to use for the service account token. This is only relevant if `autoCreateServiceAccountToken` is true.
+	// +kubebuilder:validation:Optional
+	ServiceAccountTokenAudiences []string `json:"serviceAccountTokenAudiences"`
+}
+
+type AWSIamAuthConfig struct {
+	// +kubebuilder:validation:Required
+	IdentityIDRef SecretReference `json:"identityIdRef"`
+}
+
+type AzureAuthConfig struct {
+	// +kubebuilder:validation:Required
+	IdentityIDRef SecretReference `json:"identityIdRef"`
+
+	// +kubebuilder:validation:Optional
+	Resource string `json:"resource"`
+}
+
+type GCPIdTokenAuthConfig struct {
+	// +kubebuilder:validation:Required
+	IdentityIDRef SecretReference `json:"identityIdRef"`
+}
+
+type GCPIamAuthConfig struct {
+	// +kubebuilder:validation:Required
+	IdentityIDRef SecretReference `json:"identityIdRef"`
+
+	// +kubebuilder:validation:Required
+	ServiceAccountKeyFilePath string `json:"serviceAccountKeyFilePath"`
+}
+
+type LDAPAuthConfig struct {
+	// +kubebuilder:validation:Required
+	UsernameRef SecretReference `json:"usernameRef"`
+
+	// +kubebuilder:validation:Required
+	PasswordRef SecretReference `json:"passwordRef"`
+
+	// +kubebuilder:validation:Required
+	IdentityIDRef SecretReference `json:"identityIdRef"`
+}
+
+type NamespacedName struct {
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// +kubebuilder:validation:Required
+	Namespace string `json:"namespace"`
+}
+
+// InfisicalAuthStatus defines the observed state of InfisicalAuth
+type InfisicalAuthStatus struct {
+	Conditions []metav1.Condition `json:"conditions"`
+}
+
+// +kubebuilder:validation:Enum=universal;kubernetes;aws-iam;azure;gcp-id-token;gcp-iam;ldap
+type InfisicalAuthMethod string
+
+const (
+	AWSIamAuth     InfisicalAuthMethod = "aws-iam"
+	AzureAuth      InfisicalAuthMethod = "azure"
+	GCPIamAuth     InfisicalAuthMethod = "gcp-iam"
+	GCPIdTokenAuth InfisicalAuthMethod = "gcp-id-token"
+	KubernetesAuth InfisicalAuthMethod = "kubernetes"
+	LDAPAuth       InfisicalAuthMethod = "ldap"
+	UniversalAuth  InfisicalAuthMethod = "universal"
+)
+
+// InfisicalAuthList contains a list of InfisicalAuth.
+// +kubebuilder:object:root=true
+type InfisicalAuthList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []InfisicalAuth `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&InfisicalAuth{}, &InfisicalAuthList{})
+}

@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"net/http"
@@ -64,13 +65,13 @@ type apiStatusResponse struct {
 	Message string `json:"message"`
 }
 
-func (h *InfisicalConnectionHandler) ResolveAddress(connection *v1beta1.InfisicalConnection) string {
+func (h *InfisicalConnectionHandler) ResolveAddress(connection *v1beta1.InfisicalConnection) (string, error) {
 	hostAPIFromEnv := os.Getenv("INFISICAL_HOST_API")
 	if connection == nil {
-		return hostAPIFromEnv
+		return "", errors.New("connection is nil")
 	}
 
-	return cmp.Or(connection.Spec.Address, hostAPIFromEnv)
+	return cmp.Or(connection.Spec.Address, hostAPIFromEnv), nil
 }
 
 func (h *InfisicalConnectionHandler) GetInfisicalConnection(ctx context.Context, namespacedName types.NamespacedName) (*v1beta1.InfisicalConnection, error) {
@@ -83,7 +84,7 @@ func (h *InfisicalConnectionHandler) GetInfisicalConnection(ctx context.Context,
 		return nil, err
 	}
 
-	if h.ResolveAddress(&connection) == "" {
+	if _, err := h.ResolveAddress(&connection); err != nil {
 		return &connection, fmt.Errorf("%w: .spec.address is empty and INFISICAL_HOST_API env var is not set", model.ErrValidation)
 	}
 
@@ -91,7 +92,12 @@ func (h *InfisicalConnectionHandler) GetInfisicalConnection(ctx context.Context,
 }
 
 func (h *InfisicalConnectionHandler) TestConnection(ctx context.Context, infisicalConnection *v1beta1.InfisicalConnection) error {
-	hostURL := util.AppendAPIEndpoint(h.ResolveAddress(infisicalConnection))
+	hostURL, err := h.ResolveAddress(infisicalConnection)
+	if err != nil {
+		return err
+	}
+
+	hostURL = util.AppendAPIEndpoint(hostURL)
 
 	httpClient := resty.New().
 		SetBaseURL(hostURL).

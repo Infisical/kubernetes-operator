@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -41,6 +42,8 @@ import (
 
 	secretsv1alpha1 "github.com/Infisical/infisical/k8-operator/api/v1alpha1"
 	secretsv1beta1 "github.com/Infisical/infisical/k8-operator/api/v1beta1"
+	"github.com/Infisical/infisical/k8-operator/internal/auth"
+	inmemoryCache "github.com/Infisical/infisical/k8-operator/internal/cache"
 	"github.com/Infisical/infisical/k8-operator/internal/config"
 	"github.com/Infisical/infisical/k8-operator/internal/controller"
 	controllerv1beta1 "github.com/Infisical/infisical/k8-operator/internal/controller/v1beta1"
@@ -254,6 +257,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	authCache, err := inmemoryCache.NewAuthCache(
+		// If token TTL is less than 10 seconds, we ignore it don't
+		// persist it on the cache
+		inmemoryCache.WithMinTTLThreshold(10 * time.Second),
+	)
+	if err != nil {
+		setupLog.Error(err, "unable to start auth cache")
+		os.Exit(1)
+	}
+	defer authCache.Cleanup()
+
+	authStrategyResolver := auth.NewAuthStrategyResolver(mgr.GetClient(), authCache, ctrl.Log, isNamespaceScoped)
+
 	template.InitializeTemplateFunctions()
 
 	if err := (&controller.InfisicalSecretReconciler{
@@ -290,6 +306,16 @@ func main() {
 		IsNamespaceScoped: isNamespaceScoped,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InfisicalConnection")
+		os.Exit(1)
+	}
+	if err := (&controllerv1beta1.InfisicalAuthReconciler{
+		Client:            mgr.GetClient(),
+		Scheme:            mgr.GetScheme(),
+		BaseLogger:        ctrl.Log,
+		IsNamespaceScoped: isNamespaceScoped,
+		AuthResolver:      authStrategyResolver,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "InfisicalAuth")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

@@ -523,34 +523,47 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 		}
 	}
 
-	newDeployment := func(name string, autoReload bool, consumesSecret bool) *appsv1.Deployment {
+	type workloadConsumesKind string
+
+	const (
+		consumesSecret    workloadConsumesKind = "Secret"
+		consumesConfigMap workloadConsumesKind = "ConfigMap"
+		consumesNothing   workloadConsumesKind = ""
+	)
+
+	envFromForKind := func(kind workloadConsumesKind, resourceName string) []corev1.EnvFromSource {
+		switch kind {
+		case consumesSecret:
+			return []corev1.EnvFromSource{
+				{SecretRef: &corev1.SecretEnvSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: resourceName},
+				}},
+			}
+		case consumesConfigMap:
+			return []corev1.EnvFromSource{
+				{ConfigMapRef: &corev1.ConfigMapEnvSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: resourceName},
+				}},
+			}
+		default:
+			return nil
+		}
+	}
+
+	newDeployment := func(name string, autoReload bool, consumes workloadConsumesKind, resourceName string) *appsv1.Deployment {
 		annotations := map[string]string{}
 		if autoReload {
 			annotations[svc.AutoReloadAnnotation] = "true"
 		}
-
-		var envFrom []corev1.EnvFromSource
-		if consumesSecret {
-			envFrom = []corev1.EnvFromSource{
-				{SecretRef: &corev1.SecretEnvSource{
-					LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-				}},
-			}
-		}
-
 		return &appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:        name,
-				Namespace:   namespace,
-				Annotations: annotations,
-			},
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Annotations: annotations},
 			Spec: appsv1.DeploymentSpec{
 				Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": name}},
 				Template: corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": name}},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
-							{Name: "main", Image: "busybox", EnvFrom: envFrom},
+							{Name: "main", Image: "busybox", EnvFrom: envFromForKind(consumes, resourceName)},
 						},
 					},
 				},
@@ -558,34 +571,20 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 		}
 	}
 
-	newDaemonSet := func(name string, autoReload bool, consumesSecret bool) *appsv1.DaemonSet {
+	newDaemonSet := func(name string, autoReload bool, consumes workloadConsumesKind, resourceName string) *appsv1.DaemonSet {
 		annotations := map[string]string{}
 		if autoReload {
 			annotations[svc.AutoReloadAnnotation] = "true"
 		}
-
-		var envFrom []corev1.EnvFromSource
-		if consumesSecret {
-			envFrom = []corev1.EnvFromSource{
-				{SecretRef: &corev1.SecretEnvSource{
-					LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-				}},
-			}
-		}
-
 		return &appsv1.DaemonSet{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:        name,
-				Namespace:   namespace,
-				Annotations: annotations,
-			},
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Annotations: annotations},
 			Spec: appsv1.DaemonSetSpec{
 				Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": name}},
 				Template: corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": name}},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
-							{Name: "main", Image: "busybox", EnvFrom: envFrom},
+							{Name: "main", Image: "busybox", EnvFrom: envFromForKind(consumes, resourceName)},
 						},
 					},
 				},
@@ -593,203 +592,144 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 		}
 	}
 
-	newStatefulSet := func(name string, autoReload bool, consumesSecret bool) *appsv1.StatefulSet {
+	newStatefulSet := func(name string, autoReload bool, consumes workloadConsumesKind, resourceName string) *appsv1.StatefulSet {
 		annotations := map[string]string{}
 		if autoReload {
 			annotations[svc.AutoReloadAnnotation] = "true"
 		}
-
-		var volumes []corev1.Volume
-		if consumesSecret {
-			volumes = []corev1.Volume{
-				{Name: "secret-vol", VolumeSource: corev1.VolumeSource{
-					Secret: &corev1.SecretVolumeSource{SecretName: secretName},
-				}},
-			}
-		}
-
 		return &appsv1.StatefulSet{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:        name,
-				Namespace:   namespace,
-				Annotations: annotations,
-			},
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Annotations: annotations},
 			Spec: appsv1.StatefulSetSpec{
 				Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": name}},
 				Template: corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": name}},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
-							{Name: "main", Image: "busybox"},
+							{Name: "main", Image: "busybox", EnvFrom: envFromForKind(consumes, resourceName)},
 						},
-						Volumes: volumes,
 					},
 				},
 			},
 		}
 	}
 
-	It("reconciles a deployment that consumes the secret via envFrom", func() {
-		dep := newDeployment("web", true, true)
-		reconciler := newReconciler(newTargetSecret(), dep)
+	Context("with a Secret target", func() {
+		It("reconciles a deployment that consumes the secret via envFrom", func() {
+			dep := newDeployment("web", true, consumesSecret, secretName)
+			reconciler := newReconciler(newTargetSecret(), dep)
 
-		err := reconciler.PropagateSecretToWorkloads(ctx, target)
-		Expect(err).NotTo(HaveOccurred())
+			err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			Expect(err).NotTo(HaveOccurred())
 
-		updated := &appsv1.Deployment{}
-		Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "web", Namespace: namespace}, updated)).To(Succeed())
-		Expect(updated.Annotations[annotationKey]).To(Equal(etag))
-		Expect(updated.Spec.Template.Annotations[annotationKey]).To(Equal(etag))
-	})
+			updated := &appsv1.Deployment{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "web", Namespace: namespace}, updated)).To(Succeed())
+			Expect(updated.Annotations[annotationKey]).To(Equal(etag))
+			Expect(updated.Spec.Template.Annotations[annotationKey]).To(Equal(etag))
+		})
 
-	It("reconciles a daemonset that consumes the secret", func() {
-		ds := newDaemonSet("agent", true, true)
-		reconciler := newReconciler(newTargetSecret(), ds)
+		It("reconciles a daemonset that consumes the secret", func() {
+			ds := newDaemonSet("agent", true, consumesSecret, secretName)
+			reconciler := newReconciler(newTargetSecret(), ds)
 
-		err := reconciler.PropagateSecretToWorkloads(ctx, target)
-		Expect(err).NotTo(HaveOccurred())
+			err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			Expect(err).NotTo(HaveOccurred())
 
-		updated := &appsv1.DaemonSet{}
-		Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "agent", Namespace: namespace}, updated)).To(Succeed())
-		Expect(updated.Annotations[annotationKey]).To(Equal(etag))
-		Expect(updated.Spec.Template.Annotations[annotationKey]).To(Equal(etag))
-	})
+			updated := &appsv1.DaemonSet{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "agent", Namespace: namespace}, updated)).To(Succeed())
+			Expect(updated.Annotations[annotationKey]).To(Equal(etag))
+			Expect(updated.Spec.Template.Annotations[annotationKey]).To(Equal(etag))
+		})
 
-	It("reconciles a statefulset that consumes the secret via volume", func() {
-		ss := newStatefulSet("db", true, true)
-		reconciler := newReconciler(newTargetSecret(), ss)
+		It("reconciles a statefulset that consumes the secret", func() {
+			ss := newStatefulSet("db", true, consumesSecret, secretName)
+			reconciler := newReconciler(newTargetSecret(), ss)
 
-		err := reconciler.PropagateSecretToWorkloads(ctx, target)
-		Expect(err).NotTo(HaveOccurred())
+			err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			Expect(err).NotTo(HaveOccurred())
 
-		updated := &appsv1.StatefulSet{}
-		Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "db", Namespace: namespace}, updated)).To(Succeed())
-		Expect(updated.Annotations[annotationKey]).To(Equal(etag))
-		Expect(updated.Spec.Template.Annotations[annotationKey]).To(Equal(etag))
-	})
+			updated := &appsv1.StatefulSet{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "db", Namespace: namespace}, updated)).To(Succeed())
+			Expect(updated.Annotations[annotationKey]).To(Equal(etag))
+			Expect(updated.Spec.Template.Annotations[annotationKey]).To(Equal(etag))
+		})
 
-	It("skips workloads without auto-reload annotation", func() {
-		dep := newDeployment("no-reload", false, true)
-		reconciler := newReconciler(newTargetSecret(), dep)
+		It("skips workloads without auto-reload annotation", func() {
+			dep := newDeployment("no-reload", false, consumesSecret, secretName)
+			reconciler := newReconciler(newTargetSecret(), dep)
 
-		err := reconciler.PropagateSecretToWorkloads(ctx, target)
-		Expect(err).NotTo(HaveOccurred())
+			err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			Expect(err).NotTo(HaveOccurred())
 
-		updated := &appsv1.Deployment{}
-		Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "no-reload", Namespace: namespace}, updated)).To(Succeed())
-		Expect(updated.Annotations).NotTo(HaveKey(annotationKey))
-	})
+			updated := &appsv1.Deployment{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "no-reload", Namespace: namespace}, updated)).To(Succeed())
+			Expect(updated.Annotations).NotTo(HaveKey(annotationKey))
+		})
 
-	It("skips workloads that do not consume the secret", func() {
-		dep := newDeployment("unrelated", true, false)
-		reconciler := newReconciler(newTargetSecret(), dep)
+		It("skips workloads that do not consume the secret", func() {
+			dep := newDeployment("unrelated", true, consumesNothing, "")
+			reconciler := newReconciler(newTargetSecret(), dep)
 
-		err := reconciler.PropagateSecretToWorkloads(ctx, target)
-		Expect(err).NotTo(HaveOccurred())
+			err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			Expect(err).NotTo(HaveOccurred())
 
-		updated := &appsv1.Deployment{}
-		Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "unrelated", Namespace: namespace}, updated)).To(Succeed())
-		Expect(updated.Annotations).NotTo(HaveKey(annotationKey))
-	})
+			updated := &appsv1.Deployment{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "unrelated", Namespace: namespace}, updated)).To(Succeed())
+			Expect(updated.Annotations).NotTo(HaveKey(annotationKey))
+		})
 
-	It("skips workloads already at the current etag", func() {
-		dep := newDeployment("up-to-date", true, true)
-		dep.Annotations[annotationKey] = etag
-		dep.Spec.Template.Annotations = map[string]string{annotationKey: etag}
-		reconciler := newReconciler(newTargetSecret(), dep)
+		It("skips workloads already at the current etag", func() {
+			dep := newDeployment("up-to-date", true, consumesSecret, secretName)
+			dep.Annotations[annotationKey] = etag
+			dep.Spec.Template.Annotations = map[string]string{annotationKey: etag}
+			reconciler := newReconciler(newTargetSecret(), dep)
 
-		err := reconciler.PropagateSecretToWorkloads(ctx, target)
-		Expect(err).NotTo(HaveOccurred())
+			err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			Expect(err).NotTo(HaveOccurred())
 
-		updated := &appsv1.Deployment{}
-		Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "up-to-date", Namespace: namespace}, updated)).To(Succeed())
-		Expect(updated.Annotations[annotationKey]).To(Equal(etag))
-	})
+			updated := &appsv1.Deployment{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "up-to-date", Namespace: namespace}, updated)).To(Succeed())
+			Expect(updated.Annotations[annotationKey]).To(Equal(etag))
+		})
 
-	It("reconciles multiple workload types in the same namespace", func() {
-		dep := newDeployment("web", true, true)
-		ds := newDaemonSet("agent", true, true)
-		ss := newStatefulSet("db", true, true)
-		reconciler := newReconciler(newTargetSecret(), dep, ds, ss)
+		It("reconciles multiple workload types in the same namespace", func() {
+			dep := newDeployment("web", true, consumesSecret, secretName)
+			ds := newDaemonSet("agent", true, consumesSecret, secretName)
+			ss := newStatefulSet("db", true, consumesSecret, secretName)
+			reconciler := newReconciler(newTargetSecret(), dep, ds, ss)
 
-		err := reconciler.PropagateSecretToWorkloads(ctx, target)
-		Expect(err).NotTo(HaveOccurred())
+			err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			Expect(err).NotTo(HaveOccurred())
 
-		updatedDep := &appsv1.Deployment{}
-		Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "web", Namespace: namespace}, updatedDep)).To(Succeed())
-		Expect(updatedDep.Annotations[annotationKey]).To(Equal(etag))
-		Expect(updatedDep.Spec.Template.Annotations[annotationKey]).To(Equal(etag))
+			updatedDep := &appsv1.Deployment{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "web", Namespace: namespace}, updatedDep)).To(Succeed())
+			Expect(updatedDep.Annotations[annotationKey]).To(Equal(etag))
+			Expect(updatedDep.Spec.Template.Annotations[annotationKey]).To(Equal(etag))
 
-		updatedDS := &appsv1.DaemonSet{}
-		Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "agent", Namespace: namespace}, updatedDS)).To(Succeed())
-		Expect(updatedDS.Annotations[annotationKey]).To(Equal(etag))
-		Expect(updatedDS.Spec.Template.Annotations[annotationKey]).To(Equal(etag))
+			updatedDS := &appsv1.DaemonSet{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "agent", Namespace: namespace}, updatedDS)).To(Succeed())
+			Expect(updatedDS.Annotations[annotationKey]).To(Equal(etag))
+			Expect(updatedDS.Spec.Template.Annotations[annotationKey]).To(Equal(etag))
 
-		updatedSS := &appsv1.StatefulSet{}
-		Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "db", Namespace: namespace}, updatedSS)).To(Succeed())
-		Expect(updatedSS.Annotations[annotationKey]).To(Equal(etag))
-		Expect(updatedSS.Spec.Template.Annotations[annotationKey]).To(Equal(etag))
-	})
+			updatedSS := &appsv1.StatefulSet{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "db", Namespace: namespace}, updatedSS)).To(Succeed())
+			Expect(updatedSS.Annotations[annotationKey]).To(Equal(etag))
+			Expect(updatedSS.Spec.Template.Annotations[annotationKey]).To(Equal(etag))
+		})
 
-	It("returns error when target secret does not exist", func() {
-		reconciler := newReconciler()
+		It("returns error when target secret does not exist", func() {
+			reconciler := newReconciler()
 
-		err := reconciler.PropagateSecretToWorkloads(ctx, target)
-		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("failed to get target Secret"))
-	})
+			err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to get target Secret"))
+		})
 
-	It("reconciles deployment consuming secret via env valueFrom", func() {
-		dep := &appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "env-ref",
-				Namespace: namespace,
-				Annotations: map[string]string{
-					svc.AutoReloadAnnotation: "true",
-				},
-			},
-			Spec: appsv1.DeploymentSpec{
-				Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "env-ref"}},
-				Template: corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "env-ref"}},
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{
-								Name:  "main",
-								Image: "busybox",
-								Env: []corev1.EnvVar{
-									{
-										Name: "DB_PASS",
-										ValueFrom: &corev1.EnvVarSource{
-											SecretKeyRef: &corev1.SecretKeySelector{
-												LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-												Key:                  "password",
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		}
-		reconciler := newReconciler(newTargetSecret(), dep)
+		It("does nothing when no workloads exist", func() {
+			reconciler := newReconciler(newTargetSecret())
 
-		err := reconciler.PropagateSecretToWorkloads(ctx, target)
-		Expect(err).NotTo(HaveOccurred())
-
-		updated := &appsv1.Deployment{}
-		Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "env-ref", Namespace: namespace}, updated)).To(Succeed())
-		Expect(updated.Annotations[annotationKey]).To(Equal(etag))
-		Expect(updated.Spec.Template.Annotations[annotationKey]).To(Equal(etag))
-	})
-
-	It("does nothing when no workloads exist", func() {
-		reconciler := newReconciler(newTargetSecret())
-
-		err := reconciler.PropagateSecretToWorkloads(ctx, target)
-		Expect(err).NotTo(HaveOccurred())
+			err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			Expect(err).NotTo(HaveOccurred())
+		})
 	})
 
 	Context("with a ConfigMap target", func() {
@@ -816,34 +756,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 		}
 
 		It("reconciles a deployment consuming the configmap via envFrom", func() {
-			dep := &appsv1.Deployment{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "web",
-					Namespace: namespace,
-					Annotations: map[string]string{
-						svc.AutoReloadAnnotation: "true",
-					},
-				},
-				Spec: appsv1.DeploymentSpec{
-					Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "web"}},
-					Template: corev1.PodTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "web"}},
-						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
-									Name:  "main",
-									Image: "busybox",
-									EnvFrom: []corev1.EnvFromSource{
-										{ConfigMapRef: &corev1.ConfigMapEnvSource{
-											LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
-										}},
-									},
-								},
-							},
-						},
-					},
-				},
-			}
+			dep := newDeployment("web", true, consumesConfigMap, configMapName)
 			reconciler := newReconciler(newTargetConfigMap(), dep)
 
 			err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget)
@@ -855,80 +768,8 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			Expect(updated.Spec.Template.Annotations[configMapAnnotationKey]).To(Equal(etag))
 		})
 
-		It("reconciles a deployment consuming the configmap via env valueFrom", func() {
-			dep := &appsv1.Deployment{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "env-ref",
-					Namespace: namespace,
-					Annotations: map[string]string{
-						svc.AutoReloadAnnotation: "true",
-					},
-				},
-				Spec: appsv1.DeploymentSpec{
-					Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "env-ref"}},
-					Template: corev1.PodTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "env-ref"}},
-						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
-									Name:  "main",
-									Image: "busybox",
-									Env: []corev1.EnvVar{
-										{
-											Name: "APP_MODE",
-											ValueFrom: &corev1.EnvVarSource{
-												ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-													LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
-													Key:                  "mode",
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			}
-			reconciler := newReconciler(newTargetConfigMap(), dep)
-
-			err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget)
-			Expect(err).NotTo(HaveOccurred())
-
-			updated := &appsv1.Deployment{}
-			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "env-ref", Namespace: namespace}, updated)).To(Succeed())
-			Expect(updated.Annotations[configMapAnnotationKey]).To(Equal(etag))
-			Expect(updated.Spec.Template.Annotations[configMapAnnotationKey]).To(Equal(etag))
-		})
-
-		It("reconciles a statefulset consuming the configmap via volume", func() {
-			ss := &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "db",
-					Namespace: namespace,
-					Annotations: map[string]string{
-						svc.AutoReloadAnnotation: "true",
-					},
-				},
-				Spec: appsv1.StatefulSetSpec{
-					Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "db"}},
-					Template: corev1.PodTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "db"}},
-						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{
-								{Name: "main", Image: "busybox"},
-							},
-							Volumes: []corev1.Volume{
-								{Name: "config-vol", VolumeSource: corev1.VolumeSource{
-									ConfigMap: &corev1.ConfigMapVolumeSource{
-										LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
-									},
-								}},
-							},
-						},
-					},
-				},
-			}
+		It("reconciles a statefulset consuming the configmap via envFrom", func() {
+			ss := newStatefulSet("db", true, consumesConfigMap, configMapName)
 			reconciler := newReconciler(newTargetConfigMap(), ss)
 
 			err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget)
@@ -941,34 +782,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 		})
 
 		It("skips a deployment consuming a secret but not the configmap", func() {
-			dep := &appsv1.Deployment{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "secret-only",
-					Namespace: namespace,
-					Annotations: map[string]string{
-						svc.AutoReloadAnnotation: "true",
-					},
-				},
-				Spec: appsv1.DeploymentSpec{
-					Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "secret-only"}},
-					Template: corev1.PodTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "secret-only"}},
-						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
-									Name:  "main",
-									Image: "busybox",
-									EnvFrom: []corev1.EnvFromSource{
-										{SecretRef: &corev1.SecretEnvSource{
-											LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
-										}},
-									},
-								},
-							},
-						},
-					},
-				},
-			}
+			dep := newDeployment("secret-only", true, consumesSecret, configMapName)
 			reconciler := newReconciler(newTargetConfigMap(), dep)
 
 			err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget)
@@ -977,6 +791,14 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			updated := &appsv1.Deployment{}
 			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "secret-only", Namespace: namespace}, updated)).To(Succeed())
 			Expect(updated.Annotations).NotTo(HaveKey(configMapAnnotationKey))
+		})
+
+		It("returns error when target configmap does not exist", func() {
+			reconciler := newReconciler()
+
+			err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to get target ConfigMap"))
 		})
 	})
 })

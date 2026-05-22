@@ -40,8 +40,6 @@ const (
 // InfisicalStaticSecret is the Schema for the InfisicalStaticSecret API.
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="Connection",type=string,JSONPath=`.spec.infisicalConnectionRef.name`
-// +kubebuilder:printcolumn:name="Method",type=string,JSONPath=`.spec.method`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="secrets.infisical.com/IsReady")].status`
 type InfisicalStaticSecret struct {
@@ -121,4 +119,16 @@ type SecretTemplate struct {
 // InfisicalStaticSecretStatus defines the observed state of InfisicalAuth
 type InfisicalStaticSecretStatus struct {
 	Conditions []metav1.Condition `json:"conditions"`
+}
+
+// InfisicalStaticSecretList contains a list of InfisicalStaticSecret.
+// +kubebuilder:object:root=true
+type InfisicalStaticSecretList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []InfisicalStaticSecret `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&InfisicalStaticSecret{}, &InfisicalStaticSecretList{})
 }

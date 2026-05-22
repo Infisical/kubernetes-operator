@@ -16,6 +16,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	AutoReloadAnnotation       = "secrets.infisical.com/auto-reload"
+	ManagedSecretAnnotationFmt = "secrets.infisical.com/managed-secret.%s"
+)
+
 type InfisicalAuthReconciler struct {
 	client.Client
 	Scheme            *runtime.Scheme

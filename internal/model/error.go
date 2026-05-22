@@ -6,9 +6,10 @@ import (
 )
 
 var (
-	ErrValidation              = errors.New("validation error")
-	ErrInvalidAuthObject       = errors.New("invalid auth object")
-	ErrInvalidConnectionObject = errors.New("invalid connection object")
+	ErrValidation                = errors.New("validation error")
+	ErrInvalidAuthObject         = errors.New("invalid auth object")
+	ErrInvalidStaticSecretObject = errors.New("invalid static secret object")
+	ErrInvalidConnectionObject   = errors.New("invalid connection object")
 )
 
 func NewNamespaceScopedError(err error, resourceName string) error {

@@ -497,6 +497,254 @@ var _ = Describe("SyncKubeConfigMap", func() {
 	})
 })
 
+var _ = Describe("SyncKubeSecret metadata", func() {
+	ctx := context.Background()
+
+	data := map[string][]byte{
+		"DB_HOST": []byte("localhost"),
+	}
+
+	baseTarget := v1beta1.SecretTarget{
+		Name:           "meta-secret",
+		Namespace:      "default",
+		Kind:           v1beta1.SecretTargetKindSecret,
+		SecretType:     corev1.SecretTypeOpaque,
+		CreationPolicy: v1beta1.CreationPolicyOrphan,
+	}
+
+	Context("with explicit target.Metadata (direct injection)", func() {
+		It("applies target metadata labels and annotations on create", func() {
+			reconciler := newReconciler()
+			owner := newStaticSecret()
+
+			target := baseTarget
+			target.Metadata = &v1beta1.SecretTargetMetadata{
+				Labels:      map[string]string{"team": "platform"},
+				Annotations: map[string]string{"note": "managed-by-test"},
+			}
+
+			changed, err := reconciler.SyncKubeSecret(ctx, owner, data, target)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(changed).To(BeTrue())
+
+			created := &corev1.Secret{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "meta-secret", Namespace: "default"}, created)).To(Succeed())
+			Expect(created.Labels).To(HaveKeyWithValue("team", "platform"))
+			Expect(created.Annotations).To(HaveKeyWithValue("note", "managed-by-test"))
+			Expect(created.Annotations).To(HaveKey(constants.SECRET_VERSION_ANNOTATION))
+			Expect(created.Annotations).NotTo(HaveKey(constants.MANAGED_LABELS_ANNOTATION))
+		})
+
+		It("replaces metadata on update, preserving system annotations", func() {
+			existing := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "meta-secret",
+					Namespace: "default",
+					Labels:    map[string]string{"old-label": "gone"},
+					Annotations: map[string]string{
+						constants.SECRET_VERSION_ANNOTATION:  "old-etag",
+						"kubectl.kubernetes.io/last-applied": "keep-me",
+						"user-annotation":                    "should-be-removed",
+					},
+				},
+				Data: map[string][]byte{"OLD": []byte("old")},
+			}
+			reconciler := newReconciler(existing)
+			owner := newStaticSecret()
+
+			target := baseTarget
+			target.Metadata = &v1beta1.SecretTargetMetadata{
+				Labels:      map[string]string{"team": "platform"},
+				Annotations: map[string]string{"note": "injected"},
+			}
+
+			changed, err := reconciler.SyncKubeSecret(ctx, owner, data, target)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(changed).To(BeTrue())
+
+			updated := &corev1.Secret{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "meta-secret", Namespace: "default"}, updated)).To(Succeed())
+			Expect(updated.Labels).To(Equal(map[string]string{"team": "platform"}))
+			Expect(updated.Annotations).To(HaveKeyWithValue("note", "injected"))
+			Expect(updated.Annotations).To(HaveKeyWithValue("kubectl.kubernetes.io/last-applied", "keep-me"))
+			Expect(updated.Annotations).To(HaveKey(constants.SECRET_VERSION_ANNOTATION))
+			Expect(updated.Annotations).NotTo(HaveKey("user-annotation"))
+		})
+	})
+
+	Context("without target.Metadata (CRD merge)", func() {
+		It("copies CRD labels and annotations on create", func() {
+			reconciler := newReconciler()
+			owner := newStaticSecret()
+			owner.Labels = map[string]string{"env": "dev"}
+			owner.Annotations = map[string]string{"description": "test secret"}
+
+			changed, err := reconciler.SyncKubeSecret(ctx, owner, data, baseTarget)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(changed).To(BeTrue())
+
+			created := &corev1.Secret{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "meta-secret", Namespace: "default"}, created)).To(Succeed())
+			Expect(created.Labels).To(HaveKeyWithValue("env", "dev"))
+			Expect(created.Annotations).To(HaveKeyWithValue("description", "test secret"))
+			Expect(created.Annotations).To(HaveKey(constants.MANAGED_LABELS_ANNOTATION))
+			Expect(created.Annotations).To(HaveKey(constants.MANAGED_ANNOTATIONS_ANNOTATION))
+		})
+
+		It("filters system annotations from CRD", func() {
+			reconciler := newReconciler()
+			owner := newStaticSecret()
+			owner.Annotations = map[string]string{
+				"kubectl.kubernetes.io/last-applied": "system-value",
+				"helm.sh/chart":                      "my-chart",
+				"custom-annotation":                   "keep-me",
+			}
+
+			changed, err := reconciler.SyncKubeSecret(ctx, owner, data, baseTarget)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(changed).To(BeTrue())
+
+			created := &corev1.Secret{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "meta-secret", Namespace: "default"}, created)).To(Succeed())
+			Expect(created.Annotations).To(HaveKeyWithValue("custom-annotation", "keep-me"))
+			Expect(created.Annotations).NotTo(HaveKey("kubectl.kubernetes.io/last-applied"))
+			Expect(created.Annotations).NotTo(HaveKey("helm.sh/chart"))
+		})
+
+		It("cleans up previously managed labels removed from CRD", func() {
+			existing := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "meta-secret",
+					Namespace: "default",
+					Labels:    map[string]string{"env": "dev", "user-added": "keep"},
+					Annotations: map[string]string{
+						constants.SECRET_VERSION_ANNOTATION:      "old-etag",
+						constants.MANAGED_LABELS_ANNOTATION:      "env",
+						constants.MANAGED_ANNOTATIONS_ANNOTATION: "",
+					},
+				},
+				Data: map[string][]byte{"OLD": []byte("old")},
+			}
+			reconciler := newReconciler(existing)
+
+			owner := newStaticSecret()
+			// CRD no longer has the "env" label
+
+			changed, err := reconciler.SyncKubeSecret(ctx, owner, data, baseTarget)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(changed).To(BeTrue())
+
+			updated := &corev1.Secret{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "meta-secret", Namespace: "default"}, updated)).To(Succeed())
+			Expect(updated.Labels).NotTo(HaveKey("env"))
+			Expect(updated.Labels).To(HaveKeyWithValue("user-added", "keep"))
+		})
+
+		It("preserves non-managed annotations added directly to the resource", func() {
+			etag := crypto.ComputeEtag([]byte(fmt.Sprintf("%v", data)))
+			existing := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "meta-secret",
+					Namespace: "default",
+					Annotations: map[string]string{
+						constants.SECRET_VERSION_ANNOTATION:      etag,
+						constants.MANAGED_LABELS_ANNOTATION:      "",
+						constants.MANAGED_ANNOTATIONS_ANNOTATION: "",
+						"user-added-annotation":                  "preserve-me",
+					},
+				},
+				Data: data,
+			}
+			reconciler := newReconciler(existing)
+			owner := newStaticSecret()
+
+			changed, err := reconciler.SyncKubeSecret(ctx, owner, data, baseTarget)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(changed).To(BeFalse())
+
+			fetched := &corev1.Secret{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "meta-secret", Namespace: "default"}, fetched)).To(Succeed())
+			Expect(fetched.Annotations).To(HaveKeyWithValue("user-added-annotation", "preserve-me"))
+		})
+	})
+})
+
+var _ = Describe("SyncKubeConfigMap metadata", func() {
+	ctx := context.Background()
+
+	data := map[string][]byte{
+		"DB_HOST": []byte("localhost"),
+	}
+
+	baseTarget := v1beta1.SecretTarget{
+		Name:           "meta-configmap",
+		Namespace:      "default",
+		Kind:           v1beta1.SecretTargetKindConfigMap,
+		CreationPolicy: v1beta1.CreationPolicyOrphan,
+	}
+
+	It("applies target metadata on create", func() {
+		reconciler := newReconciler()
+		owner := newStaticSecret()
+
+		target := baseTarget
+		target.Metadata = &v1beta1.SecretTargetMetadata{
+			Labels:      map[string]string{"team": "platform"},
+			Annotations: map[string]string{"note": "injected"},
+		}
+
+		changed, err := reconciler.SyncKubeConfigMap(ctx, owner, data, target)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(changed).To(BeTrue())
+
+		created := &corev1.ConfigMap{}
+		Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "meta-configmap", Namespace: "default"}, created)).To(Succeed())
+		Expect(created.Labels).To(HaveKeyWithValue("team", "platform"))
+		Expect(created.Annotations).To(HaveKeyWithValue("note", "injected"))
+		Expect(created.Annotations).NotTo(HaveKey(constants.MANAGED_LABELS_ANNOTATION))
+	})
+
+	It("merges CRD metadata on create when target.Metadata is nil", func() {
+		reconciler := newReconciler()
+		owner := newStaticSecret()
+		owner.Labels = map[string]string{"env": "staging"}
+
+		changed, err := reconciler.SyncKubeConfigMap(ctx, owner, data, baseTarget)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(changed).To(BeTrue())
+
+		created := &corev1.ConfigMap{}
+		Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "meta-configmap", Namespace: "default"}, created)).To(Succeed())
+		Expect(created.Labels).To(HaveKeyWithValue("env", "staging"))
+		Expect(created.Annotations).To(HaveKey(constants.MANAGED_LABELS_ANNOTATION))
+	})
+
+	It("returns dataChanged=false for metadata-only update", func() {
+		etag := crypto.ComputeEtag([]byte(fmt.Sprintf("%v", data)))
+		existing := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "meta-configmap",
+				Namespace: "default",
+				Annotations: map[string]string{
+					constants.SECRET_VERSION_ANNOTATION: etag,
+				},
+			},
+			Data: map[string]string{"DB_HOST": "localhost"},
+		}
+		reconciler := newReconciler(existing)
+		owner := newStaticSecret()
+		owner.Labels = map[string]string{"new-label": "added"}
+
+		changed, err := reconciler.SyncKubeConfigMap(ctx, owner, data, baseTarget)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(changed).To(BeFalse())
+
+		updated := &corev1.ConfigMap{}
+		Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "meta-configmap", Namespace: "default"}, updated)).To(Succeed())
+		Expect(updated.Labels).To(HaveKeyWithValue("new-label", "added"))
+	})
+})
+
 var _ = Describe("PropagateSecretToWorkloads", func() {
 	ctx := context.Background()
 	const namespace = "default"

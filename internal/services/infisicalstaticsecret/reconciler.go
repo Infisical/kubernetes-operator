@@ -5,6 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"sort"
+	"strings"
 	tpl "text/template"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
@@ -31,6 +34,109 @@ const (
 	AutoReloadAnnotation       = "secrets.infisical.com/auto-reload"
 	ManagedSecretAnnotationFmt = "secrets.infisical.com/managed-secret.%s"
 )
+
+var systemAnnotationPrefixes = []string{"kubectl.kubernetes.io/", "kubernetes.io/", "k8s.io/", "helm.sh/"}
+
+func isSystemAnnotation(key string) bool {
+	for _, prefix := range systemAnnotationPrefixes {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func parseManagedKeys(value string) map[string]bool {
+	keys := make(map[string]bool)
+	if value == "" {
+		return keys
+	}
+	for _, k := range strings.Split(value, ",") {
+		k = strings.TrimSpace(k)
+		if k != "" {
+			keys[k] = true
+		}
+	}
+	return keys
+}
+
+func formatManagedKeys(keys map[string]bool) string {
+	if len(keys) == 0 {
+		return ""
+	}
+	sorted := make([]string, 0, len(keys))
+	for k := range keys {
+		sorted = append(sorted, k)
+	}
+	sort.Strings(sorted)
+	return strings.Join(sorted, ",")
+}
+
+// computeTargetMetadata determines the labels and annotations to apply to a managed resource.
+// When target.Metadata is set, those values are injected directly.
+// Otherwise, labels and annotations are merged from the owner CRD with tracking for cleanup.
+func computeTargetMetadata(owner metav1.Object, target v1beta1.SecretTarget, existingAnnotations, existingLabels map[string]string) (labels, annotations map[string]string) {
+	if target.Metadata != nil {
+		labels = make(map[string]string, len(target.Metadata.Labels))
+		for k, v := range target.Metadata.Labels {
+			labels[k] = v
+		}
+
+		annotations = make(map[string]string)
+		for k, v := range existingAnnotations {
+			if isSystemAnnotation(k) || k == constants.SECRET_VERSION_ANNOTATION {
+				annotations[k] = v
+			}
+		}
+		for k, v := range target.Metadata.Annotations {
+			annotations[k] = v
+		}
+		return labels, annotations
+	}
+
+	// Merge from owner CRD with tracking
+	previouslyManagedLabels := parseManagedKeys(existingAnnotations[constants.MANAGED_LABELS_ANNOTATION])
+	previouslyManagedAnnotations := parseManagedKeys(existingAnnotations[constants.MANAGED_ANNOTATIONS_ANNOTATION])
+
+	labels = make(map[string]string)
+	for k, v := range existingLabels {
+		if !previouslyManagedLabels[k] {
+			labels[k] = v
+		}
+	}
+	for k, v := range owner.GetLabels() {
+		labels[k] = v
+	}
+
+	annotations = make(map[string]string)
+	for k, v := range existingAnnotations {
+		if isSystemAnnotation(k) || k == constants.SECRET_VERSION_ANNOTATION || k == constants.MANAGED_LABELS_ANNOTATION || k == constants.MANAGED_ANNOTATIONS_ANNOTATION {
+			annotations[k] = v
+		} else if !previouslyManagedAnnotations[k] {
+			annotations[k] = v
+		}
+	}
+	for k, v := range owner.GetAnnotations() {
+		if !isSystemAnnotation(k) {
+			annotations[k] = v
+		}
+	}
+
+	currentLabelKeys := make(map[string]bool)
+	for k := range owner.GetLabels() {
+		currentLabelKeys[k] = true
+	}
+	currentAnnotationKeys := make(map[string]bool)
+	for k := range owner.GetAnnotations() {
+		if !isSystemAnnotation(k) {
+			currentAnnotationKeys[k] = true
+		}
+	}
+	annotations[constants.MANAGED_LABELS_ANNOTATION] = formatManagedKeys(currentLabelKeys)
+	annotations[constants.MANAGED_ANNOTATIONS_ANNOTATION] = formatManagedKeys(currentAnnotationKeys)
+
+	return labels, annotations
+}
 
 type InfisicalStaticSecretReconciler struct {
 	client.Client
@@ -159,7 +265,7 @@ func (r *InfisicalStaticSecretReconciler) ListSecretsFromSources(ctx context.Con
 			ProjectId:              source.ProjectId,
 			EnvironmentSlug:        source.EnvironmentSlug,
 			SecretPath:             source.SecretPath,
-			Tags:                   source.Tags,
+			Tags:                   source.TagSlugs,
 			Recursive:              source.Recursive,
 			IncludeImports:         true,
 			ExpandSecretReferences: true,
@@ -246,8 +352,8 @@ func (r *InfisicalStaticSecretReconciler) RenderTargetOutput(secrets []api.Secre
 	return data, nil
 }
 
-// SyncKubeSecret creates or updates a Kubernetes Secrets with the secrets content
-// it returns a boolean that indicates if the secret was created/updated or not
+// SyncKubeSecret creates or updates a Kubernetes Secret with the secrets content.
+// Returns true when secret data changed (triggers workload propagation).
 func (r *InfisicalStaticSecretReconciler) SyncKubeSecret(ctx context.Context, owner metav1.Object, data map[string][]byte, target v1beta1.SecretTarget) (bool, error) {
 	newEtag := crypto.ComputeEtag([]byte(fmt.Sprintf("%v", data)))
 
@@ -260,13 +366,15 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeSecret(ctx context.Context, ow
 	err := r.Client.Get(ctx, namespacedName, existingSecret)
 
 	if k8Errors.IsNotFound(err) {
+		labels, annotations := computeTargetMetadata(owner, target, nil, nil)
+		annotations[constants.SECRET_VERSION_ANNOTATION] = newEtag
+
 		newSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      target.Name,
-				Namespace: target.Namespace,
-				Annotations: map[string]string{
-					constants.SECRET_VERSION_ANNOTATION: newEtag,
-				},
+				Name:        target.Name,
+				Namespace:   target.Namespace,
+				Labels:      labels,
+				Annotations: annotations,
 			},
 			Type: target.SecretType,
 			Data: data,
@@ -289,24 +397,29 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeSecret(ctx context.Context, ow
 		return false, fmt.Errorf("failed to get existing secret: %w", err)
 	}
 
-	if existingSecret.Annotations[constants.SECRET_VERSION_ANNOTATION] == newEtag {
+	dataChanged := existingSecret.Annotations[constants.SECRET_VERSION_ANNOTATION] != newEtag
+
+	labels, annotations := computeTargetMetadata(owner, target, existingSecret.Annotations, existingSecret.Labels)
+	annotations[constants.SECRET_VERSION_ANNOTATION] = newEtag
+
+	metadataChanged := !maps.Equal(existingSecret.Labels, labels) || !maps.Equal(existingSecret.Annotations, annotations)
+
+	if !dataChanged && !metadataChanged {
 		return false, nil
 	}
 
-	if existingSecret.Annotations == nil {
-		existingSecret.Annotations = make(map[string]string)
-	}
-	existingSecret.Annotations[constants.SECRET_VERSION_ANNOTATION] = newEtag
+	existingSecret.Labels = labels
+	existingSecret.Annotations = annotations
 	existingSecret.Data = data
 	if err := r.Client.Update(ctx, existingSecret); err != nil {
 		return false, fmt.Errorf("failed to update secret: %w", err)
 	}
 
-	return true, nil
+	return dataChanged, nil
 }
 
-// SyncKubeConfigMap creates or updates a Kubernetes ConfigMap with the secrets content
-// it returns a boolean that indicates if the config map was created/updated or not
+// SyncKubeConfigMap creates or updates a Kubernetes ConfigMap with the secrets content.
+// Returns true when config map data changed (triggers workload propagation).
 func (r *InfisicalStaticSecretReconciler) SyncKubeConfigMap(ctx context.Context, owner metav1.Object, data map[string][]byte, target v1beta1.SecretTarget) (bool, error) {
 	newEtag := crypto.ComputeEtag([]byte(fmt.Sprintf("%v", data)))
 
@@ -324,13 +437,15 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeConfigMap(ctx context.Context,
 			stringData[k] = string(v)
 		}
 
+		labels, annotations := computeTargetMetadata(owner, target, nil, nil)
+		annotations[constants.SECRET_VERSION_ANNOTATION] = newEtag
+
 		newConfigMap := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      target.Name,
-				Namespace: target.Namespace,
-				Annotations: map[string]string{
-					constants.SECRET_VERSION_ANNOTATION: newEtag,
-				},
+				Name:        target.Name,
+				Namespace:   target.Namespace,
+				Labels:      labels,
+				Annotations: annotations,
 			},
 			Data: stringData,
 		}
@@ -352,7 +467,14 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeConfigMap(ctx context.Context,
 		return false, fmt.Errorf("failed to get existing config map: %w", err)
 	}
 
-	if existingConfigMap.Annotations[constants.SECRET_VERSION_ANNOTATION] == newEtag {
+	dataChanged := existingConfigMap.Annotations[constants.SECRET_VERSION_ANNOTATION] != newEtag
+
+	labels, annotations := computeTargetMetadata(owner, target, existingConfigMap.Annotations, existingConfigMap.Labels)
+	annotations[constants.SECRET_VERSION_ANNOTATION] = newEtag
+
+	metadataChanged := !maps.Equal(existingConfigMap.Labels, labels) || !maps.Equal(existingConfigMap.Annotations, annotations)
+
+	if !dataChanged && !metadataChanged {
 		return false, nil
 	}
 
@@ -361,16 +483,14 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeConfigMap(ctx context.Context,
 		stringData[k] = string(v)
 	}
 
-	if existingConfigMap.Annotations == nil {
-		existingConfigMap.Annotations = make(map[string]string)
-	}
-	existingConfigMap.Annotations[constants.SECRET_VERSION_ANNOTATION] = newEtag
+	existingConfigMap.Labels = labels
+	existingConfigMap.Annotations = annotations
 	existingConfigMap.Data = stringData
 	if err := r.Client.Update(ctx, existingConfigMap); err != nil {
 		return false, fmt.Errorf("failed to update config map: %w", err)
 	}
 
-	return true, nil
+	return dataChanged, nil
 }
 
 func (r *InfisicalStaticSecretReconciler) getTargetEtag(ctx context.Context, target v1beta1.SecretTarget) (string, error) {

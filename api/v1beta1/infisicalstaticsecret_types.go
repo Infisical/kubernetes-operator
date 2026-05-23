@@ -21,6 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// TODO: does this validation against enum work?
 // +kubebuilder:validation:Enum=Secret;ConfigMap
 type SecretTargetKind string
 
@@ -55,16 +56,21 @@ type InfisicalStaticSecretSpec struct {
 	InfisicalAuthRef NamespacedName `json:"infisicalAuthRef"`
 
 	// +kubebuilder:validation:Required
-	RefreshInterval string `json:"refreshInterval"`
-
-	// +kubebuilder:validation:Required
-	InstantUpdates bool `json:"instantUpdates"`
+	SyncOptions *SyncOptions `json:"syncOptions"`
 
 	// +kubebuilder:validation:Required
 	Sources []SecretSource `json:"sources"`
 
 	// +kubebuilder:validation:Required
 	Targets []SecretTarget `json:"targets"`
+}
+
+type SyncOptions struct {
+	// +kubebuilder:validation:Required
+	RefreshInterval string `json:"refreshInterval"`
+
+	// +kubebuilder:validation:Optional
+	InstantUpdates bool `json:"instantUpdates"`
 }
 
 type SecretSource struct {
@@ -78,13 +84,10 @@ type SecretSource struct {
 	SecretPath string `json:"secretPath"`
 
 	// +kubebuilder:validation:Optional
-	Tags []string `json:"tags,omitempty"`
+	TagSlugs []string `json:"tagSlugs,omitempty"`
 
 	// +kubebuilder:validation:Optional
 	Recursive bool `json:"recursive,omitempty"`
-
-	// +kubebuilder:validation:Optional
-	Metadata string `json:"metadata,omitempty"`
 }
 
 type SecretTarget struct {
@@ -105,6 +108,14 @@ type SecretTarget struct {
 
 	// +kubebuilder:validation:Optional
 	Template *SecretTemplate `json:"template,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	Metadata *SecretTargetMetadata `json:"metadata,omitempty"`
+}
+
+type SecretTargetMetadata struct {
+	Annotations map[string]string `json:"annotations"`
+	Labels      map[string]string `json:"labels"`
 }
 
 type SecretTemplate struct {

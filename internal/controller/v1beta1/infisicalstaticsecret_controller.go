@@ -75,7 +75,7 @@ func (r *InfisicalStaticSecretReconciler) Reconcile(ctx context.Context, req ctr
 	}
 
 	handler := infisicalstaticsecret.NewInfisicalStaticSecretHandler(r.Client, r.Scheme, r.IsNamespaceScoped, r.AuthResolver, logger)
-	err := handler.SyncSecrets(ctx, &staticSecretCDR)
+	err = handler.SyncSecrets(ctx, &staticSecretCDR)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

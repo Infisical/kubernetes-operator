@@ -1,0 +1,28 @@
+apiVersion: secrets.infisical.com/v1beta1
+kind: InfisicalStaticSecret
+metadata:
+  name: infisicalstaticsecret-template-demo
+spec:
+  infisicalAuthRef:
+    name: infisicalauth-universal-demo
+    namespace: default
+
+  syncOptions:
+    refreshInterval: 120s
+
+  sources:
+    - projectId: <your-project-id>
+      environmentSlug: dev
+      secretPath: /
+
+  targets:
+    - name: my-app-config
+      namespace: default
+      kind: Secret
+      creationPolicy: Owner
+      secretType: Opaque
+      template:
+        engineVersion: v1
+        data:
+          DATABASE_URL: "postgres://{{ .DB_USER }}:{{ .DB_PASS }}@{{ .DB_HOST }}:5432/{{ .DB_NAME }}"
+          REDIS_URL: "redis://{{ .REDIS_HOST }}:6379"

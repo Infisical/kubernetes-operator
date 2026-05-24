@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	tpl "text/template"
+	"time"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/api"
@@ -146,6 +147,68 @@ type InfisicalStaticSecretReconciler struct {
 	logger            logr.Logger
 }
 
+func (r *InfisicalStaticSecretReconciler) Validate(infisicalStaticSecret *v1beta1.InfisicalStaticSecret) error {
+	if infisicalStaticSecret == nil {
+		return model.ErrInvalidStaticSecretObject
+	}
+
+	spec := &infisicalStaticSecret.Spec
+
+	if spec.SyncOptions == nil {
+		return fmt.Errorf("syncOptions is required")
+	}
+
+	if _, err := time.ParseDuration(spec.SyncOptions.RefreshInterval); err != nil {
+		return fmt.Errorf("invalid refreshInterval %q: %w", spec.SyncOptions.RefreshInterval, err)
+	}
+
+	if len(spec.Sources) == 0 {
+		return fmt.Errorf("at least one source is required")
+	}
+
+	for i, source := range spec.Sources {
+		if source.ProjectId == "" {
+			return fmt.Errorf("sources[%d].projectId is required", i)
+		}
+		if source.EnvironmentSlug == "" {
+			return fmt.Errorf("sources[%d].environmentSlug is required", i)
+		}
+		if source.SecretPath == "" {
+			return fmt.Errorf("sources[%d].secretPath is required", i)
+		}
+	}
+
+	if len(spec.Targets) == 0 {
+		return fmt.Errorf("at least one target is required")
+	}
+
+	targetNames := make(map[string]struct{}, len(spec.Targets))
+	for i, target := range spec.Targets {
+		if target.Name == "" {
+			return fmt.Errorf("targets[%d].name is required", i)
+		}
+		if target.Namespace == "" {
+			return fmt.Errorf("targets[%d].namespace is required", i)
+		}
+
+		if target.Kind != v1beta1.SecretTargetKindConfigMap && target.Kind != v1beta1.SecretTargetKindSecret {
+			return fmt.Errorf("targets[%d].target is invalid", i)
+		}
+
+		key := fmt.Sprintf("%s/%s", target.Namespace, target.Name)
+		if _, exists := targetNames[key]; exists {
+			return fmt.Errorf("duplicate target %q", key)
+		}
+		targetNames[key] = struct{}{}
+
+		if target.SecretType != "" && target.Kind != v1beta1.SecretTargetKindSecret {
+			return fmt.Errorf("targets[%d].secretType is only valid for Secret targets", i)
+		}
+	}
+
+	return nil
+}
+
 func NewReconcilerForTest(c client.Client, scheme *runtime.Scheme) *InfisicalStaticSecretReconciler {
 	return &InfisicalStaticSecretReconciler{
 		Client: c,
@@ -162,7 +225,7 @@ func (r *InfisicalStaticSecretReconciler) getInfisicalAuth(ctx context.Context, 
 	}, &auth)
 	if err != nil {
 		if util.IsNamespaceScopedError(err, r.IsNamespaceScoped) {
-			return nil, model.NewNamespaceScopedError(err, "InfisicalAuthh")
+			return nil, model.NewNamespaceScopedError(err, "InfisicalAuth")
 		}
 		return nil, fmt.Errorf("Unable to fetch Infisical Auth CRD from cluster: %w", err)
 	}
@@ -216,6 +279,8 @@ func (r *InfisicalStaticSecretReconciler) Authenticate(ctx context.Context, infi
 	if auth == nil {
 		return AuthenticateResult{}, model.ErrInvalidAuthObject
 	}
+
+	setAuthMethodCondition(infisicalStaticSecret, string(auth.Spec.Method))
 
 	conn, err := r.getInfisicalConnection(ctx, auth.Spec.InfisicalConnectionRef)
 	if err != nil {
@@ -334,6 +399,8 @@ func (r *InfisicalStaticSecretReconciler) RenderTargetOutput(secrets []api.Secre
 			SecretPath: s.SecretPath,
 		}
 	}
+
+	data = make(map[string][]byte, len(target.Template.Data))
 
 	for key, tmplStr := range target.Template.Data {
 		tmpl, err := tpl.New(key).Funcs(template.GetTemplateFunctions()).Parse(tmplStr)
@@ -516,28 +583,28 @@ func (r *InfisicalStaticSecretReconciler) getTargetEtag(ctx context.Context, tar
 	}
 }
 
-func (r *InfisicalStaticSecretReconciler) PropagateSecretToWorkloads(ctx context.Context, target v1beta1.SecretTarget) error {
+func (r *InfisicalStaticSecretReconciler) PropagateSecretToWorkloads(ctx context.Context, target v1beta1.SecretTarget) (int, error) {
 	etag, err := r.getTargetEtag(ctx, target)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	annotationKey := fmt.Sprintf(ManagedSecretAnnotationFmt, target.Name)
 
 	workloads, err := r.listWorkloadsConsumingTarget(ctx, target)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
+	// Prevents one workload from stopping our operator from updating all others
+	var errs []error
 	for _, workload := range workloads {
 		if err := r.updateWorkloadAnnotations(ctx, workload, annotationKey, etag); err != nil {
-			// TODO: should we allow one to stop executing this for all? Maybe we should not return an error as early
-			// as the first error?
-			return fmt.Errorf("failed to reconcile workload. Kind: %q, Name: %q", workload.kind, workload.name)
+			errs = append(errs, fmt.Errorf("failed to reconcile workload. Kind: %q, Name: %q", workload.kind, workload.name))
 		}
 	}
 
-	return nil
+	return len(workloads), errors.Join(errs...)
 }
 
 type workloadRef struct {
@@ -620,6 +687,14 @@ func (r *InfisicalStaticSecretReconciler) listWorkloadsConsumingTarget(ctx conte
 }
 
 func (r *InfisicalStaticSecretReconciler) updateWorkloadAnnotations(ctx context.Context, w workloadRef, annotationKey, etag string) error {
+	if w.annotations == nil {
+		w.annotations = make(map[string]string)
+	}
+
+	if w.templateAnnotations == nil {
+		w.templateAnnotations = make(map[string]string)
+	}
+
 	if w.annotations[annotationKey] == etag && w.templateAnnotations[annotationKey] == etag {
 		return nil
 	}
@@ -630,8 +705,8 @@ func (r *InfisicalStaticSecretReconciler) updateWorkloadAnnotations(ctx context.
 	return r.Client.Update(ctx, w.obj)
 }
 
-func isPodSpecConsumingSecret(spec corev1.PodSpec, secretName string) bool {
-	for _, c := range spec.Containers {
+func isContainerConsumingSecret(containers []corev1.Container, secretName string) bool {
+	for _, c := range containers {
 		for _, envFrom := range c.EnvFrom {
 			if envFrom.SecretRef != nil && envFrom.SecretRef.Name == secretName {
 				return true
@@ -643,6 +718,13 @@ func isPodSpecConsumingSecret(spec corev1.PodSpec, secretName string) bool {
 			}
 		}
 	}
+	return false
+}
+
+func isPodSpecConsumingSecret(spec corev1.PodSpec, secretName string) bool {
+	if isContainerConsumingSecret(spec.Containers, secretName) || isContainerConsumingSecret(spec.InitContainers, secretName) {
+		return true
+	}
 	for _, v := range spec.Volumes {
 		if v.Secret != nil && v.Secret.SecretName == secretName {
 			return true
@@ -651,8 +733,8 @@ func isPodSpecConsumingSecret(spec corev1.PodSpec, secretName string) bool {
 	return false
 }
 
-func isPodSpecConsumingConfigMap(spec corev1.PodSpec, configMapName string) bool {
-	for _, c := range spec.Containers {
+func isContainerConsumingConfigMap(containers []corev1.Container, configMapName string) bool {
+	for _, c := range containers {
 		for _, envFrom := range c.EnvFrom {
 			if envFrom.ConfigMapRef != nil && envFrom.ConfigMapRef.Name == configMapName {
 				return true
@@ -663,6 +745,13 @@ func isPodSpecConsumingConfigMap(spec corev1.PodSpec, configMapName string) bool
 				return true
 			}
 		}
+	}
+	return false
+}
+
+func isPodSpecConsumingConfigMap(spec corev1.PodSpec, configMapName string) bool {
+	if isContainerConsumingConfigMap(spec.Containers, configMapName) || isContainerConsumingConfigMap(spec.InitContainers, configMapName) {
+		return true
 	}
 	for _, v := range spec.Volumes {
 		if v.ConfigMap != nil && v.ConfigMap.Name == configMapName {

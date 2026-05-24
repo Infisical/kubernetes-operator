@@ -47,6 +47,7 @@ var _ = Describe("InfisicalConnection Controller", func() {
 			{
 				name:        "empty-host",
 				expectReady: false,
+				expectErr:   true,
 			},
 			{
 				name:        "valid-host-from-env",

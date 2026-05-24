@@ -44,8 +44,9 @@ type Project struct {
 }
 
 type CreateRestyClientOptions struct {
-	AccessToken string
-	Headers     map[string]string
+	AccessToken   string
+	Headers       map[string]string
+	CaCertificate string
 }
 
 type InfisicalConnection struct {

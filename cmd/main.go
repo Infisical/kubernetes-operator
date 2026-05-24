@@ -318,6 +318,16 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "InfisicalAuth")
 		os.Exit(1)
 	}
+	if err := (&controllerv1beta1.InfisicalStaticSecretReconciler{
+		Client:            mgr.GetClient(),
+		Scheme:            mgr.GetScheme(),
+		BaseLogger:        ctrl.Log,
+		IsNamespaceScoped: isNamespaceScoped,
+		AuthResolver:      authStrategyResolver,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "InfisicalStaticSecret")
+		os.Exit(1)
+	}
 	// +kubebuilder:scaffold:builder
 
 	if metricsCertWatcher != nil {

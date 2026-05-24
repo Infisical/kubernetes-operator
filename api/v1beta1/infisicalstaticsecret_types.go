@@ -21,8 +21,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// TODO: does this validation against enum work?
-// +kubebuilder:validation:Enum=Secret;ConfigMap
 type SecretTargetKind string
 
 const (
@@ -42,7 +40,9 @@ const (
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
-// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="secrets.infisical.com/IsReady")].status`
+// +kubebuilder:printcolumn:name="Auth Method",type=string,JSONPath=`.status.conditions[?(@.type=="secrets.infisical.com/LastReconcileAuthMethod")].message`
+// +kubebuilder:printcolumn:name="Synced",type=string,JSONPath=`.status.conditions[?(@.type=="secrets.infisical.com/LastReconcileSuccessful")].status`
+// +kubebuilder:printcolumn:name="Affected Deployments",type=string,JSONPath=`.status.conditions[?(@.type=="secrets.infisical.com/LastReconcileAutoRedeployReady")].message`
 type InfisicalStaticSecret struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -98,6 +98,7 @@ type SecretTarget struct {
 	Namespace string `json:"namespace"`
 
 	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Enum=Secret;ConfigMap
 	Kind SecretTargetKind `json:"kind"`
 
 	// +kubebuilder:validation:Optional

@@ -29,6 +29,160 @@ func secret(key, env, path string) api.Secret {
 	}
 }
 
+func validSpec() v1beta1.InfisicalStaticSecretSpec {
+	return v1beta1.InfisicalStaticSecretSpec{
+		InfisicalAuthRef: v1beta1.NamespacedName{Name: "auth", Namespace: "default"},
+		SyncOptions:      &v1beta1.SyncOptions{RefreshInterval: "1m"},
+		Sources: []v1beta1.SecretSource{
+			{ProjectId: "proj-1", EnvironmentSlug: "dev", SecretPath: "/"},
+		},
+		Targets: []v1beta1.SecretTarget{
+			{Name: "my-secret", Namespace: "default", Kind: v1beta1.SecretTargetKindSecret, CreationPolicy: v1beta1.CreationPolicyOrphan},
+		},
+	}
+}
+
+var _ = Describe("Validate", func() {
+	reconciler := &svc.InfisicalStaticSecretReconciler{}
+
+	It("passes with a valid spec", func() {
+		obj := &v1beta1.InfisicalStaticSecret{Spec: validSpec()}
+		Expect(reconciler.Validate(obj)).To(Succeed())
+	})
+
+	It("returns error for nil object", func() {
+		Expect(reconciler.Validate(nil)).To(HaveOccurred())
+	})
+
+	It("returns error when syncOptions is nil", func() {
+		spec := validSpec()
+		spec.SyncOptions = nil
+		obj := &v1beta1.InfisicalStaticSecret{Spec: spec}
+		err := reconciler.Validate(obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("syncOptions is required"))
+	})
+
+	It("returns error for invalid refreshInterval", func() {
+		spec := validSpec()
+		spec.SyncOptions.RefreshInterval = "not-a-duration"
+		obj := &v1beta1.InfisicalStaticSecret{Spec: spec}
+		err := reconciler.Validate(obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("invalid refreshInterval"))
+	})
+
+	It("accepts valid duration formats", func() {
+		for _, d := range []string{"30s", "5m", "1h30m", "100ms"} {
+			spec := validSpec()
+			spec.SyncOptions.RefreshInterval = d
+			obj := &v1beta1.InfisicalStaticSecret{Spec: spec}
+			Expect(reconciler.Validate(obj)).To(Succeed(), "expected %q to be valid", d)
+		}
+	})
+
+	It("returns error when sources is empty", func() {
+		spec := validSpec()
+		spec.Sources = []v1beta1.SecretSource{}
+		obj := &v1beta1.InfisicalStaticSecret{Spec: spec}
+		err := reconciler.Validate(obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("at least one source is required"))
+	})
+
+	It("returns error when a source is missing projectId", func() {
+		spec := validSpec()
+		spec.Sources[0].ProjectId = ""
+		obj := &v1beta1.InfisicalStaticSecret{Spec: spec}
+		err := reconciler.Validate(obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("sources[0].projectId is required"))
+	})
+
+	It("returns error when a source is missing environmentSlug", func() {
+		spec := validSpec()
+		spec.Sources[0].EnvironmentSlug = ""
+		obj := &v1beta1.InfisicalStaticSecret{Spec: spec}
+		err := reconciler.Validate(obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("sources[0].environmentSlug is required"))
+	})
+
+	It("returns error when a source is missing secretPath", func() {
+		spec := validSpec()
+		spec.Sources[0].SecretPath = ""
+		obj := &v1beta1.InfisicalStaticSecret{Spec: spec}
+		err := reconciler.Validate(obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("sources[0].secretPath is required"))
+	})
+
+	It("returns error when targets is empty", func() {
+		spec := validSpec()
+		spec.Targets = []v1beta1.SecretTarget{}
+		obj := &v1beta1.InfisicalStaticSecret{Spec: spec}
+		err := reconciler.Validate(obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("at least one target is required"))
+	})
+
+	It("returns error when a target is missing name", func() {
+		spec := validSpec()
+		spec.Targets[0].Name = ""
+		obj := &v1beta1.InfisicalStaticSecret{Spec: spec}
+		err := reconciler.Validate(obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("targets[0].name is required"))
+	})
+
+	It("returns error when a target is missing namespace", func() {
+		spec := validSpec()
+		spec.Targets[0].Namespace = ""
+		obj := &v1beta1.InfisicalStaticSecret{Spec: spec}
+		err := reconciler.Validate(obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("targets[0].namespace is required"))
+	})
+
+	It("returns error for duplicate targets", func() {
+		spec := validSpec()
+		spec.Targets = append(spec.Targets, spec.Targets[0])
+		obj := &v1beta1.InfisicalStaticSecret{Spec: spec}
+		err := reconciler.Validate(obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("duplicate target"))
+	})
+
+	It("allows same name in different namespaces", func() {
+		spec := validSpec()
+		spec.Targets = append(spec.Targets, v1beta1.SecretTarget{
+			Name:           "my-secret",
+			Namespace:      "other-ns",
+			Kind:           v1beta1.SecretTargetKindSecret,
+			CreationPolicy: v1beta1.CreationPolicyOrphan,
+		})
+		obj := &v1beta1.InfisicalStaticSecret{Spec: spec}
+		Expect(reconciler.Validate(obj)).To(Succeed())
+	})
+
+	It("returns error when secretType is set on a ConfigMap target", func() {
+		spec := validSpec()
+		spec.Targets[0].Kind = v1beta1.SecretTargetKindConfigMap
+		spec.Targets[0].SecretType = corev1.SecretTypeOpaque
+		obj := &v1beta1.InfisicalStaticSecret{Spec: spec}
+		err := reconciler.Validate(obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("secretType is only valid for Secret targets"))
+	})
+
+	It("allows secretType on a Secret target", func() {
+		spec := validSpec()
+		spec.Targets[0].SecretType = corev1.SecretTypeOpaque
+		obj := &v1beta1.InfisicalStaticSecret{Spec: spec}
+		Expect(reconciler.Validate(obj)).To(Succeed())
+	})
+})
+
 var _ = Describe("MergeSecretSources", func() {
 
 	type TestCase struct {
@@ -157,11 +311,8 @@ var _ = Describe("RenderTargetOutput", func() {
 
 			data, err := reconciler.RenderTargetOutput(secrets, target)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(data).To(HaveLen(4))
+			Expect(data).To(HaveLen(1))
 			Expect(data).To(HaveKeyWithValue("dsn", []byte("postgresql://user:pass@localhost:5432/mydb")))
-			Expect(data).To(HaveKeyWithValue("DB_HOST", []byte("localhost")))
-			Expect(data).To(HaveKeyWithValue("DB_PORT", []byte("5432")))
-			Expect(data).To(HaveKeyWithValue("DB_NAME", []byte("mydb")))
 		})
 
 		It("renders template data using .SecretPath accessor", func() {
@@ -196,12 +347,9 @@ var _ = Describe("RenderTargetOutput", func() {
 
 			data, err := reconciler.RenderTargetOutput(secrets, target)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(data).To(HaveLen(5))
+			Expect(data).To(HaveLen(2))
 			Expect(data).To(HaveKeyWithValue("host", []byte("localhost")))
 			Expect(data).To(HaveKeyWithValue("port", []byte("5432")))
-			Expect(data).To(HaveKeyWithValue("DB_HOST", []byte("localhost")))
-			Expect(data).To(HaveKeyWithValue("DB_PORT", []byte("5432")))
-			Expect(data).To(HaveKeyWithValue("DB_NAME", []byte("mydb")))
 		})
 
 		It("returns error for invalid template syntax", func() {
@@ -597,7 +745,7 @@ var _ = Describe("SyncKubeSecret metadata", func() {
 			owner.Annotations = map[string]string{
 				"kubectl.kubernetes.io/last-applied": "system-value",
 				"helm.sh/chart":                      "my-chart",
-				"custom-annotation":                   "keep-me",
+				"custom-annotation":                  "keep-me",
 			}
 
 			changed, err := reconciler.SyncKubeSecret(ctx, owner, data, baseTarget)
@@ -861,13 +1009,38 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 		}
 	}
 
+	newDeploymentWithInitContainer := func(name string, autoReload bool, consumes workloadConsumesKind, resourceName string) *appsv1.Deployment {
+		dep := newDeployment(name, autoReload, consumesNothing, "")
+		dep.Spec.Template.Spec.InitContainers = []corev1.Container{
+			{Name: "init", Image: "busybox", EnvFrom: envFromForKind(consumes, resourceName)},
+		}
+		return dep
+	}
+
+	newDaemonSetWithInitContainer := func(name string, autoReload bool, consumes workloadConsumesKind, resourceName string) *appsv1.DaemonSet {
+		ds := newDaemonSet(name, autoReload, consumesNothing, "")
+		ds.Spec.Template.Spec.InitContainers = []corev1.Container{
+			{Name: "init", Image: "busybox", EnvFrom: envFromForKind(consumes, resourceName)},
+		}
+		return ds
+	}
+
+	newStatefulSetWithInitContainer := func(name string, autoReload bool, consumes workloadConsumesKind, resourceName string) *appsv1.StatefulSet {
+		ss := newStatefulSet(name, autoReload, consumesNothing, "")
+		ss.Spec.Template.Spec.InitContainers = []corev1.Container{
+			{Name: "init", Image: "busybox", EnvFrom: envFromForKind(consumes, resourceName)},
+		}
+		return ss
+	}
+
 	Context("with a Secret target", func() {
 		It("reconciles a deployment that consumes the secret via envFrom", func() {
 			dep := newDeployment("web", true, consumesSecret, secretName)
 			reconciler := newReconciler(newTargetSecret(), dep)
 
-			err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target)
 			Expect(err).NotTo(HaveOccurred())
+			Expect(affected).To(Equal(1))
 
 			updated := &appsv1.Deployment{}
 			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "web", Namespace: namespace}, updated)).To(Succeed())
@@ -879,8 +1052,9 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			ds := newDaemonSet("agent", true, consumesSecret, secretName)
 			reconciler := newReconciler(newTargetSecret(), ds)
 
-			err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target)
 			Expect(err).NotTo(HaveOccurred())
+			Expect(affected).To(Equal(1))
 
 			updated := &appsv1.DaemonSet{}
 			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "agent", Namespace: namespace}, updated)).To(Succeed())
@@ -892,8 +1066,9 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			ss := newStatefulSet("db", true, consumesSecret, secretName)
 			reconciler := newReconciler(newTargetSecret(), ss)
 
-			err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target)
 			Expect(err).NotTo(HaveOccurred())
+			Expect(affected).To(Equal(1))
 
 			updated := &appsv1.StatefulSet{}
 			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "db", Namespace: namespace}, updated)).To(Succeed())
@@ -905,8 +1080,9 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			dep := newDeployment("no-reload", false, consumesSecret, secretName)
 			reconciler := newReconciler(newTargetSecret(), dep)
 
-			err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target)
 			Expect(err).NotTo(HaveOccurred())
+			Expect(affected).To(Equal(0))
 
 			updated := &appsv1.Deployment{}
 			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "no-reload", Namespace: namespace}, updated)).To(Succeed())
@@ -917,8 +1093,9 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			dep := newDeployment("unrelated", true, consumesNothing, "")
 			reconciler := newReconciler(newTargetSecret(), dep)
 
-			err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target)
 			Expect(err).NotTo(HaveOccurred())
+			Expect(affected).To(Equal(0))
 
 			updated := &appsv1.Deployment{}
 			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "unrelated", Namespace: namespace}, updated)).To(Succeed())
@@ -931,8 +1108,9 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			dep.Spec.Template.Annotations = map[string]string{annotationKey: etag}
 			reconciler := newReconciler(newTargetSecret(), dep)
 
-			err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target)
 			Expect(err).NotTo(HaveOccurred())
+			Expect(affected).To(Equal(1))
 
 			updated := &appsv1.Deployment{}
 			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "up-to-date", Namespace: namespace}, updated)).To(Succeed())
@@ -945,8 +1123,9 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			ss := newStatefulSet("db", true, consumesSecret, secretName)
 			reconciler := newReconciler(newTargetSecret(), dep, ds, ss)
 
-			err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target)
 			Expect(err).NotTo(HaveOccurred())
+			Expect(affected).To(Equal(3))
 
 			updatedDep := &appsv1.Deployment{}
 			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "web", Namespace: namespace}, updatedDep)).To(Succeed())
@@ -964,10 +1143,52 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			Expect(updatedSS.Spec.Template.Annotations[annotationKey]).To(Equal(etag))
 		})
 
+		It("reconciles a deployment consuming the secret via init container", func() {
+			dep := newDeploymentWithInitContainer("web-init", true, consumesSecret, secretName)
+			reconciler := newReconciler(newTargetSecret(), dep)
+
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(affected).To(Equal(1))
+
+			updated := &appsv1.Deployment{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "web-init", Namespace: namespace}, updated)).To(Succeed())
+			Expect(updated.Annotations[annotationKey]).To(Equal(etag))
+			Expect(updated.Spec.Template.Annotations[annotationKey]).To(Equal(etag))
+		})
+
+		It("reconciles a daemonset consuming the secret via init container", func() {
+			ds := newDaemonSetWithInitContainer("agent-init", true, consumesSecret, secretName)
+			reconciler := newReconciler(newTargetSecret(), ds)
+
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(affected).To(Equal(1))
+
+			updated := &appsv1.DaemonSet{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "agent-init", Namespace: namespace}, updated)).To(Succeed())
+			Expect(updated.Annotations[annotationKey]).To(Equal(etag))
+			Expect(updated.Spec.Template.Annotations[annotationKey]).To(Equal(etag))
+		})
+
+		It("reconciles a statefulset consuming the secret via init container", func() {
+			ss := newStatefulSetWithInitContainer("db-init", true, consumesSecret, secretName)
+			reconciler := newReconciler(newTargetSecret(), ss)
+
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(affected).To(Equal(1))
+
+			updated := &appsv1.StatefulSet{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "db-init", Namespace: namespace}, updated)).To(Succeed())
+			Expect(updated.Annotations[annotationKey]).To(Equal(etag))
+			Expect(updated.Spec.Template.Annotations[annotationKey]).To(Equal(etag))
+		})
+
 		It("returns error when target secret does not exist", func() {
 			reconciler := newReconciler()
 
-			err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			_, err := reconciler.PropagateSecretToWorkloads(ctx, target)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to get target Secret"))
 		})
@@ -975,8 +1196,9 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 		It("does nothing when no workloads exist", func() {
 			reconciler := newReconciler(newTargetSecret())
 
-			err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target)
 			Expect(err).NotTo(HaveOccurred())
+			Expect(affected).To(Equal(0))
 		})
 	})
 
@@ -1007,8 +1229,9 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			dep := newDeployment("web", true, consumesConfigMap, configMapName)
 			reconciler := newReconciler(newTargetConfigMap(), dep)
 
-			err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget)
 			Expect(err).NotTo(HaveOccurred())
+			Expect(affected).To(Equal(1))
 
 			updated := &appsv1.Deployment{}
 			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "web", Namespace: namespace}, updated)).To(Succeed())
@@ -1020,11 +1243,54 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			ss := newStatefulSet("db", true, consumesConfigMap, configMapName)
 			reconciler := newReconciler(newTargetConfigMap(), ss)
 
-			err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget)
 			Expect(err).NotTo(HaveOccurred())
+			Expect(affected).To(Equal(1))
 
 			updated := &appsv1.StatefulSet{}
 			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "db", Namespace: namespace}, updated)).To(Succeed())
+			Expect(updated.Annotations[configMapAnnotationKey]).To(Equal(etag))
+			Expect(updated.Spec.Template.Annotations[configMapAnnotationKey]).To(Equal(etag))
+		})
+
+		It("reconciles a deployment consuming the configmap via init container", func() {
+			dep := newDeploymentWithInitContainer("web-init", true, consumesConfigMap, configMapName)
+			reconciler := newReconciler(newTargetConfigMap(), dep)
+
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(affected).To(Equal(1))
+
+			updated := &appsv1.Deployment{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "web-init", Namespace: namespace}, updated)).To(Succeed())
+			Expect(updated.Annotations[configMapAnnotationKey]).To(Equal(etag))
+			Expect(updated.Spec.Template.Annotations[configMapAnnotationKey]).To(Equal(etag))
+		})
+
+		It("reconciles a daemonset consuming the configmap via init container", func() {
+			ds := newDaemonSetWithInitContainer("agent-init", true, consumesConfigMap, configMapName)
+			reconciler := newReconciler(newTargetConfigMap(), ds)
+
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(affected).To(Equal(1))
+
+			updated := &appsv1.DaemonSet{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "agent-init", Namespace: namespace}, updated)).To(Succeed())
+			Expect(updated.Annotations[configMapAnnotationKey]).To(Equal(etag))
+			Expect(updated.Spec.Template.Annotations[configMapAnnotationKey]).To(Equal(etag))
+		})
+
+		It("reconciles a statefulset consuming the configmap via init container", func() {
+			ss := newStatefulSetWithInitContainer("db-init", true, consumesConfigMap, configMapName)
+			reconciler := newReconciler(newTargetConfigMap(), ss)
+
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(affected).To(Equal(1))
+
+			updated := &appsv1.StatefulSet{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "db-init", Namespace: namespace}, updated)).To(Succeed())
 			Expect(updated.Annotations[configMapAnnotationKey]).To(Equal(etag))
 			Expect(updated.Spec.Template.Annotations[configMapAnnotationKey]).To(Equal(etag))
 		})
@@ -1033,8 +1299,9 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			dep := newDeployment("secret-only", true, consumesSecret, configMapName)
 			reconciler := newReconciler(newTargetConfigMap(), dep)
 
-			err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget)
 			Expect(err).NotTo(HaveOccurred())
+			Expect(affected).To(Equal(0))
 
 			updated := &appsv1.Deployment{}
 			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "secret-only", Namespace: namespace}, updated)).To(Succeed())
@@ -1044,7 +1311,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 		It("returns error when target configmap does not exist", func() {
 			reconciler := newReconciler()
 
-			err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget)
+			_, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to get target ConfigMap"))
 		})

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -115,7 +116,7 @@ func (r *InfisicalStaticSecretReconciler) Reconcile(ctx context.Context, req ctr
 	crdUID := string(staticSecretCRD.UID)
 
 	if !staticSecretCRD.DeletionTimestamp.IsZero() {
-		r.cleanupSSE(crdUID)
+		sseRegistries.Cleanup(crdUID)
 		return ctrl.Result{}, nil
 	}
 
@@ -124,14 +125,14 @@ func (r *InfisicalStaticSecretReconciler) Reconcile(ctx context.Context, req ctr
 	handler := infisicalstaticsecret.NewInfisicalStaticSecretHandler(r.Client, r.Scheme, r.IsNamespaceScoped, r.AuthResolver, logger)
 	err = handler.SyncSecrets(ctx, &staticSecretCRD)
 	if err != nil {
-		if errors.Is(err, api.ErrTooManyRequests) {
-			return ctrl.Result{
-				RequeueAfter: 60 * time.Second,
-			}, nil
-		}
+		var rateLimitErr *api.TooManyRequestsError
+		if errors.As(err, &rateLimitErr) {
+			retryAfter := rateLimitErr.RetryAfter
+			jitter := time.Duration(1+rand.IntN(2)) * time.Second
 
-		if errors.Is(err, api.ErrBadRequest) {
-			return ctrl.Result{}, nil
+			return ctrl.Result{
+				RequeueAfter: time.Duration(retryAfter)*time.Second + jitter,
+			}, nil
 		}
 
 		return ctrl.Result{}, err
@@ -144,7 +145,7 @@ func (r *InfisicalStaticSecretReconciler) Reconcile(ctx context.Context, req ctr
 			logger.Info("Instant updates are enabled")
 		}
 	} else {
-		r.cleanupSSE(crdUID)
+		sseRegistries.Cleanup(crdUID)
 	}
 
 	refreshInterval, err := time.ParseDuration(staticSecretCRD.Spec.SyncOptions.RefreshInterval)
@@ -156,10 +157,6 @@ func (r *InfisicalStaticSecretReconciler) Reconcile(ctx context.Context, req ctr
 	return ctrl.Result{
 		RequeueAfter: refreshInterval,
 	}, nil
-}
-
-func (r *InfisicalStaticSecretReconciler) cleanupSSE(uid string) {
-	sseRegistries.Cleanup(uid)
 }
 
 func (r *InfisicalStaticSecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -177,11 +174,11 @@ func (r *InfisicalStaticSecretReconciler) SetupWithManager(mgr ctrl.Manager) err
 				if e.ObjectOld.GetGeneration() == e.ObjectNew.GetGeneration() {
 					return false
 				}
-				r.cleanupSSE(string(e.ObjectNew.GetUID()))
+				sseRegistries.Cleanup(string(e.ObjectNew.GetUID()))
 				return true
 			},
 			DeleteFunc: func(e event.DeleteEvent) bool {
-				r.cleanupSSE(string(e.Object.GetUID()))
+				sseRegistries.Cleanup(string(e.Object.GetUID()))
 				return true
 			},
 			GenericFunc: func(e event.GenericEvent) bool {

@@ -11,11 +11,10 @@ import (
 )
 
 const (
-	ConditionLastSuccessfulReconcile  = "secrets.infisical.com/LastSuccessfulReconcile"
-	ConditionLastReconcileAuthMethod  = "secrets.infisical.com/LastReconcileAuthMethod"
-	ConditionGetAccessTokenSuccessful = "secrets.infisical.com/LastReconcileGetAccessTokenSuccessful"
-	ConditionLastReconcileSuccessful  = "secrets.infisical.com/LastReconcileSuccessful"
-	ConditionAutoRedeployReady        = "secrets.infisical.com/LastReconcileAutoRedeployReady"
+	ConditionLastSuccessfulReconcileAt = "secrets.infisical.com/LastSuccessfulReconcileAt"
+	ConditionLastReconcileStatus       = "secrets.infisical.com/LastReconcileStatus"
+	ConditionLastReconcileAuthMethod   = "secrets.infisical.com/LastReconcileAuthMethod"
+	ConditionAutoRedeployReady         = "secrets.infisical.com/LastReconcileAffectedDeployments"
 )
 
 func initConditions(infisicalStaticSecret *v1beta1.InfisicalStaticSecret) {
@@ -24,10 +23,10 @@ func initConditions(infisicalStaticSecret *v1beta1.InfisicalStaticSecret) {
 	}
 }
 
-func setLastSuccessfulReconcileCondition(infisicalStaticSecret *v1beta1.InfisicalStaticSecret) {
+func setLastSuccessfulReconcileAt(infisicalStaticSecret *v1beta1.InfisicalStaticSecret) {
 	initConditions(infisicalStaticSecret)
 	meta.SetStatusCondition(&infisicalStaticSecret.Status.Conditions, metav1.Condition{
-		Type:               ConditionLastSuccessfulReconcile,
+		Type:               ConditionLastSuccessfulReconcileAt,
 		Status:             metav1.ConditionTrue,
 		Reason:             "OK",
 		Message:            time.Now().UTC().Format(time.RFC3339),
@@ -46,32 +45,11 @@ func setAuthMethodCondition(infisicalStaticSecret *v1beta1.InfisicalStaticSecret
 	})
 }
 
-func setAccessTokenCondition(infisicalStaticSecret *v1beta1.InfisicalStaticSecret, errorToConditionOn error) {
+func setReconcileStatus(infisicalStaticSecret *v1beta1.InfisicalStaticSecret, errorToConditionOn error) {
 	initConditions(infisicalStaticSecret)
 	if errorToConditionOn == nil {
 		meta.SetStatusCondition(&infisicalStaticSecret.Status.Conditions, metav1.Condition{
-			Type:               ConditionGetAccessTokenSuccessful,
-			Status:             metav1.ConditionTrue,
-			Reason:             "OK",
-			Message:            "Retrieved access token successfully",
-			ObservedGeneration: infisicalStaticSecret.Generation,
-		})
-	} else {
-		meta.SetStatusCondition(&infisicalStaticSecret.Status.Conditions, metav1.Condition{
-			Type:               ConditionGetAccessTokenSuccessful,
-			Status:             metav1.ConditionFalse,
-			Reason:             "Error",
-			Message:            fmt.Sprintf("Failed to retrieve access token: %v", errorToConditionOn),
-			ObservedGeneration: infisicalStaticSecret.Generation,
-		})
-	}
-}
-
-func setReconcileSuccessfulCondition(infisicalStaticSecret *v1beta1.InfisicalStaticSecret, errorToConditionOn error) {
-	initConditions(infisicalStaticSecret)
-	if errorToConditionOn == nil {
-		meta.SetStatusCondition(&infisicalStaticSecret.Status.Conditions, metav1.Condition{
-			Type:               ConditionLastReconcileSuccessful,
+			Type:               ConditionLastReconcileStatus,
 			Status:             metav1.ConditionTrue,
 			Reason:             "OK",
 			Message:            "Reconciliation successful",
@@ -79,7 +57,7 @@ func setReconcileSuccessfulCondition(infisicalStaticSecret *v1beta1.InfisicalSta
 		})
 	} else {
 		meta.SetStatusCondition(&infisicalStaticSecret.Status.Conditions, metav1.Condition{
-			Type:               ConditionLastReconcileSuccessful,
+			Type:               ConditionLastReconcileStatus,
 			Status:             metav1.ConditionFalse,
 			Reason:             "Error",
 			Message:            fmt.Sprintf("Reconciliation failed: %v", errorToConditionOn),
@@ -94,12 +72,12 @@ func setAutoRedeployReadyCondition(infisicalStaticSecret *v1beta1.InfisicalStati
 		Type:               ConditionAutoRedeployReady,
 		Status:             metav1.ConditionTrue,
 		Reason:             "OK",
-		Message:            fmt.Sprintf("Found %d deployments ready for auto redeploy on secret change", numDeployments),
+		Message:            fmt.Sprintf("%d deployments were redeployed due to secret changes", numDeployments),
 		ObservedGeneration: infisicalStaticSecret.Generation,
 	})
 }
 
-func (r *InfisicalStaticSecretReconciler) FlushConditions(ctx context.Context, infisicalStaticSecret *v1beta1.InfisicalStaticSecret) {
+func (r *InfisicalStaticSecretReconciler) UpdateConditions(ctx context.Context, infisicalStaticSecret *v1beta1.InfisicalStaticSecret) {
 	err := r.Client.Status().Update(ctx, infisicalStaticSecret)
 	if err != nil {
 		r.logger.Error(err, "Failed to update status conditions")

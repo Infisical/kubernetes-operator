@@ -327,13 +327,11 @@ func (r *InfisicalStaticSecretReconciler) ListSecretsFromSources(ctx context.Con
 	requests := make([]api.ListSecretsRequest, 0, len(infisicalStaticSecret.Spec.Sources))
 	for _, source := range infisicalStaticSecret.Spec.Sources {
 		requests = append(requests, api.ListSecretsRequest{
-			ProjectId:              source.ProjectId,
-			EnvironmentSlug:        source.EnvironmentSlug,
-			SecretPath:             source.SecretPath,
-			Tags:                   source.TagSlugs,
-			Recursive:              source.Recursive,
-			IncludeImports:         true,
-			ExpandSecretReferences: true,
+			ProjectId:       source.ProjectId,
+			EnvironmentSlug: source.EnvironmentSlug,
+			SecretPath:      source.SecretPath,
+			Tags:            source.TagSlugs,
+			Recursive:       source.Recursive,
 		})
 	}
 

@@ -24,5 +24,5 @@ spec:
       template:
         engineVersion: v1
         data:
-          DATABASE_URL: "postgres://{{ .DB_USER }}:{{ .DB_PASS }}@{{ .DB_HOST }}:5432/{{ .DB_NAME }}"
-          REDIS_URL: "redis://{{ .REDIS_HOST }}:6379"
+          DATABASE_URL: "postgres://{{ .DB_USER.Value }}:{{ .DB_PASS.Value }}@{{ .DB_HOST.Value }}:5432/{{ .DB_NAME.Value }}"
+          REDIS_URL: "redis://{{ .REDIS_HOST.Value }}:6379"

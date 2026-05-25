@@ -127,11 +127,12 @@ func (r *InfisicalStaticSecretReconciler) Reconcile(ctx context.Context, req ctr
 	if err != nil {
 		var rateLimitErr *api.TooManyRequestsError
 		if errors.As(err, &rateLimitErr) {
-			retryAfter := rateLimitErr.RetryAfter
+			retryAfter := time.Duration(rateLimitErr.RetryAfter) * time.Second
 			jitter := time.Duration(1+rand.IntN(2)) * time.Second
-
+			logger.Info(fmt.Sprintf("Rate limited, retrying after %v", retryAfter))
+			requeueAfter := retryAfter + jitter
 			return ctrl.Result{
-				RequeueAfter: time.Duration(retryAfter)*time.Second + jitter,
+				RequeueAfter: requeueAfter,
 			}, nil
 		}
 

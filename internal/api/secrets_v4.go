@@ -80,8 +80,15 @@ func ListSecrets(httpClient *resty.Client, request ListSecretsRequest) (ListSecr
 		return ListSecretsResponse{}, fmt.Errorf("%w: status %d", ErrUnauthorized, response.StatusCode())
 	}
 
-	if response.StatusCode() == http.StatusTooManyRequests {
-		retryAfter, err := strconv.Atoi(response.Header().Get(RetryAfterHeader))
+	// Our API returns a `500` on rate limits
+	if response.StatusCode() == http.StatusInternalServerError {
+		retryHeader := response.Header().Get(RetryAfterHeader)
+		if retryHeader == "" {
+			// This is an internal server error
+			return ListSecretsResponse{}, fmt.Errorf("failed to list secrets [status=%d, body=%s]", response.StatusCode(), string(response.Body()))
+		}
+
+		retryAfter, err := strconv.Atoi(retryHeader)
 		if err != nil {
 			// Our rate limit window is one minute, so if we can't get the
 			// Retry-After header, we wait one minute.

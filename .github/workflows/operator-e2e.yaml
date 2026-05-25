@@ -1,0 +1,6 @@
+# Intentionally left empty
+# I am developing this in another branch so I don't polute this branch commits
+name: Operator E2E Tests
+on:
+  pull_request:
+jobs: {}

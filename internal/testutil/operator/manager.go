@@ -1,7 +1,9 @@
 package operator
 
 import (
+	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -56,8 +58,7 @@ func Install(opts InstallOpts) (*Manager, error) {
 
 	// The Kind network gateway is the host IP from within Kind pods.
 	// This lets the operator pod reach the testcontainer API via the host's port mapping.
-	gateway, err := cmdOutput("docker", "network", "inspect", kindNetwork,
-		"-f", "{{(index .IPAM.Config 0).Gateway}}")
+	gateway, err := kindIPv4Gateway(kindNetwork)
 	if err != nil {
 		return nil, fmt.Errorf("get kind network gateway: %w", err)
 	}
@@ -215,4 +216,33 @@ func cmdOutput(name string, args ...string) (string, error) {
 		return "", fmt.Errorf("%s: %w", strings.TrimSpace(string(out)), err)
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+func kindIPv4Gateway(networkName string) (string, error) {
+	out, err := cmdOutput("docker", "network", "inspect", networkName, "--format", "{{json .IPAM.Config}}")
+	if err != nil {
+		return "", err
+	}
+
+	type ipamConfig struct {
+		Gateway string `json:"Gateway"`
+	}
+
+	var cfgs []ipamConfig
+	if err := json.Unmarshal([]byte(out), &cfgs); err != nil {
+		return "", fmt.Errorf("parse network IPAM config: %w", err)
+	}
+
+	for _, cfg := range cfgs {
+		if cfg.Gateway == "" {
+			continue
+		}
+		ip := net.ParseIP(cfg.Gateway)
+		if ip == nil || ip.To4() == nil {
+			continue
+		}
+		return cfg.Gateway, nil
+	}
+
+	return "", fmt.Errorf("no IPv4 gateway found in docker network %q IPAM config", networkName)
 }

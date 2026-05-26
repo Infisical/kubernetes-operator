@@ -17,16 +17,13 @@ var (
 func TestMain(m *testing.M) {
 	testInfra = infra.New().WithNodeJSApi().MustStart()
 
-	if err := operator.InstallCRDs(); err != nil {
-		testInfra.Stop()
-		log.Fatalf("install CRDs: %v", err)
-	}
-
 	var err error
-	testManager, err = operator.Start(testInfra.NodeJS().URL())
+	testManager, err = operator.Install(operator.InstallOpts{
+		HostAPIURL: testInfra.NodeJS().URL(),
+	})
 	if err != nil {
 		testInfra.Stop()
-		log.Fatalf("start operator: %v", err)
+		log.Fatalf("install operator: %v", err)
 	}
 
 	code := m.Run()

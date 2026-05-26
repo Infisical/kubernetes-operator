@@ -1,9 +1,9 @@
 package operator
 
 import (
-	"context"
 	"fmt"
-	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,28 +16,136 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	secretsv1alpha1 "github.com/Infisical/infisical/k8-operator/api/v1alpha1"
 	secretsv1beta1 "github.com/Infisical/infisical/k8-operator/api/v1beta1"
-	"github.com/Infisical/infisical/k8-operator/internal/auth"
-	inmemoryCache "github.com/Infisical/infisical/k8-operator/internal/cache"
-	controllerv1beta1 "github.com/Infisical/infisical/k8-operator/internal/controller/v1beta1"
-	"github.com/Infisical/infisical/k8-operator/internal/template"
+)
+
+const (
+	helmReleaseName = "infisical-e2e"
+	helmNamespace   = "infisical-operator-system"
+	testImage       = "infisical/kubernetes-operator:e2e-test"
+	kindNetwork     = "kind"
 )
 
 type Manager struct {
-	cancel         context.CancelFunc
-	client         client.Client
-	metricsAddress string
+	client          client.Client
+	inClusterAPIURL string
 }
 
-func (m *Manager) Client() client.Client    { return m.client }
-func (m *Manager) MetricsAddress() string    { return m.metricsAddress }
+func (m *Manager) Client() client.Client   { return m.client }
+func (m *Manager) InClusterAPIURL() string { return m.inClusterAPIURL }
 
 func (m *Manager) Stop() {
-	m.cancel()
+	cmd := exec.Command("helm", "uninstall", helmReleaseName, "--namespace", helmNamespace, "--wait")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "helm uninstall (cleanup): %s: %v\n", out, err)
+	}
+}
+
+type InstallOpts struct {
+	HostAPIURL string
+}
+
+func Install(opts InstallOpts) (*Manager, error) {
+	root := projectRoot()
+	chartPath := filepath.Join(root, "helm-charts", "secrets-operator")
+
+	// Remove any pre-existing CRDs so Helm can manage them cleanly.
+	_ = runDir(root, "make", "uninstall", "ignore-not-found=true")
+
+	// The Kind network gateway is the host IP from within Kind pods.
+	// This lets the operator pod reach the testcontainer API via the host's port mapping.
+	gateway, err := cmdOutput("docker", "network", "inspect", kindNetwork,
+		"-f", "{{(index .IPAM.Config 0).Gateway}}")
+	if err != nil {
+		return nil, fmt.Errorf("get kind network gateway: %w", err)
+	}
+
+	hostURL, err := url.Parse(opts.HostAPIURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse host URL: %w", err)
+	}
+	inClusterURL := fmt.Sprintf("http://%s:%s", gateway, hostURL.Port())
+
+	if err := waitForAPI(opts.HostAPIURL, 60*time.Second); err != nil {
+		return nil, fmt.Errorf("API not ready: %w", err)
+	}
+
+	valuesFile, err := os.CreateTemp("", "e2e-helm-values-*.yaml")
+	if err != nil {
+		return nil, fmt.Errorf("create temp values file: %w", err)
+	}
+	defer os.Remove(valuesFile.Name())
+
+	valuesContent := fmt.Sprintf(`hostAPI: %q
+controllerManager:
+  manager:
+    image:
+      repository: infisical/kubernetes-operator
+      tag: e2e-test
+    args:
+    - --metrics-bind-address=:8443
+    - --health-probe-bind-address=:8081
+`, inClusterURL)
+
+	if _, err := valuesFile.WriteString(valuesContent); err != nil {
+		return nil, fmt.Errorf("write values file: %w", err)
+	}
+	valuesFile.Close()
+
+	if err := run("helm", "upgrade", "--install", helmReleaseName, chartPath,
+		"--namespace", helmNamespace,
+		"--create-namespace",
+		"--values", valuesFile.Name(),
+		"--wait",
+		"--timeout", "120s",
+	); err != nil {
+		return nil, fmt.Errorf("helm install: %w", err)
+	}
+
+	if err := waitForCRDs(30*time.Second, []string{
+		"infisicalconnections.secrets.infisical.com",
+		"infisicalauths.secrets.infisical.com",
+		"infisicalstaticsecrets.secrets.infisical.com",
+	}); err != nil {
+		return nil, fmt.Errorf("wait for CRDs: %w", err)
+	}
+
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(secretsv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(secretsv1beta1.AddToScheme(scheme))
+
+	k8sClient, err := client.New(ctrl.GetConfigOrDie(), client.Options{Scheme: scheme})
+	if err != nil {
+		return nil, fmt.Errorf("create k8s client: %w", err)
+	}
+
+	return &Manager{
+		client:          k8sClient,
+		inClusterAPIURL: inClusterURL,
+	}, nil
+}
+
+func waitForAPI(baseURL string, timeout time.Duration) error {
+	endpoint := baseURL + "/api/status"
+	httpClient := &http.Client{Timeout: 5 * time.Second}
+	deadline := time.Now().Add(timeout)
+
+	for {
+		resp, err := httpClient.Get(endpoint)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for %s (last error: %v)", endpoint, err)
+		}
+		time.Sleep(time.Second)
+	}
 }
 
 func projectRoot() string {
@@ -52,21 +160,6 @@ func projectRoot() string {
 		}
 		dir = parent
 	}
-}
-
-func InstallCRDs() error {
-	cmd := exec.Command("make", "install")
-	cmd.Dir = projectRoot()
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("make install: %s: %w", out, err)
-	}
-
-	return waitForCRDs(30*time.Second, []string{
-		"infisicalconnections.secrets.infisical.com",
-		"infisicalauths.secrets.infisical.com",
-		"infisicalstaticsecrets.secrets.infisical.com",
-	})
 }
 
 func waitForCRDs(timeout time.Duration, crds []string) error {
@@ -101,96 +194,25 @@ func waitForCRDs(timeout time.Duration, crds []string) error {
 	return nil
 }
 
-func Start(infisicalHostAPI string) (*Manager, error) {
-	scheme := runtime.NewScheme()
-	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(secretsv1alpha1.AddToScheme(scheme))
-	utilruntime.Must(secretsv1beta1.AddToScheme(scheme))
-
-	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
-	logger := ctrl.Log
-
-	template.InitializeTemplateFunctions()
-
-	metricsAddr, err := freeAddress()
-	if err != nil {
-		return nil, fmt.Errorf("find free port for metrics: %w", err)
-	}
-
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme: scheme,
-		Metrics: metricsserver.Options{
-			BindAddress: metricsAddr,
-		},
-		HealthProbeBindAddress: "0",
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create manager: %w", err)
-	}
-
-	authCache, err := inmemoryCache.NewAuthCache(
-		inmemoryCache.WithMinTTLThreshold(10 * time.Second),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("create auth cache: %w", err)
-	}
-
-	authResolver := auth.NewAuthStrategyResolver(mgr.GetClient(), authCache, logger, false)
-
-	if err := (&controllerv1beta1.InfisicalConnectionReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		BaseLogger: logger,
-	}).SetupWithManager(mgr); err != nil {
-		return nil, fmt.Errorf("setup InfisicalConnection controller: %w", err)
-	}
-
-	if err := (&controllerv1beta1.InfisicalAuthReconciler{
-		Client:       mgr.GetClient(),
-		Scheme:       mgr.GetScheme(),
-		BaseLogger:   logger,
-		AuthResolver: authResolver,
-	}).SetupWithManager(mgr); err != nil {
-		return nil, fmt.Errorf("setup InfisicalAuth controller: %w", err)
-	}
-
-	if err := (&controllerv1beta1.InfisicalStaticSecretReconciler{
-		Client:       mgr.GetClient(),
-		Scheme:       mgr.GetScheme(),
-		BaseLogger:   logger,
-		AuthResolver: authResolver,
-	}).SetupWithManager(mgr); err != nil {
-		return nil, fmt.Errorf("setup InfisicalStaticSecret controller: %w", err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	go func() {
-		if err := mgr.Start(ctx); err != nil {
-			logger.Error(err, "manager exited with error")
-		}
-		authCache.Cleanup()
-	}()
-
-	// Wait for caches to sync
-	if !mgr.GetCache().WaitForCacheSync(ctx) {
-		cancel()
-		return nil, fmt.Errorf("timed out waiting for cache sync")
-	}
-
-	return &Manager{
-		cancel:         cancel,
-		client:         mgr.GetClient(),
-		metricsAddress: metricsAddr,
-	}, nil
+func run(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
-func freeAddress() (string, error) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+func runDir(dir, name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func cmdOutput(name string, args ...string) (string, error) {
+	out, err := exec.Command(name, args...).CombinedOutput()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%s: %w", strings.TrimSpace(string(out)), err)
 	}
-	addr := l.Addr().String()
-	l.Close()
-	return addr, nil
+	return strings.TrimSpace(string(out)), nil
 }

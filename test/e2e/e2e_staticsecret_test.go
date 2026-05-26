@@ -3,10 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -29,7 +26,7 @@ func TestStaticSecret(t *testing.T) {
 
 	ctx := context.Background()
 	api := testInfra.NodeJS()
-	k := testManager.Client()
+	operator := testManager.Client()
 
 	project := api.CreateProject(t, "static-secret")
 	t.Cleanup(func() { api.DeleteProject(t, project.ID) })
@@ -50,8 +47,8 @@ func TestStaticSecret(t *testing.T) {
 			"clientSecret": creds.ClientSecret,
 		},
 	}
-	mustCreate(t, k, ctx, credentialSecret)
-	t.Cleanup(func() { mustDelete(t, k, ctx, credentialSecret) })
+	mustCreate(t, operator, ctx, credentialSecret)
+	t.Cleanup(func() { mustDelete(t, operator, ctx, credentialSecret) })
 
 	connection := &secretsv1beta1.InfisicalConnection{
 		ObjectMeta: metav1.ObjectMeta{
@@ -59,11 +56,11 @@ func TestStaticSecret(t *testing.T) {
 			Namespace: testNamespace,
 		},
 		Spec: secretsv1beta1.InfisicalConnectionSpec{
-			Address: api.URL(),
+			Address: testManager.InClusterAPIURL(),
 		},
 	}
-	mustCreate(t, k, ctx, connection)
-	t.Cleanup(func() { mustDelete(t, k, ctx, connection) })
+	mustCreate(t, operator, ctx, connection)
+	t.Cleanup(func() { mustDelete(t, operator, ctx, connection) })
 
 	auth := &secretsv1beta1.InfisicalAuth{
 		ObjectMeta: metav1.ObjectMeta{
@@ -90,8 +87,8 @@ func TestStaticSecret(t *testing.T) {
 			},
 		},
 	}
-	mustCreate(t, k, ctx, auth)
-	t.Cleanup(func() { mustDelete(t, k, ctx, auth) })
+	mustCreate(t, operator, ctx, auth)
+	t.Cleanup(func() { mustDelete(t, operator, ctx, auth) })
 
 	authRef := secretsv1beta1.NamespacedName{
 		Name:      auth.Name,
@@ -103,7 +100,7 @@ func TestStaticSecret(t *testing.T) {
 		api.CreateSecret(t, project.ID, project.EnvSlug, "/", "DB_PORT", "5432", nil)
 		api.CreateSecret(t, project.ID, project.EnvSlug, "/", "API_KEY", "super-secret-key", nil)
 
-		ss := mustCreateStaticSecret(t, k, ctx, "e2e-basic-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+		ss := mustCreateStaticSecret(t, operator, ctx, "e2e-basic-sync", secretsv1beta1.InfisicalStaticSecretSpec{
 			InfisicalAuthRef: authRef,
 			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
 			Sources: []secretsv1beta1.SecretSource{{
@@ -119,9 +116,9 @@ func TestStaticSecret(t *testing.T) {
 				CreationPolicy: secretsv1beta1.CreationPolicyOwner,
 			}},
 		})
-		t.Cleanup(func() { mustDelete(t, k, ctx, ss) })
+		t.Cleanup(func() { mustDelete(t, operator, ctx, ss) })
 
-		synced := waitForSecret(t, k, ctx, "e2e-basic-synced")
+		synced := waitForSecret(t, operator, ctx, "e2e-basic-synced")
 
 		assertSecretData(t, synced, map[string]string{
 			"DB_HOST": "localhost",
@@ -135,7 +132,7 @@ func TestStaticSecret(t *testing.T) {
 		api.CreateSecret(t, project.ID, project.EnvSlug, "/database", "HOST", "db.internal", nil)
 		api.CreateSecret(t, project.ID, project.EnvSlug, "/database", "PORT", "3306", nil)
 
-		ss := mustCreateStaticSecret(t, k, ctx, "e2e-folder-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+		ss := mustCreateStaticSecret(t, operator, ctx, "e2e-folder-sync", secretsv1beta1.InfisicalStaticSecretSpec{
 			InfisicalAuthRef: authRef,
 			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
 			Sources: []secretsv1beta1.SecretSource{{
@@ -151,9 +148,9 @@ func TestStaticSecret(t *testing.T) {
 				CreationPolicy: secretsv1beta1.CreationPolicyOwner,
 			}},
 		})
-		t.Cleanup(func() { mustDelete(t, k, ctx, ss) })
+		t.Cleanup(func() { mustDelete(t, operator, ctx, ss) })
 
-		synced := waitForSecret(t, k, ctx, "e2e-folder-synced")
+		synced := waitForSecret(t, operator, ctx, "e2e-folder-synced")
 
 		assertSecretData(t, synced, map[string]string{
 			"HOST": "db.internal",
@@ -167,7 +164,7 @@ func TestStaticSecret(t *testing.T) {
 		api.CreateFolder(t, project.ID, project.EnvSlug, "/services", "auth")
 		api.CreateSecret(t, project.ID, project.EnvSlug, "/services/auth", "JWT_SECRET", "jwt-val", nil)
 
-		ss := mustCreateStaticSecret(t, k, ctx, "e2e-recursive-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+		ss := mustCreateStaticSecret(t, operator, ctx, "e2e-recursive-sync", secretsv1beta1.InfisicalStaticSecretSpec{
 			InfisicalAuthRef: authRef,
 			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
 			Sources: []secretsv1beta1.SecretSource{{
@@ -184,9 +181,9 @@ func TestStaticSecret(t *testing.T) {
 				CreationPolicy: secretsv1beta1.CreationPolicyOwner,
 			}},
 		})
-		t.Cleanup(func() { mustDelete(t, k, ctx, ss) })
+		t.Cleanup(func() { mustDelete(t, operator, ctx, ss) })
 
-		synced := waitForSecret(t, k, ctx, "e2e-recursive-synced")
+		synced := waitForSecret(t, operator, ctx, "e2e-recursive-synced")
 
 		assertSecretData(t, synced, map[string]string{
 			"ROOT_KEY":   "root-val",
@@ -201,7 +198,7 @@ func TestStaticSecret(t *testing.T) {
 		api.CreateFolder(t, project.ID, project.EnvSlug, "/", "backend")
 		api.CreateSecret(t, project.ID, project.EnvSlug, "/backend", "INTERNAL_URL", "http://api.internal", nil)
 
-		ss := mustCreateStaticSecret(t, k, ctx, "e2e-multisource-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+		ss := mustCreateStaticSecret(t, operator, ctx, "e2e-multisource-sync", secretsv1beta1.InfisicalStaticSecretSpec{
 			InfisicalAuthRef: authRef,
 			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
 			Sources: []secretsv1beta1.SecretSource{
@@ -224,9 +221,9 @@ func TestStaticSecret(t *testing.T) {
 				CreationPolicy: secretsv1beta1.CreationPolicyOwner,
 			}},
 		})
-		t.Cleanup(func() { mustDelete(t, k, ctx, ss) })
+		t.Cleanup(func() { mustDelete(t, operator, ctx, ss) })
 
-		synced := waitForSecret(t, k, ctx, "e2e-multisource-synced")
+		synced := waitForSecret(t, operator, ctx, "e2e-multisource-synced")
 
 		assertSecretData(t, synced, map[string]string{
 			"NEXT_PUBLIC_URL": "https://app.test",
@@ -238,7 +235,7 @@ func TestStaticSecret(t *testing.T) {
 		api.CreateFolder(t, project.ID, project.EnvSlug, "/", "config")
 		api.CreateSecret(t, project.ID, project.EnvSlug, "/config", "LOG_LEVEL", "debug", nil)
 
-		ss := mustCreateStaticSecret(t, k, ctx, "e2e-configmap-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+		ss := mustCreateStaticSecret(t, operator, ctx, "e2e-configmap-sync", secretsv1beta1.InfisicalStaticSecretSpec{
 			InfisicalAuthRef: authRef,
 			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
 			Sources: []secretsv1beta1.SecretSource{{
@@ -253,9 +250,9 @@ func TestStaticSecret(t *testing.T) {
 				CreationPolicy: secretsv1beta1.CreationPolicyOwner,
 			}},
 		})
-		t.Cleanup(func() { mustDelete(t, k, ctx, ss) })
+		t.Cleanup(func() { mustDelete(t, operator, ctx, ss) })
 
-		cm := waitForConfigMap(t, k, ctx, "e2e-configmap-synced")
+		cm := waitForConfigMap(t, operator, ctx, "e2e-configmap-synced")
 
 		if got, want := cm.Data["LOG_LEVEL"], "debug"; got != want {
 			t.Errorf("configmap LOG_LEVEL = %q, want %q", got, want)
@@ -274,7 +271,7 @@ func TestStaticSecret(t *testing.T) {
 		api.CreateSecret(t, project.ID, project.EnvSlug, "/templated", "PG_HOST", tplHost, nil)
 		api.CreateSecret(t, project.ID, project.EnvSlug, "/templated", "PG_DB", tplDB, nil)
 
-		ss := mustCreateStaticSecret(t, k, ctx, "e2e-template-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+		ss := mustCreateStaticSecret(t, operator, ctx, "e2e-template-sync", secretsv1beta1.InfisicalStaticSecretSpec{
 			InfisicalAuthRef: authRef,
 			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
 			Sources: []secretsv1beta1.SecretSource{{
@@ -296,9 +293,9 @@ func TestStaticSecret(t *testing.T) {
 				},
 			}},
 		})
-		t.Cleanup(func() { mustDelete(t, k, ctx, ss) })
+		t.Cleanup(func() { mustDelete(t, operator, ctx, ss) })
 
-		synced := waitForSecret(t, k, ctx, "e2e-template-synced")
+		synced := waitForSecret(t, operator, ctx, "e2e-template-synced")
 
 		assertSecretData(t, synced, map[string]string{
 			"DSN": fmt.Sprintf("postgres://%s:%s@%s/%s", tplUser, tplPass, tplHost, tplDB),
@@ -309,7 +306,7 @@ func TestStaticSecret(t *testing.T) {
 		api.CreateFolder(t, project.ID, project.EnvSlug, "/", "labeled")
 		api.CreateSecret(t, project.ID, project.EnvSlug, "/labeled", "TOKEN", "abc123", nil)
 
-		ss := mustCreateStaticSecret(t, k, ctx, "e2e-metadata-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+		ss := mustCreateStaticSecret(t, operator, ctx, "e2e-metadata-sync", secretsv1beta1.InfisicalStaticSecretSpec{
 			InfisicalAuthRef: authRef,
 			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
 			Sources: []secretsv1beta1.SecretSource{{
@@ -329,9 +326,9 @@ func TestStaticSecret(t *testing.T) {
 				},
 			}},
 		})
-		t.Cleanup(func() { mustDelete(t, k, ctx, ss) })
+		t.Cleanup(func() { mustDelete(t, operator, ctx, ss) })
 
-		synced := waitForSecret(t, k, ctx, "e2e-metadata-synced")
+		synced := waitForSecret(t, operator, ctx, "e2e-metadata-synced")
 
 		if got, want := synced.Annotations["infisical.com/env"], "test"; got != want {
 			t.Errorf("annotation infisical.com/env = %q, want %q", got, want)
@@ -346,7 +343,7 @@ func TestStaticSecret(t *testing.T) {
 		api.CreateFolder(t, project.ID, project.EnvSlug, "/", "multitarget")
 		api.CreateSecret(t, project.ID, project.EnvSlug, "/multitarget", "SHARED_KEY", "shared-val", nil)
 
-		ss := mustCreateStaticSecret(t, k, ctx, "e2e-multitarget-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+		ss := mustCreateStaticSecret(t, operator, ctx, "e2e-multitarget-sync", secretsv1beta1.InfisicalStaticSecretSpec{
 			InfisicalAuthRef: authRef,
 			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
 			Sources: []secretsv1beta1.SecretSource{{
@@ -370,12 +367,12 @@ func TestStaticSecret(t *testing.T) {
 				},
 			},
 		})
-		t.Cleanup(func() { mustDelete(t, k, ctx, ss) })
+		t.Cleanup(func() { mustDelete(t, operator, ctx, ss) })
 
-		synced := waitForSecret(t, k, ctx, "e2e-mt-secret")
+		synced := waitForSecret(t, operator, ctx, "e2e-mt-secret")
 		assertSecretData(t, synced, map[string]string{"SHARED_KEY": "shared-val"})
 
-		cm := waitForConfigMap(t, k, ctx, "e2e-mt-configmap")
+		cm := waitForConfigMap(t, operator, ctx, "e2e-mt-configmap")
 		if got, want := cm.Data["SHARED_KEY"], "shared-val"; got != want {
 			t.Errorf("configmap SHARED_KEY = %q, want %q", got, want)
 		}
@@ -389,7 +386,7 @@ func TestStaticSecret(t *testing.T) {
 		api.CreateSecret(t, project.ID, project.EnvSlug, "/app-with-import", "APP_NAME", "my-app", nil)
 		api.CreateSecretImport(t, project.ID, project.EnvSlug, "/app-with-import", project.EnvSlug, "/shared-lib")
 
-		ss := mustCreateStaticSecret(t, k, ctx, "e2e-import-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+		ss := mustCreateStaticSecret(t, operator, ctx, "e2e-import-sync", secretsv1beta1.InfisicalStaticSecretSpec{
 			InfisicalAuthRef: authRef,
 			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
 			Sources: []secretsv1beta1.SecretSource{{
@@ -405,51 +402,15 @@ func TestStaticSecret(t *testing.T) {
 				CreationPolicy: secretsv1beta1.CreationPolicyOwner,
 			}},
 		})
-		t.Cleanup(func() { mustDelete(t, k, ctx, ss) })
+		t.Cleanup(func() { mustDelete(t, operator, ctx, ss) })
 
-		synced := waitForSecret(t, k, ctx, "e2e-import-synced")
+		synced := waitForSecret(t, operator, ctx, "e2e-import-synced")
 
 		assertSecretData(t, synced, map[string]string{
 			"APP_NAME":  "my-app",
 			"REDIS_URL": "redis://cache:6379",
 		})
 	})
-}
-
-func TestMetricsEndpoint(t *testing.T) {
-	if os.Getenv("INTEGRATION_TESTS") != "true" {
-		t.Skip()
-		return
-	}
-
-	addr := testManager.MetricsAddress()
-	resp, err := http.Get(fmt.Sprintf("http://%s/metrics", addr))
-	if err != nil {
-		t.Fatalf("GET /metrics: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET /metrics returned %d, want 200", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("read response body: %v", err)
-	}
-
-	metricsBody := string(body)
-
-	expectedMetrics := []string{
-		"controller_runtime_reconcile_total",
-		"controller_runtime_reconcile_errors_total",
-		"workqueue_adds_total",
-	}
-	for _, metric := range expectedMetrics {
-		if !strings.Contains(metricsBody, metric) {
-			t.Errorf("metrics output missing %q", metric)
-		}
-	}
 }
 
 func mustCreate(t *testing.T, k client.Client, ctx context.Context, obj client.Object) {

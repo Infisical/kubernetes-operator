@@ -63,6 +63,7 @@ type NodeJSService struct {
 }
 
 func (n *NodeJSService) URL() string           { return n.url }
+func (n *NodeJSService) ContainerID() string   { return n.container.GetContainerID() }
 func (n *NodeJSService) OrgID() string         { return n.orgID }
 func (n *NodeJSService) UserID() string        { return n.userID }
 func (n *NodeJSService) UserEmail() string     { return n.userEmail }

@@ -57,19 +57,19 @@ func (h *InfisicalAuthHandler) SyncSecrets(ctx context.Context, infisicalStaticS
 	defer h.reconciler.UpdateConditions(ctx, infisicalStaticSecret)
 
 	if err := h.reconciler.Validate(infisicalStaticSecret); err != nil {
-		setReconcileStatus(infisicalStaticSecret, err)
+		setReconcileStatusCondition(infisicalStaticSecret, err)
 		return fmt.Errorf("validation failed: %w", err)
 	}
 
 	authenticationResult, err := h.reconciler.Authenticate(ctx, infisicalStaticSecret)
 	if err != nil {
-		setReconcileStatus(infisicalStaticSecret, err)
+		setReconcileStatusCondition(infisicalStaticSecret, err)
 		return fmt.Errorf("Unable to authenticate: %w", err)
 	}
 
 	secrets, importedSecrets, err := h.reconciler.ListSecretsFromSources(ctx, infisicalStaticSecret, authenticationResult)
 	if err != nil {
-		setReconcileStatus(infisicalStaticSecret, err)
+		setReconcileStatusCondition(infisicalStaticSecret, err)
 		return fmt.Errorf("unable to fetch secrets: %w", err)
 	}
 
@@ -80,14 +80,14 @@ func (h *InfisicalAuthHandler) SyncSecrets(ctx context.Context, infisicalStaticS
 		affectedWorkloads, err := h.syncTargetSecrets(ctx, infisicalStaticSecret, mergedSecrets, target)
 		totalAffectedWorkloads += affectedWorkloads
 		if err != nil {
-			setReconcileStatus(infisicalStaticSecret, err)
+			setReconcileStatusCondition(infisicalStaticSecret, err)
 			return fmt.Errorf("unable to sync target %q: %w", target.Name, err)
 		}
 	}
 
 	setAutoRedeployReadyCondition(infisicalStaticSecret, totalAffectedWorkloads)
-	setReconcileStatus(infisicalStaticSecret, nil)
-	setLastSuccessfulReconcileAt(infisicalStaticSecret)
+	setReconcileStatusCondition(infisicalStaticSecret, nil)
+	setLastSuccessfulReconcileAtCondition(infisicalStaticSecret)
 
 	return nil
 }

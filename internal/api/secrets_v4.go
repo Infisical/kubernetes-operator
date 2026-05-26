@@ -92,6 +92,9 @@ func ListSecrets(httpClient *resty.Client, request ListSecretsRequest) (ListSecr
 
 			return ListSecretsResponse{}, &TooManyRequestsError{RetryAfter: retryAfter}
 		}
+
+		// if no retry header, return generic error
+		return ListSecretsResponse{}, fmt.Errorf("failed to list secrets due to rate limit")
 	}
 
 	if response.StatusCode() == 400 {

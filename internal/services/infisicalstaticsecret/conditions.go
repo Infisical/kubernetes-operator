@@ -23,7 +23,7 @@ func initConditions(infisicalStaticSecret *v1beta1.InfisicalStaticSecret) {
 	}
 }
 
-func setLastSuccessfulReconcileAt(infisicalStaticSecret *v1beta1.InfisicalStaticSecret) {
+func setLastSuccessfulReconcileAtCondition(infisicalStaticSecret *v1beta1.InfisicalStaticSecret) {
 	initConditions(infisicalStaticSecret)
 	meta.SetStatusCondition(&infisicalStaticSecret.Status.Conditions, metav1.Condition{
 		Type:               ConditionLastSuccessfulReconcileAt,
@@ -45,7 +45,7 @@ func setAuthMethodCondition(infisicalStaticSecret *v1beta1.InfisicalStaticSecret
 	})
 }
 
-func setReconcileStatus(infisicalStaticSecret *v1beta1.InfisicalStaticSecret, errorToConditionOn error) {
+func setReconcileStatusCondition(infisicalStaticSecret *v1beta1.InfisicalStaticSecret, errorToConditionOn error) {
 	initConditions(infisicalStaticSecret)
 	if errorToConditionOn == nil {
 		meta.SetStatusCondition(&infisicalStaticSecret.Status.Conditions, metav1.Condition{

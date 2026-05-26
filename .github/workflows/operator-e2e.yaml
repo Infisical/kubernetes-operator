@@ -35,13 +35,5 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Create Kind cluster
-        uses: helm/kind-action@v1.12.0
-        with:
-          cluster_name: infisical-operator-e2e
-
       - name: Run E2E tests
-        env:
-          INTEGRATION_TESTS: true
-        run: |
-          go test ./test/e2e/ -v -timeout 20m
+        run: make test-e2e

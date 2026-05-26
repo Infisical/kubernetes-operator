@@ -60,8 +60,7 @@ spec:
                     description: Reference to secret containing CA cert
                     properties:
                       key:
-                        description: The name of the secret property with the CA certificate
-                          value
+                        description: The name of the secret property with the value
                         type: string
                       name:
                         description: The name of the Kubernetes Secret

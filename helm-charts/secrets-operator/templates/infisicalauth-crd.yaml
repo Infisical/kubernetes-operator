@@ -17,6 +17,9 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .spec.infisicalConnectionRef.name
+      name: Connection
+      type: string
     - jsonPath: .spec.method
       name: Method
       type: string
@@ -52,36 +55,92 @@ spec:
             properties:
               awsIam:
                 properties:
-                  identityId:
-                    type: string
+                  identityIdRef:
+                    properties:
+                      key:
+                        description: The name of the secret property with the value
+                        type: string
+                      name:
+                        description: The name of the Kubernetes Secret
+                        type: string
+                      namespace:
+                        description: The namespace where the Kubernetes Secret is located
+                        type: string
+                    required:
+                    - key
+                    - name
+                    - namespace
+                    type: object
                 required:
-                - identityId
+                - identityIdRef
                 type: object
               azure:
                 properties:
-                  identityId:
-                    type: string
+                  identityIdRef:
+                    properties:
+                      key:
+                        description: The name of the secret property with the value
+                        type: string
+                      name:
+                        description: The name of the Kubernetes Secret
+                        type: string
+                      namespace:
+                        description: The namespace where the Kubernetes Secret is located
+                        type: string
+                    required:
+                    - key
+                    - name
+                    - namespace
+                    type: object
                   resource:
                     type: string
                 required:
-                - identityId
+                - identityIdRef
                 type: object
               gcpIam:
                 properties:
-                  identityId:
-                    type: string
+                  identityIdRef:
+                    properties:
+                      key:
+                        description: The name of the secret property with the value
+                        type: string
+                      name:
+                        description: The name of the Kubernetes Secret
+                        type: string
+                      namespace:
+                        description: The namespace where the Kubernetes Secret is located
+                        type: string
+                    required:
+                    - key
+                    - name
+                    - namespace
+                    type: object
                   serviceAccountKeyFilePath:
                     type: string
                 required:
-                - identityId
+                - identityIdRef
                 - serviceAccountKeyFilePath
                 type: object
               gcpIdToken:
                 properties:
-                  identityId:
-                    type: string
+                  identityIdRef:
+                    properties:
+                      key:
+                        description: The name of the secret property with the value
+                        type: string
+                      name:
+                        description: The name of the Kubernetes Secret
+                        type: string
+                      namespace:
+                        description: The namespace where the Kubernetes Secret is located
+                        type: string
+                    required:
+                    - key
+                    - name
+                    - namespace
+                    type: object
                 required:
-                - identityId
+                - identityIdRef
                 type: object
               infisicalConnectionRef:
                 properties:
@@ -104,8 +163,7 @@ spec:
                         description: The name of the Kubernetes Secret
                         type: string
                       namespace:
-                        description: The namespace where the Kubernetes Secret is
-                          located
+                        description: The namespace where the Kubernetes Secret is located
                         type: string
                     required:
                     - key
@@ -122,6 +180,12 @@ spec:
                     - name
                     - namespace
                     type: object
+                  serviceAccountTokenAudiences:
+                    description: The audiences to use for the service account token.
+                      This is only relevant if `autoCreateServiceAccountToken` is true.
+                    items:
+                      type: string
+                    type: array
                 required:
                 - identityIdRef
                 - serviceAccountRef
@@ -137,8 +201,7 @@ spec:
                         description: The name of the Kubernetes Secret
                         type: string
                       namespace:
-                        description: The namespace where the Kubernetes Secret is
-                          located
+                        description: The namespace where the Kubernetes Secret is located
                         type: string
                     required:
                     - key
@@ -154,8 +217,7 @@ spec:
                         description: The name of the Kubernetes Secret
                         type: string
                       namespace:
-                        description: The namespace where the Kubernetes Secret is
-                          located
+                        description: The namespace where the Kubernetes Secret is located
                         type: string
                     required:
                     - key
@@ -171,8 +233,7 @@ spec:
                         description: The name of the Kubernetes Secret
                         type: string
                       namespace:
-                        description: The namespace where the Kubernetes Secret is
-                          located
+                        description: The namespace where the Kubernetes Secret is located
                         type: string
                     required:
                     - key
@@ -205,8 +266,7 @@ spec:
                         description: The name of the Kubernetes Secret
                         type: string
                       namespace:
-                        description: The namespace where the Kubernetes Secret is
-                          located
+                        description: The namespace where the Kubernetes Secret is located
                         type: string
                     required:
                     - key
@@ -222,8 +282,7 @@ spec:
                         description: The name of the Kubernetes Secret
                         type: string
                       namespace:
-                        description: The namespace where the Kubernetes Secret is
-                          located
+                        description: The namespace where the Kubernetes Secret is located
                         type: string
                     required:
                     - key

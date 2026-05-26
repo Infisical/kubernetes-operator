@@ -19,7 +19,7 @@ import (
 
 const testNamespace = "default"
 
-var _ = Describe("InfisicalStaticSecret", Ordered, func() {
+var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 	var (
 		ctx     context.Context
 		api     *infra.NodeJSService
@@ -323,8 +323,10 @@ var _ = Describe("InfisicalStaticSecret", Ordered, func() {
 				CreationPolicy: secretsv1beta1.CreationPolicyOwner,
 				Template: &secretsv1beta1.SecretTemplate{
 					EngineVersion: "v1",
-					Data: map[string]string{
-						"DSN": "postgres://{{ .PG_USER.Value }}:{{ .PG_PASS.Value }}@{{ .PG_HOST.Value }}/{{ .PG_DB.Value }}",
+					Data: secretsv1beta1.SecretTemplateData{
+						Map: map[string]string{
+							"DSN": "postgres://{{ .PG_USER.Value }}:{{ .PG_PASS.Value }}@{{ .PG_HOST.Value }}/{{ .PG_DB.Value }}",
+						},
 					},
 				},
 			}},

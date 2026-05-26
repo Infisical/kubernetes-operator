@@ -91,7 +91,6 @@ rules:
   - infisicaldynamicsecrets/finalizers
   - infisicalpushsecrets/finalizers
   - infisicalsecrets/finalizers
-  - infisicalstaticsecrets/finalizers
   verbs:
   - update
 {{- end }}

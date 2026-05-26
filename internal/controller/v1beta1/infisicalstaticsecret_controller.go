@@ -91,6 +91,7 @@ func (r *InfisicalStaticSecretReconciler) GetLogger(req ctrl.Request) logr.Logge
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list
 // +kubebuilder:rbac:groups="authentication.k8s.io",resources=tokenreviews,verbs=create
 // +kubebuilder:rbac:groups="",resources=serviceaccounts/token,verbs=create
+
 func (r *InfisicalStaticSecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.GetLogger(req)
 

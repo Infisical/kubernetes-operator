@@ -73,7 +73,7 @@ var _ = Describe("Validate", func() {
 	})
 
 	It("accepts valid duration formats", func() {
-		for _, d := range []string{"30s", "5m", "2h", "100ms"} {
+		for _, d := range []string{"30s", "5m", "1h", "7d", "3w"} {
 			spec := validSpec()
 			spec.SyncOptions.RefreshInterval = d
 			obj := &v1beta1.InfisicalStaticSecret{Spec: spec}

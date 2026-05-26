@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/api/equality"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -174,9 +175,18 @@ func (r *InfisicalStaticSecretReconciler) SetupWithManager(mgr ctrl.Manager) err
 				return true
 			},
 			UpdateFunc: func(e event.UpdateEvent) bool {
-				if e.ObjectOld.GetGeneration() == e.ObjectNew.GetGeneration() {
-					return false
+				if e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() {
+					return true
 				}
+
+				if !equality.Semantic.DeepEqual(e.ObjectOld.GetLabels(), e.ObjectNew.GetLabels()) {
+					return true
+				}
+
+				if !equality.Semantic.DeepEqual(e.ObjectOld.GetAnnotations(), e.ObjectNew.GetAnnotations()) {
+					return true
+				}
+
 				sseRegistries.Cleanup(string(e.ObjectNew.GetUID()))
 				return true
 			},

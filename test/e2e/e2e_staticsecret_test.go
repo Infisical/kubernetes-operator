@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -99,6 +100,26 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 			Name:      auth.Name,
 			Namespace: auth.Namespace,
 		}
+
+		By("waiting for InfisicalConnection to become ready")
+		Eventually(func(g Gomega) {
+			var conn secretsv1beta1.InfisicalConnection
+			g.Expect(k.Get(ctx, types.NamespacedName{Name: connection.Name, Namespace: connection.Namespace}, &conn)).To(Succeed())
+			cond := meta.FindStatusCondition(conn.Status.Conditions, "secrets.infisical.com/IsReady")
+			g.Expect(cond).NotTo(BeNil(), "InfisicalConnection has no IsReady condition yet")
+			g.Expect(cond.Status).To(Equal(metav1.ConditionTrue),
+				"InfisicalConnection not ready: %s", cond.Message)
+		}).WithTimeout(60 * time.Second).WithPolling(time.Second).Should(Succeed())
+
+		By("waiting for InfisicalAuth to become ready")
+		Eventually(func(g Gomega) {
+			var a secretsv1beta1.InfisicalAuth
+			g.Expect(k.Get(ctx, types.NamespacedName{Name: auth.Name, Namespace: auth.Namespace}, &a)).To(Succeed())
+			cond := meta.FindStatusCondition(a.Status.Conditions, "secrets.infisical.com/IsReady")
+			g.Expect(cond).NotTo(BeNil(), "InfisicalAuth has no IsReady condition yet")
+			g.Expect(cond.Status).To(Equal(metav1.ConditionTrue),
+				"InfisicalAuth not ready: %s", cond.Message)
+		}).WithTimeout(60 * time.Second).WithPolling(time.Second).Should(Succeed())
 	})
 
 	createStaticSecret := func(name string, spec secretsv1beta1.InfisicalStaticSecretSpec) *secretsv1beta1.InfisicalStaticSecret {
@@ -115,21 +136,39 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 		return ss
 	}
 
-	expectSecret := func(name string) *corev1.Secret {
+	// checkStaticSecretStatus fetches the InfisicalStaticSecret and fails
+	// immediately if the controller has recorded a reconciliation error,
+	// so tests surface the real problem instead of timing out.
+	checkStaticSecretStatus := func(g Gomega, crdName string) {
+		GinkgoHelper()
+		var ss secretsv1beta1.InfisicalStaticSecret
+		if err := k.Get(ctx, types.NamespacedName{Name: crdName, Namespace: testNamespace}, &ss); err != nil {
+			return // CRD not yet visible; let the outer Eventually keep polling
+		}
+		cond := meta.FindStatusCondition(ss.Status.Conditions, "secrets.infisical.com/LastReconcileStatus")
+		if cond != nil && cond.Status == metav1.ConditionFalse {
+			g.Expect(cond.Status).To(Equal(metav1.ConditionTrue),
+				"InfisicalStaticSecret %q reconciliation failed: %s", crdName, cond.Message)
+		}
+	}
+
+	expectSecret := func(targetName, crdName string) *corev1.Secret {
 		GinkgoHelper()
 		var secret corev1.Secret
 		Eventually(func(g Gomega) {
-			g.Expect(k.Get(ctx, types.NamespacedName{Name: name, Namespace: testNamespace}, &secret)).To(Succeed())
+			checkStaticSecretStatus(g, crdName)
+			g.Expect(k.Get(ctx, types.NamespacedName{Name: targetName, Namespace: testNamespace}, &secret)).To(Succeed())
 			g.Expect(secret.Data).NotTo(BeEmpty())
 		}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(Succeed())
 		return &secret
 	}
 
-	expectConfigMap := func(name string) *corev1.ConfigMap {
+	expectConfigMap := func(targetName, crdName string) *corev1.ConfigMap {
 		GinkgoHelper()
 		var cm corev1.ConfigMap
 		Eventually(func(g Gomega) {
-			g.Expect(k.Get(ctx, types.NamespacedName{Name: name, Namespace: testNamespace}, &cm)).To(Succeed())
+			checkStaticSecretStatus(g, crdName)
+			g.Expect(k.Get(ctx, types.NamespacedName{Name: targetName, Namespace: testNamespace}, &cm)).To(Succeed())
 			g.Expect(cm.Data).NotTo(BeEmpty())
 		}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(Succeed())
 		return &cm
@@ -165,7 +204,7 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 			}},
 		})
 
-		synced := expectSecret("e2e-basic-synced")
+		synced := expectSecret("e2e-basic-synced", "e2e-basic-sync")
 		expectSecretData(synced, map[string]string{
 			"DB_HOST": "localhost",
 			"DB_PORT": "5432",
@@ -195,7 +234,7 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 			}},
 		})
 
-		synced := expectSecret("e2e-folder-synced")
+		synced := expectSecret("e2e-folder-synced", "e2e-folder-sync")
 		expectSecretData(synced, map[string]string{
 			"HOST": "db.internal",
 			"PORT": "3306",
@@ -226,7 +265,7 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 			}},
 		})
 
-		synced := expectSecret("e2e-recursive-synced")
+		synced := expectSecret("e2e-recursive-synced", "e2e-recursive-sync")
 		expectSecretData(synced, map[string]string{
 			"ROOT_KEY":   "root-val",
 			"JWT_SECRET": "jwt-val",
@@ -264,7 +303,7 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 			}},
 		})
 
-		synced := expectSecret("e2e-multisource-synced")
+		synced := expectSecret("e2e-multisource-synced", "e2e-multisource-sync")
 		expectSecretData(synced, map[string]string{
 			"NEXT_PUBLIC_URL": "https://app.test",
 			"INTERNAL_URL":    "http://api.internal",
@@ -291,7 +330,7 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 			}},
 		})
 
-		cm := expectConfigMap("e2e-configmap-synced")
+		cm := expectConfigMap("e2e-configmap-synced", "e2e-configmap-sync")
 		Expect(cm.Data).To(HaveKeyWithValue("LOG_LEVEL", "debug"))
 	})
 
@@ -332,7 +371,7 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 			}},
 		})
 
-		synced := expectSecret("e2e-template-synced")
+		synced := expectSecret("e2e-template-synced", "e2e-template-sync")
 		expectSecretData(synced, map[string]string{
 			"DSN": fmt.Sprintf("postgres://%s:%s@%s/%s", tplUser, tplPass, tplHost, tplDB),
 		})
@@ -363,7 +402,7 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 			}},
 		})
 
-		synced := expectSecret("e2e-metadata-synced")
+		synced := expectSecret("e2e-metadata-synced", "e2e-metadata-sync")
 		Expect(synced.Annotations).To(HaveKeyWithValue("infisical.com/env", "test"))
 		Expect(synced.Labels).To(HaveKeyWithValue("app", "e2e"))
 		expectSecretData(synced, map[string]string{"TOKEN": "abc123"})
@@ -407,6 +446,7 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 
 		var synced corev1.Secret
 		Eventually(func(g Gomega) {
+			checkStaticSecretStatus(g, "e2e-merged-sync")
 			g.Expect(k.Get(ctx, types.NamespacedName{Name: "e2e-merged-metadata", Namespace: testNamespace}, &synced)).To(Succeed())
 			g.Expect(synced.Labels).To(HaveKeyWithValue("app", "e2e"))
 		}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(Succeed())
@@ -425,6 +465,7 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 
 		var updated corev1.Secret
 		Eventually(func(g Gomega) {
+			checkStaticSecretStatus(g, "e2e-merged-sync")
 			g.Expect(k.Get(ctx, types.NamespacedName{Name: "e2e-merged-metadata", Namespace: testNamespace}, &updated)).To(Succeed())
 			g.Expect(updated.Annotations).To(HaveKeyWithValue("infisical.com/env", "production"))
 		}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(Succeed())
@@ -467,10 +508,10 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 			},
 		})
 
-		synced := expectSecret("e2e-mt-secret")
+		synced := expectSecret("e2e-mt-secret", "e2e-multitarget-sync")
 		expectSecretData(synced, map[string]string{"SHARED_KEY": "shared-val"})
 
-		cm := expectConfigMap("e2e-mt-configmap")
+		cm := expectConfigMap("e2e-mt-configmap", "e2e-multitarget-sync")
 		Expect(cm.Data).To(HaveKeyWithValue("SHARED_KEY", "shared-val"))
 	})
 
@@ -499,7 +540,7 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 			}},
 		})
 
-		synced := expectSecret("e2e-import-synced")
+		synced := expectSecret("e2e-import-synced", "e2e-import-sync")
 		expectSecretData(synced, map[string]string{
 			"APP_NAME":  "my-app",
 			"REDIS_URL": "redis://cache:6379",

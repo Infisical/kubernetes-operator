@@ -25,6 +25,14 @@ func init() {
 	pgDB = "test_" + randomHex(4)
 }
 
+func RandomID(prefix string) string {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("crypto/rand failed: %v", err))
+	}
+	return prefix + hex.EncodeToString(b)
+}
+
 func randomHex(n int) string {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {

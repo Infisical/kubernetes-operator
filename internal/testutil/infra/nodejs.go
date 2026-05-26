@@ -2,7 +2,6 @@ package infra
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
 	"log"
 	"testing"
@@ -209,9 +208,7 @@ func (n *NodeJSService) MustCreateProject(name string) *ProjectSeed {
 func (n *NodeJSService) CreateProject(t *testing.T, name string) *ProjectSeed {
 	t.Helper()
 
-	b := make([]byte, 4)
-	rand.Read(b)
-	slug := fmt.Sprintf("t-%s-%x", name, b)
+	slug := RandomID(fmt.Sprintf("t-%s-", name))
 	if len(slug) > 36 {
 		slug = slug[:36]
 	}

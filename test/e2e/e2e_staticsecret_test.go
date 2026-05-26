@@ -2,8 +2,6 @@ package e2e
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -265,13 +263,10 @@ func TestStaticSecret(t *testing.T) {
 	})
 
 	t.Run("templated secret", func(t *testing.T) {
-		rnd := make([]byte, 4)
-		rand.Read(rnd)
-		suffix := hex.EncodeToString(rnd)
-		tplUser := "user" + suffix
-		tplPass := "pass" + suffix
-		tplHost := "host-" + suffix + ".test"
-		tplDB := "db" + suffix
+		tplUser := infra.RandomID("user")
+		tplPass := infra.RandomID("pass")
+		tplHost := infra.RandomID("host-") + ".test"
+		tplDB := infra.RandomID("db")
 
 		api.CreateFolder(t, project.ID, project.EnvSlug, "/", "templated")
 		api.CreateSecret(t, project.ID, project.EnvSlug, "/templated", "PG_USER", tplUser, nil)

@@ -53,24 +53,24 @@ type InfisicalAuthHandler struct {
 	logger            logr.Logger
 }
 
-func (h *InfisicalAuthHandler) SyncSecrets(ctx context.Context, infisicalStaticSecret *v1beta1.InfisicalStaticSecret) error {
+func (h *InfisicalAuthHandler) SyncSecrets(ctx context.Context, infisicalStaticSecret *v1beta1.InfisicalStaticSecret) (int, error) {
 	defer h.reconciler.UpdateConditions(ctx, infisicalStaticSecret)
 
 	if err := h.reconciler.Validate(infisicalStaticSecret); err != nil {
 		setReconcileStatusCondition(infisicalStaticSecret, err)
-		return fmt.Errorf("validation failed: %w", err)
+		return 0, fmt.Errorf("validation failed: %w", err)
 	}
 
 	authenticationResult, err := h.reconciler.Authenticate(ctx, infisicalStaticSecret)
 	if err != nil {
 		setReconcileStatusCondition(infisicalStaticSecret, err)
-		return fmt.Errorf("Unable to authenticate: %w", err)
+		return 0, fmt.Errorf("Unable to authenticate: %w", err)
 	}
 
 	secrets, importedSecrets, err := h.reconciler.ListSecretsFromSources(ctx, infisicalStaticSecret, authenticationResult)
 	if err != nil {
 		setReconcileStatusCondition(infisicalStaticSecret, err)
-		return fmt.Errorf("unable to fetch secrets: %w", err)
+		return 0, fmt.Errorf("unable to fetch secrets: %w", err)
 	}
 
 	mergedSecrets := h.reconciler.MergeSecretSources(secrets, importedSecrets)
@@ -81,7 +81,7 @@ func (h *InfisicalAuthHandler) SyncSecrets(ctx context.Context, infisicalStaticS
 		totalAffectedWorkloads += affectedWorkloads
 		if err != nil {
 			setReconcileStatusCondition(infisicalStaticSecret, err)
-			return fmt.Errorf("unable to sync target %q: %w", target.Name, err)
+			return 0, fmt.Errorf("unable to sync target %q: %w", target.Name, err)
 		}
 	}
 
@@ -89,7 +89,7 @@ func (h *InfisicalAuthHandler) SyncSecrets(ctx context.Context, infisicalStaticS
 	setReconcileStatusCondition(infisicalStaticSecret, nil)
 	setLastSuccessfulReconcileAtCondition(infisicalStaticSecret)
 
-	return nil
+	return len(mergedSecrets), nil
 }
 
 func sourceSSEKey(source v1beta1.SecretSource) string {

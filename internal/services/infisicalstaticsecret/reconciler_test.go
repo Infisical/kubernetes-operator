@@ -73,7 +73,7 @@ var _ = Describe("Validate", func() {
 	})
 
 	It("accepts valid duration formats", func() {
-		for _, d := range []string{"30s", "5m", "1h30m", "100ms"} {
+		for _, d := range []string{"30s", "5m", "2h", "100ms"} {
 			spec := validSpec()
 			spec.SyncOptions.RefreshInterval = d
 			obj := &v1beta1.InfisicalStaticSecret{Spec: spec}
@@ -303,8 +303,10 @@ var _ = Describe("RenderTargetOutput", func() {
 				Namespace: "default",
 				Kind:      v1beta1.SecretTargetKindSecret,
 				Template: &v1beta1.SecretTemplate{
-					Data: map[string]string{
-						"dsn": "postgresql://user:pass@{{ .DB_HOST.Value }}:{{ .DB_PORT.Value }}/{{ .DB_NAME.Value }}",
+					Data: v1beta1.SecretTemplateData{
+						Map: map[string]string{
+							"dsn": "postgresql://user:pass@{{ .DB_HOST.Value }}:{{ .DB_PORT.Value }}/{{ .DB_NAME.Value }}",
+						},
 					},
 				},
 			}
@@ -321,8 +323,10 @@ var _ = Describe("RenderTargetOutput", func() {
 				Namespace: "default",
 				Kind:      v1beta1.SecretTargetKindSecret,
 				Template: &v1beta1.SecretTemplate{
-					Data: map[string]string{
-						"info": "{{ .DB_HOST.Value }} from {{ .DB_HOST.SecretPath }}",
+					Data: v1beta1.SecretTemplateData{
+						Map: map[string]string{
+							"info": "{{ .DB_HOST.Value }} from {{ .DB_HOST.SecretPath }}",
+						},
 					},
 				},
 			}
@@ -338,9 +342,11 @@ var _ = Describe("RenderTargetOutput", func() {
 				Namespace: "default",
 				Kind:      v1beta1.SecretTargetKindConfigMap,
 				Template: &v1beta1.SecretTemplate{
-					Data: map[string]string{
-						"host": "{{ .DB_HOST.Value }}",
-						"port": "{{ .DB_PORT.Value }}",
+					Data: v1beta1.SecretTemplateData{
+						Map: map[string]string{
+							"host": "{{ .DB_HOST.Value }}",
+							"port": "{{ .DB_PORT.Value }}",
+						},
 					},
 				},
 			}
@@ -358,8 +364,10 @@ var _ = Describe("RenderTargetOutput", func() {
 				Namespace: "default",
 				Kind:      v1beta1.SecretTargetKindSecret,
 				Template: &v1beta1.SecretTemplate{
-					Data: map[string]string{
-						"bad": "{{ .DB_HOST",
+					Data: v1beta1.SecretTemplateData{
+						Map: map[string]string{
+							"bad": "{{ .DB_HOST",
+						},
 					},
 				},
 			}
@@ -368,6 +376,134 @@ var _ = Describe("RenderTargetOutput", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to parse template"))
 		})
+	})
+
+	Context("with a bulk (string) template", func() {
+		It("expands a range over every secret into the resulting map", func() {
+			target := v1beta1.SecretTarget{
+				Name:      "all",
+				Namespace: "default",
+				Kind:      v1beta1.SecretTargetKindSecret,
+				Template: &v1beta1.SecretTemplate{
+					Data: v1beta1.SecretTemplateData{
+						Raw: `{{- range $key, $secret := . }}
+{{ $key }}: "{{ $secret.Value }}"
+{{- end }}`,
+					},
+				},
+			}
+
+			data, err := reconciler.RenderTargetOutput(secrets, target)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(data).To(HaveLen(3))
+			Expect(data).To(HaveKeyWithValue("DB_HOST", []byte("localhost")))
+			Expect(data).To(HaveKeyWithValue("DB_PORT", []byte("5432")))
+			Expect(data).To(HaveKeyWithValue("DB_NAME", []byte("mydb")))
+		})
+
+		It("supports referencing individual secrets alongside a range", func() {
+			target := v1beta1.SecretTarget{
+				Name:      "mixed",
+				Namespace: "default",
+				Kind:      v1beta1.SecretTargetKindSecret,
+				Template: &v1beta1.SecretTemplate{
+					Data: v1beta1.SecretTemplateData{
+						Raw: `DSN: "postgres://{{ .DB_HOST.Value }}:{{ .DB_PORT.Value }}/{{ .DB_NAME.Value }}"
+COUNT: "{{ len . }}"`,
+					},
+				},
+			}
+
+			data, err := reconciler.RenderTargetOutput(secrets, target)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(data).To(HaveKeyWithValue("DSN", []byte("postgres://localhost:5432/mydb")))
+			Expect(data).To(HaveKeyWithValue("COUNT", []byte("3")))
+		})
+
+		It("returns an empty map for a template that renders only whitespace", func() {
+			target := v1beta1.SecretTarget{
+				Name:      "empty",
+				Namespace: "default",
+				Kind:      v1beta1.SecretTargetKindSecret,
+				Template: &v1beta1.SecretTemplate{
+					Data: v1beta1.SecretTemplateData{Raw: "   \n  \n"},
+				},
+			}
+
+			data, err := reconciler.RenderTargetOutput(secrets, target)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(data).To(BeEmpty())
+		})
+
+		It("returns error for invalid template syntax", func() {
+			target := v1beta1.SecretTarget{
+				Name:      "bad-tmpl",
+				Namespace: "default",
+				Kind:      v1beta1.SecretTargetKindSecret,
+				Template: &v1beta1.SecretTemplate{
+					Data: v1beta1.SecretTemplateData{Raw: "{{ .DB_HOST"},
+				},
+			}
+
+			_, err := reconciler.RenderTargetOutput(secrets, target)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to parse bulk template"))
+		})
+
+		It("returns error when rendered output is not a YAML map", func() {
+			target := v1beta1.SecretTarget{
+				Name:      "bad-yaml",
+				Namespace: "default",
+				Kind:      v1beta1.SecretTargetKindSecret,
+				Template: &v1beta1.SecretTemplate{
+					Data: v1beta1.SecretTemplateData{Raw: `- just
+- a
+- list`},
+				},
+			}
+
+			_, err := reconciler.RenderTargetOutput(secrets, target)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("bulk template output is not a valid YAML map"))
+		})
+	})
+})
+
+var _ = Describe("SecretTemplateData JSON round-trip", func() {
+	It("decodes a JSON object into the map form", func() {
+		var d v1beta1.SecretTemplateData
+		Expect(d.UnmarshalJSON([]byte(`{"FOO": "bar"}`))).To(Succeed())
+		Expect(d.IsMap()).To(BeTrue())
+		Expect(d.IsRaw()).To(BeFalse())
+		Expect(d.Map).To(HaveKeyWithValue("FOO", "bar"))
+	})
+
+	It("decodes a JSON string into the raw form", func() {
+		var d v1beta1.SecretTemplateData
+		Expect(d.UnmarshalJSON([]byte(`"{{ range . }}{{ end }}"`))).To(Succeed())
+		Expect(d.IsRaw()).To(BeTrue())
+		Expect(d.IsMap()).To(BeFalse())
+		Expect(d.Raw).To(Equal("{{ range . }}{{ end }}"))
+	})
+
+	It("rejects unsupported JSON shapes", func() {
+		var d v1beta1.SecretTemplateData
+		Expect(d.UnmarshalJSON([]byte(`123`))).To(HaveOccurred())
+		Expect(d.UnmarshalJSON([]byte(`["a"]`))).To(HaveOccurred())
+	})
+
+	It("re-emits the map form when marshalled", func() {
+		d := v1beta1.SecretTemplateData{Map: map[string]string{"FOO": "bar"}}
+		out, err := d.MarshalJSON()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(out)).To(Equal(`{"FOO":"bar"}`))
+	})
+
+	It("re-emits the raw form when marshalled", func() {
+		d := v1beta1.SecretTemplateData{Raw: "tmpl"}
+		out, err := d.MarshalJSON()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(out)).To(Equal(`"tmpl"`))
 	})
 })
 

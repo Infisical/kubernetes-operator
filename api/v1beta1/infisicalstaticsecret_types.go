@@ -132,8 +132,14 @@ type SecretTemplate struct {
 	// +kubebuilder:validation:Enum=v1
 	EngineVersion string `json:"engineVersion"`
 
+	// Data defines the templated output. It accepts either a map of per-key
+	// Go templates (each entry becomes one key in the resulting Secret /
+	// ConfigMap) or a single Go template string whose rendered output is
+	// YAML-decoded into a map of key/value pairs.
 	// +kubebuilder:validation:Required
-	Data map[string]string `json:"data,omitempty"`
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:validation:XPreserveUnknownFields
+	Data SecretTemplateData `json:"data"`
 }
 
 // InfisicalStaticSecretStatus defines the observed state of InfisicalAuth

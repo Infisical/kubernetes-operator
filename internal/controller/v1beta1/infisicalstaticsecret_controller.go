@@ -124,7 +124,7 @@ func (r *InfisicalStaticSecretReconciler) Reconcile(ctx context.Context, req ctr
 	instantUpdates := staticSecretCRD.Spec.SyncOptions != nil && staticSecretCRD.Spec.SyncOptions.InstantUpdates
 
 	handler := infisicalstaticsecret.NewInfisicalStaticSecretHandler(r.Client, r.Scheme, r.IsNamespaceScoped, r.AuthResolver, logger)
-	err = handler.SyncSecrets(ctx, &staticSecretCRD)
+	secretsCount, err := handler.SyncSecrets(ctx, &staticSecretCRD)
 	if err != nil {
 		var rateLimitErr *api.TooManyRequestsError
 		if errors.As(err, &rateLimitErr) {
@@ -151,12 +151,12 @@ func (r *InfisicalStaticSecretReconciler) Reconcile(ctx context.Context, req ctr
 		sseRegistries.Cleanup(crdUID)
 	}
 
-	refreshInterval, err := time.ParseDuration(staticSecretCRD.Spec.SyncOptions.RefreshInterval)
+	refreshInterval, err := util.ConvertResyncIntervalToDuration(staticSecretCRD.Spec.SyncOptions.RefreshInterval, false)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("invalid refreshInterval %q: %w", staticSecretCRD.Spec.SyncOptions.RefreshInterval, err)
 	}
 
-	logger.Info(fmt.Sprintf("Reconciliation successful, requeueing after %v", refreshInterval))
+	logger.Info(fmt.Sprintf("Reconciliation successful with %d secrets synced from Infisical, requeueing after %v", secretsCount, refreshInterval))
 	return ctrl.Result{
 		RequeueAfter: refreshInterval,
 	}, nil

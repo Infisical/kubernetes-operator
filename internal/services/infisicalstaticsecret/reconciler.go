@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strings"
 	tpl "text/template"
-	"time"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/api"
@@ -20,6 +19,7 @@ import (
 	"github.com/Infisical/infisical/k8-operator/internal/template"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
 	"github.com/go-logr/logr"
+	"gopkg.in/yaml.v3"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8Errors "k8s.io/apimachinery/pkg/api/errors"
@@ -158,7 +158,7 @@ func (r *InfisicalStaticSecretReconciler) Validate(infisicalStaticSecret *v1beta
 		return fmt.Errorf("syncOptions is required")
 	}
 
-	if _, err := time.ParseDuration(spec.SyncOptions.RefreshInterval); err != nil {
+	if _, err := util.ConvertResyncIntervalToDuration(spec.SyncOptions.RefreshInterval, false); err != nil {
 		return fmt.Errorf("invalid refreshInterval %q: %w", spec.SyncOptions.RefreshInterval, err)
 	}
 
@@ -398,22 +398,63 @@ func (r *InfisicalStaticSecretReconciler) RenderTargetOutput(secrets []api.Secre
 		}
 	}
 
-	data = make(map[string][]byte, len(target.Template.Data))
+	if target.Template.Data.IsRaw() {
+		return renderBulkTemplate(target.Template.Data.Raw, templateCtx)
+	}
 
-	for key, tmplStr := range target.Template.Data {
+	return renderPerKeyTemplates(target.Template.Data.Map, templateCtx)
+}
+
+// renderPerKeyTemplates renders one Go template per map entry. Each entry's
+// rendered output becomes a single key in the resulting Secret / ConfigMap.
+func renderPerKeyTemplates(tmpls map[string]string, ctx map[string]model.SecretTemplateOptions) (map[string][]byte, error) {
+	data := make(map[string][]byte, len(tmpls))
+
+	for key, tmplStr := range tmpls {
 		tmpl, err := tpl.New(key).Funcs(template.GetTemplateFunctions()).Parse(tmplStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse template at key %q: %w", key, err)
 		}
 
 		var buf bytes.Buffer
-		if err := tmpl.Execute(&buf, templateCtx); err != nil {
+		if err := tmpl.Execute(&buf, ctx); err != nil {
 			return nil, fmt.Errorf("failed to execute template at key %q: %w", key, err)
 		}
 
 		data[key] = buf.Bytes()
 	}
 
+	return data, nil
+}
+
+// renderBulkTemplate renders a single Go template whose output is parsed as a
+// YAML map of key/value pairs. Each resulting entry becomes one key in the
+// Secret / ConfigMap.
+func renderBulkTemplate(tmplStr string, ctx map[string]model.SecretTemplateOptions) (map[string][]byte, error) {
+	tmpl, err := tpl.New("template.data").Funcs(template.GetTemplateFunctions()).Parse(tmplStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse bulk template: %w", err)
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, ctx); err != nil {
+		return nil, fmt.Errorf("failed to execute bulk template: %w", err)
+	}
+
+	rendered := bytes.TrimSpace(buf.Bytes())
+	if len(rendered) == 0 {
+		return map[string][]byte{}, nil
+	}
+
+	var parsed map[string]string
+	if err := yaml.Unmarshal(rendered, &parsed); err != nil {
+		return nil, fmt.Errorf("bulk template output is not a valid YAML map of key/value pairs: %w", err)
+	}
+
+	data := make(map[string][]byte, len(parsed))
+	for k, v := range parsed {
+		data[k] = []byte(v)
+	}
 	return data, nil
 }
 

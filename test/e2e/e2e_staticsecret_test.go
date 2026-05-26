@@ -3,9 +3,10 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"os"
-	"testing"
 	"time"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,89 +19,136 @@ import (
 
 const testNamespace = "default"
 
-func TestStaticSecret(t *testing.T) {
-	if os.Getenv("INTEGRATION_TESTS") != "true" {
-		t.Skip()
-		return
-	}
+var _ = Describe("InfisicalStaticSecret", Ordered, func() {
+	var (
+		ctx     context.Context
+		api     *infra.NodeJSService
+		k       client.Client
+		project *infra.ProjectSeed
+		authRef secretsv1beta1.NamespacedName
+	)
 
-	ctx := context.Background()
-	api := testInfra.NodeJS()
-	operator := testManager.Client()
+	BeforeAll(func() {
+		ctx = context.Background()
+		api = testInfra.NodeJS()
+		k = testManager.Client()
 
-	project := api.CreateProject(t, "static-secret")
-	t.Cleanup(func() { api.DeleteProject(t, project.ID) })
+		project = api.CreateProject(GinkgoT(), "static-secret")
+		DeferCleanup(func() { api.DeleteProject(GinkgoT(), project.ID) })
 
-	identity := api.CreateIdentity(t, "test-identity")
-	t.Cleanup(func() { api.DeleteIdentity(t, identity.ID) })
+		identity := api.CreateIdentity(GinkgoT(), "test-identity")
+		DeferCleanup(func() { api.DeleteIdentity(GinkgoT(), identity.ID) })
 
-	api.AddIdentityToProject(t, project.ID, identity.ID, infra.Role("admin"))
-	creds := api.SetupUniversalAuth(t, identity.ID)
+		api.AddIdentityToProject(GinkgoT(), project.ID, identity.ID, infra.Role("admin"))
+		creds := api.SetupUniversalAuth(GinkgoT(), identity.ID)
 
-	credentialSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "e2e-ua-credentials",
-			Namespace: testNamespace,
-		},
-		StringData: map[string]string{
-			"clientId":     creds.ClientID,
-			"clientSecret": creds.ClientSecret,
-		},
-	}
-	mustCreate(t, operator, ctx, credentialSecret)
-	t.Cleanup(func() { mustDelete(t, operator, ctx, credentialSecret) })
-
-	connection := &secretsv1beta1.InfisicalConnection{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "e2e-connection",
-			Namespace: testNamespace,
-		},
-		Spec: secretsv1beta1.InfisicalConnectionSpec{
-			Address: testManager.InClusterAPIURL(),
-		},
-	}
-	mustCreate(t, operator, ctx, connection)
-	t.Cleanup(func() { mustDelete(t, operator, ctx, connection) })
-
-	auth := &secretsv1beta1.InfisicalAuth{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "e2e-auth",
-			Namespace: testNamespace,
-		},
-		Spec: secretsv1beta1.InfisicalAuthSpec{
-			InfisicalConnectionRef: secretsv1beta1.NamespacedName{
-				Name:      connection.Name,
-				Namespace: connection.Namespace,
+		credentialSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "e2e-ua-credentials",
+				Namespace: testNamespace,
 			},
-			Method: secretsv1beta1.UniversalAuth,
-			Universal: &secretsv1beta1.UniversalAuthConfig{
-				ClientIdRef: secretsv1beta1.SecretReference{
-					Name:      credentialSecret.Name,
-					Namespace: credentialSecret.Namespace,
-					Key:       "clientId",
+			StringData: map[string]string{
+				"clientId":     creds.ClientID,
+				"clientSecret": creds.ClientSecret,
+			},
+		}
+		Expect(k.Create(ctx, credentialSecret)).To(Succeed())
+		DeferCleanup(func() { _ = client.IgnoreNotFound(k.Delete(ctx, credentialSecret)) })
+
+		connection := &secretsv1beta1.InfisicalConnection{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "e2e-connection",
+				Namespace: testNamespace,
+			},
+			Spec: secretsv1beta1.InfisicalConnectionSpec{
+				Address: testManager.InClusterAPIURL(),
+			},
+		}
+		Expect(k.Create(ctx, connection)).To(Succeed())
+		DeferCleanup(func() { _ = client.IgnoreNotFound(k.Delete(ctx, connection)) })
+
+		auth := &secretsv1beta1.InfisicalAuth{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "e2e-auth",
+				Namespace: testNamespace,
+			},
+			Spec: secretsv1beta1.InfisicalAuthSpec{
+				InfisicalConnectionRef: secretsv1beta1.NamespacedName{
+					Name:      connection.Name,
+					Namespace: connection.Namespace,
 				},
-				ClientSecretRef: secretsv1beta1.SecretReference{
-					Name:      credentialSecret.Name,
-					Namespace: credentialSecret.Namespace,
-					Key:       "clientSecret",
+				Method: secretsv1beta1.UniversalAuth,
+				Universal: &secretsv1beta1.UniversalAuthConfig{
+					ClientIdRef: secretsv1beta1.SecretReference{
+						Name:      credentialSecret.Name,
+						Namespace: credentialSecret.Namespace,
+						Key:       "clientId",
+					},
+					ClientSecretRef: secretsv1beta1.SecretReference{
+						Name:      credentialSecret.Name,
+						Namespace: credentialSecret.Namespace,
+						Key:       "clientSecret",
+					},
 				},
 			},
-		},
+		}
+		Expect(k.Create(ctx, auth)).To(Succeed())
+		DeferCleanup(func() { _ = client.IgnoreNotFound(k.Delete(ctx, auth)) })
+
+		authRef = secretsv1beta1.NamespacedName{
+			Name:      auth.Name,
+			Namespace: auth.Namespace,
+		}
+	})
+
+	createStaticSecret := func(name string, spec secretsv1beta1.InfisicalStaticSecretSpec) *secretsv1beta1.InfisicalStaticSecret {
+		GinkgoHelper()
+		ss := &secretsv1beta1.InfisicalStaticSecret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: testNamespace,
+			},
+			Spec: spec,
+		}
+		Expect(k.Create(ctx, ss)).To(Succeed())
+		DeferCleanup(func() { _ = client.IgnoreNotFound(k.Delete(ctx, ss)) })
+		return ss
 	}
-	mustCreate(t, operator, ctx, auth)
-	t.Cleanup(func() { mustDelete(t, operator, ctx, auth) })
 
-	authRef := secretsv1beta1.NamespacedName{
-		Name:      auth.Name,
-		Namespace: auth.Namespace,
+	expectSecret := func(name string) *corev1.Secret {
+		GinkgoHelper()
+		var secret corev1.Secret
+		Eventually(func(g Gomega) {
+			g.Expect(k.Get(ctx, types.NamespacedName{Name: name, Namespace: testNamespace}, &secret)).To(Succeed())
+			g.Expect(secret.Data).NotTo(BeEmpty())
+		}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(Succeed())
+		return &secret
 	}
 
-	t.Run("basic sync", func(t *testing.T) {
-		api.CreateSecret(t, project.ID, project.EnvSlug, "/", "DB_HOST", "localhost", nil)
-		api.CreateSecret(t, project.ID, project.EnvSlug, "/", "DB_PORT", "5432", nil)
-		api.CreateSecret(t, project.ID, project.EnvSlug, "/", "API_KEY", "super-secret-key", nil)
+	expectConfigMap := func(name string) *corev1.ConfigMap {
+		GinkgoHelper()
+		var cm corev1.ConfigMap
+		Eventually(func(g Gomega) {
+			g.Expect(k.Get(ctx, types.NamespacedName{Name: name, Namespace: testNamespace}, &cm)).To(Succeed())
+			g.Expect(cm.Data).NotTo(BeEmpty())
+		}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(Succeed())
+		return &cm
+	}
 
-		ss := mustCreateStaticSecret(t, operator, ctx, "e2e-basic-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+	expectSecretData := func(secret *corev1.Secret, expected map[string]string) {
+		GinkgoHelper()
+		for key, want := range expected {
+			Expect(secret.Data).To(HaveKeyWithValue(key, []byte(want)),
+				"secret data key %q", key)
+		}
+	}
+
+	It("should sync basic secrets", func() {
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/", "DB_HOST", "localhost", nil)
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/", "DB_PORT", "5432", nil)
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/", "API_KEY", "super-secret-key", nil)
+
+		createStaticSecret("e2e-basic-sync", secretsv1beta1.InfisicalStaticSecretSpec{
 			InfisicalAuthRef: authRef,
 			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
 			Sources: []secretsv1beta1.SecretSource{{
@@ -116,23 +164,21 @@ func TestStaticSecret(t *testing.T) {
 				CreationPolicy: secretsv1beta1.CreationPolicyOwner,
 			}},
 		})
-		t.Cleanup(func() { mustDelete(t, operator, ctx, ss) })
 
-		synced := waitForSecret(t, operator, ctx, "e2e-basic-synced")
-
-		assertSecretData(t, synced, map[string]string{
+		synced := expectSecret("e2e-basic-synced")
+		expectSecretData(synced, map[string]string{
 			"DB_HOST": "localhost",
 			"DB_PORT": "5432",
 			"API_KEY": "super-secret-key",
 		})
 	})
 
-	t.Run("nested folder", func(t *testing.T) {
-		api.CreateFolder(t, project.ID, project.EnvSlug, "/", "database")
-		api.CreateSecret(t, project.ID, project.EnvSlug, "/database", "HOST", "db.internal", nil)
-		api.CreateSecret(t, project.ID, project.EnvSlug, "/database", "PORT", "3306", nil)
+	It("should sync from a nested folder", func() {
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "database")
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/database", "HOST", "db.internal", nil)
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/database", "PORT", "3306", nil)
 
-		ss := mustCreateStaticSecret(t, operator, ctx, "e2e-folder-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+		createStaticSecret("e2e-folder-sync", secretsv1beta1.InfisicalStaticSecretSpec{
 			InfisicalAuthRef: authRef,
 			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
 			Sources: []secretsv1beta1.SecretSource{{
@@ -148,23 +194,21 @@ func TestStaticSecret(t *testing.T) {
 				CreationPolicy: secretsv1beta1.CreationPolicyOwner,
 			}},
 		})
-		t.Cleanup(func() { mustDelete(t, operator, ctx, ss) })
 
-		synced := waitForSecret(t, operator, ctx, "e2e-folder-synced")
-
-		assertSecretData(t, synced, map[string]string{
+		synced := expectSecret("e2e-folder-synced")
+		expectSecretData(synced, map[string]string{
 			"HOST": "db.internal",
 			"PORT": "3306",
 		})
 	})
 
-	t.Run("recursive", func(t *testing.T) {
-		api.CreateFolder(t, project.ID, project.EnvSlug, "/", "services")
-		api.CreateSecret(t, project.ID, project.EnvSlug, "/services", "ROOT_KEY", "root-val", nil)
-		api.CreateFolder(t, project.ID, project.EnvSlug, "/services", "auth")
-		api.CreateSecret(t, project.ID, project.EnvSlug, "/services/auth", "JWT_SECRET", "jwt-val", nil)
+	It("should sync recursively", func() {
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "services")
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/services", "ROOT_KEY", "root-val", nil)
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/services", "auth")
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/services/auth", "JWT_SECRET", "jwt-val", nil)
 
-		ss := mustCreateStaticSecret(t, operator, ctx, "e2e-recursive-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+		createStaticSecret("e2e-recursive-sync", secretsv1beta1.InfisicalStaticSecretSpec{
 			InfisicalAuthRef: authRef,
 			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
 			Sources: []secretsv1beta1.SecretSource{{
@@ -181,24 +225,22 @@ func TestStaticSecret(t *testing.T) {
 				CreationPolicy: secretsv1beta1.CreationPolicyOwner,
 			}},
 		})
-		t.Cleanup(func() { mustDelete(t, operator, ctx, ss) })
 
-		synced := waitForSecret(t, operator, ctx, "e2e-recursive-synced")
-
-		assertSecretData(t, synced, map[string]string{
+		synced := expectSecret("e2e-recursive-synced")
+		expectSecretData(synced, map[string]string{
 			"ROOT_KEY":   "root-val",
 			"JWT_SECRET": "jwt-val",
 		})
 	})
 
-	t.Run("multiple sources", func(t *testing.T) {
-		api.CreateFolder(t, project.ID, project.EnvSlug, "/", "frontend")
-		api.CreateSecret(t, project.ID, project.EnvSlug, "/frontend", "NEXT_PUBLIC_URL", "https://app.test", nil)
+	It("should sync from multiple sources", func() {
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "frontend")
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/frontend", "NEXT_PUBLIC_URL", "https://app.test", nil)
 
-		api.CreateFolder(t, project.ID, project.EnvSlug, "/", "backend")
-		api.CreateSecret(t, project.ID, project.EnvSlug, "/backend", "INTERNAL_URL", "http://api.internal", nil)
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "backend")
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/backend", "INTERNAL_URL", "http://api.internal", nil)
 
-		ss := mustCreateStaticSecret(t, operator, ctx, "e2e-multisource-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+		createStaticSecret("e2e-multisource-sync", secretsv1beta1.InfisicalStaticSecretSpec{
 			InfisicalAuthRef: authRef,
 			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
 			Sources: []secretsv1beta1.SecretSource{
@@ -221,21 +263,19 @@ func TestStaticSecret(t *testing.T) {
 				CreationPolicy: secretsv1beta1.CreationPolicyOwner,
 			}},
 		})
-		t.Cleanup(func() { mustDelete(t, operator, ctx, ss) })
 
-		synced := waitForSecret(t, operator, ctx, "e2e-multisource-synced")
-
-		assertSecretData(t, synced, map[string]string{
+		synced := expectSecret("e2e-multisource-synced")
+		expectSecretData(synced, map[string]string{
 			"NEXT_PUBLIC_URL": "https://app.test",
 			"INTERNAL_URL":    "http://api.internal",
 		})
 	})
 
-	t.Run("configmap target", func(t *testing.T) {
-		api.CreateFolder(t, project.ID, project.EnvSlug, "/", "config")
-		api.CreateSecret(t, project.ID, project.EnvSlug, "/config", "LOG_LEVEL", "debug", nil)
+	It("should sync to a ConfigMap target", func() {
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "config")
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/config", "LOG_LEVEL", "debug", nil)
 
-		ss := mustCreateStaticSecret(t, operator, ctx, "e2e-configmap-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+		createStaticSecret("e2e-configmap-sync", secretsv1beta1.InfisicalStaticSecretSpec{
 			InfisicalAuthRef: authRef,
 			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
 			Sources: []secretsv1beta1.SecretSource{{
@@ -250,28 +290,24 @@ func TestStaticSecret(t *testing.T) {
 				CreationPolicy: secretsv1beta1.CreationPolicyOwner,
 			}},
 		})
-		t.Cleanup(func() { mustDelete(t, operator, ctx, ss) })
 
-		cm := waitForConfigMap(t, operator, ctx, "e2e-configmap-synced")
-
-		if got, want := cm.Data["LOG_LEVEL"], "debug"; got != want {
-			t.Errorf("configmap LOG_LEVEL = %q, want %q", got, want)
-		}
+		cm := expectConfigMap("e2e-configmap-synced")
+		Expect(cm.Data).To(HaveKeyWithValue("LOG_LEVEL", "debug"))
 	})
 
-	t.Run("templated secret", func(t *testing.T) {
+	It("should sync with templates", func() {
 		tplUser := infra.RandomID("user")
 		tplPass := infra.RandomID("pass")
 		tplHost := infra.RandomID("host-") + ".test"
 		tplDB := infra.RandomID("db")
 
-		api.CreateFolder(t, project.ID, project.EnvSlug, "/", "templated")
-		api.CreateSecret(t, project.ID, project.EnvSlug, "/templated", "PG_USER", tplUser, nil)
-		api.CreateSecret(t, project.ID, project.EnvSlug, "/templated", "PG_PASS", tplPass, nil)
-		api.CreateSecret(t, project.ID, project.EnvSlug, "/templated", "PG_HOST", tplHost, nil)
-		api.CreateSecret(t, project.ID, project.EnvSlug, "/templated", "PG_DB", tplDB, nil)
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "templated")
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/templated", "PG_USER", tplUser, nil)
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/templated", "PG_PASS", tplPass, nil)
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/templated", "PG_HOST", tplHost, nil)
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/templated", "PG_DB", tplDB, nil)
 
-		ss := mustCreateStaticSecret(t, operator, ctx, "e2e-template-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+		createStaticSecret("e2e-template-sync", secretsv1beta1.InfisicalStaticSecretSpec{
 			InfisicalAuthRef: authRef,
 			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
 			Sources: []secretsv1beta1.SecretSource{{
@@ -293,20 +329,18 @@ func TestStaticSecret(t *testing.T) {
 				},
 			}},
 		})
-		t.Cleanup(func() { mustDelete(t, operator, ctx, ss) })
 
-		synced := waitForSecret(t, operator, ctx, "e2e-template-synced")
-
-		assertSecretData(t, synced, map[string]string{
+		synced := expectSecret("e2e-template-synced")
+		expectSecretData(synced, map[string]string{
 			"DSN": fmt.Sprintf("postgres://%s:%s@%s/%s", tplUser, tplPass, tplHost, tplDB),
 		})
 	})
 
-	t.Run("target metadata", func(t *testing.T) {
-		api.CreateFolder(t, project.ID, project.EnvSlug, "/", "labeled")
-		api.CreateSecret(t, project.ID, project.EnvSlug, "/labeled", "TOKEN", "abc123", nil)
+	It("should apply target metadata", func() {
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "labeled")
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/labeled", "TOKEN", "abc123", nil)
 
-		ss := mustCreateStaticSecret(t, operator, ctx, "e2e-metadata-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+		createStaticSecret("e2e-metadata-sync", secretsv1beta1.InfisicalStaticSecretSpec{
 			InfisicalAuthRef: authRef,
 			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
 			Sources: []secretsv1beta1.SecretSource{{
@@ -326,22 +360,16 @@ func TestStaticSecret(t *testing.T) {
 				},
 			}},
 		})
-		t.Cleanup(func() { mustDelete(t, operator, ctx, ss) })
 
-		synced := waitForSecret(t, operator, ctx, "e2e-metadata-synced")
-
-		if got, want := synced.Annotations["infisical.com/env"], "test"; got != want {
-			t.Errorf("annotation infisical.com/env = %q, want %q", got, want)
-		}
-		if got, want := synced.Labels["app"], "e2e"; got != want {
-			t.Errorf("label app = %q, want %q", got, want)
-		}
-		assertSecretData(t, synced, map[string]string{"TOKEN": "abc123"})
+		synced := expectSecret("e2e-metadata-synced")
+		Expect(synced.Annotations).To(HaveKeyWithValue("infisical.com/env", "test"))
+		Expect(synced.Labels).To(HaveKeyWithValue("app", "e2e"))
+		expectSecretData(synced, map[string]string{"TOKEN": "abc123"})
 	})
 
-	t.Run("merged metadata", func(t *testing.T) {
-		api.CreateFolder(t, project.ID, project.EnvSlug, "/", "merged")
-		api.CreateSecret(t, project.ID, project.EnvSlug, "/merged", "SECRET_A", "val-a", nil)
+	It("should merge metadata with pre-existing secret and propagate updates", func() {
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "merged")
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/merged", "SECRET_A", "val-a", nil)
 
 		preExisting := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
@@ -352,10 +380,10 @@ func TestStaticSecret(t *testing.T) {
 			},
 			StringData: map[string]string{"placeholder": "old"},
 		}
-		mustCreate(t, operator, ctx, preExisting)
-		t.Cleanup(func() { mustDelete(t, operator, ctx, preExisting) })
+		Expect(k.Create(ctx, preExisting)).To(Succeed())
+		DeferCleanup(func() { _ = client.IgnoreNotFound(k.Delete(ctx, preExisting)) })
 
-		ss := mustCreateStaticSecret(t, operator, ctx, "e2e-merged-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+		ss := createStaticSecret("e2e-merged-sync", secretsv1beta1.InfisicalStaticSecretSpec{
 			InfisicalAuthRef: authRef,
 			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
 			Sources: []secretsv1beta1.SecretSource{{
@@ -373,76 +401,46 @@ func TestStaticSecret(t *testing.T) {
 		})
 		ss.Annotations = map[string]string{"infisical.com/env": "staging"}
 		ss.Labels = map[string]string{"app": "e2e"}
-		if err := operator.Update(ctx, ss); err != nil {
-			t.Fatalf("set StaticSecret metadata: %v", err)
-		}
+		Expect(k.Update(ctx, ss)).To(Succeed())
 
 		var synced corev1.Secret
-		waitFor(t, 30*time.Second, time.Second, func() bool {
-			if err := operator.Get(ctx, types.NamespacedName{Name: "e2e-merged-metadata", Namespace: testNamespace}, &synced); err != nil {
-				return false
-			}
-			return synced.Labels["app"] == "e2e"
-		})
+		Eventually(func(g Gomega) {
+			g.Expect(k.Get(ctx, types.NamespacedName{Name: "e2e-merged-metadata", Namespace: testNamespace}, &synced)).To(Succeed())
+			g.Expect(synced.Labels).To(HaveKeyWithValue("app", "e2e"))
+		}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(Succeed())
 
-		if got, want := synced.Labels["existing"], "true"; got != want {
-			t.Errorf("pre-existing label existing = %q, want %q", got, want)
-		}
-		if got, want := synced.Labels["app"], "e2e"; got != want {
-			t.Errorf("merged label app = %q, want %q", got, want)
-		}
-		if got, want := synced.Annotations["custom.io/note"], "keep-me"; got != want {
-			t.Errorf("pre-existing annotation custom.io/note = %q, want %q", got, want)
-		}
-		if got, want := synced.Annotations["infisical.com/env"], "staging"; got != want {
-			t.Errorf("merged annotation infisical.com/env = %q, want %q", got, want)
-		}
-		assertSecretData(t, synced, map[string]string{"SECRET_A": "val-a"})
+		Expect(synced.Labels).To(HaveKeyWithValue("existing", "true"))
+		Expect(synced.Labels).To(HaveKeyWithValue("app", "e2e"))
+		Expect(synced.Annotations).To(HaveKeyWithValue("custom.io/note", "keep-me"))
+		Expect(synced.Annotations).To(HaveKeyWithValue("infisical.com/env", "staging"))
+		expectSecretData(&synced, map[string]string{"SECRET_A": "val-a"})
 
-		if err := operator.Get(ctx, types.NamespacedName{Name: ss.Name, Namespace: ss.Namespace}, ss); err != nil {
-			t.Fatalf("get StaticSecret: %v", err)
-		}
+		Expect(k.Get(ctx, types.NamespacedName{Name: ss.Name, Namespace: ss.Namespace}, ss)).To(Succeed())
 		ss.Annotations["infisical.com/env"] = "production"
 		ss.Annotations["infisical.com/owner"] = "platform-team"
 		ss.Labels["tier"] = "backend"
-		if err := operator.Update(ctx, ss); err != nil {
-			t.Fatalf("update StaticSecret metadata: %v", err)
-		}
+		Expect(k.Update(ctx, ss)).To(Succeed())
 
 		var updated corev1.Secret
-		waitFor(t, 30*time.Second, time.Second, func() bool {
-			if err := operator.Get(ctx, types.NamespacedName{Name: "e2e-merged-metadata", Namespace: testNamespace}, &updated); err != nil {
-				return false
-			}
-			return updated.Annotations["infisical.com/env"] == "production"
-		})
+		Eventually(func(g Gomega) {
+			g.Expect(k.Get(ctx, types.NamespacedName{Name: "e2e-merged-metadata", Namespace: testNamespace}, &updated)).To(Succeed())
+			g.Expect(updated.Annotations).To(HaveKeyWithValue("infisical.com/env", "production"))
+		}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(Succeed())
 
-		if got, want := updated.Labels["existing"], "true"; got != want {
-			t.Errorf("pre-existing label existing = %q, want %q (after update)", got, want)
-		}
-		if got, want := updated.Labels["app"], "e2e"; got != want {
-			t.Errorf("label app = %q, want %q (after update)", got, want)
-		}
-		if got, want := updated.Labels["tier"], "backend"; got != want {
-			t.Errorf("new label tier = %q, want %q", got, want)
-		}
-		if got, want := updated.Annotations["custom.io/note"], "keep-me"; got != want {
-			t.Errorf("pre-existing annotation custom.io/note = %q, want %q (after update)", got, want)
-		}
-		if got, want := updated.Annotations["infisical.com/env"], "production"; got != want {
-			t.Errorf("updated annotation infisical.com/env = %q, want %q", got, want)
-		}
-		if got, want := updated.Annotations["infisical.com/owner"], "platform-team"; got != want {
-			t.Errorf("new annotation infisical.com/owner = %q, want %q", got, want)
-		}
-		assertSecretData(t, updated, map[string]string{"SECRET_A": "val-a"})
+		Expect(updated.Labels).To(HaveKeyWithValue("existing", "true"))
+		Expect(updated.Labels).To(HaveKeyWithValue("app", "e2e"))
+		Expect(updated.Labels).To(HaveKeyWithValue("tier", "backend"))
+		Expect(updated.Annotations).To(HaveKeyWithValue("custom.io/note", "keep-me"))
+		Expect(updated.Annotations).To(HaveKeyWithValue("infisical.com/env", "production"))
+		Expect(updated.Annotations).To(HaveKeyWithValue("infisical.com/owner", "platform-team"))
+		expectSecretData(&updated, map[string]string{"SECRET_A": "val-a"})
 	})
 
-	t.Run("multiple targets", func(t *testing.T) {
-		api.CreateFolder(t, project.ID, project.EnvSlug, "/", "multitarget")
-		api.CreateSecret(t, project.ID, project.EnvSlug, "/multitarget", "SHARED_KEY", "shared-val", nil)
+	It("should sync to multiple targets", func() {
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "multitarget")
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/multitarget", "SHARED_KEY", "shared-val", nil)
 
-		ss := mustCreateStaticSecret(t, operator, ctx, "e2e-multitarget-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+		createStaticSecret("e2e-multitarget-sync", secretsv1beta1.InfisicalStaticSecretSpec{
 			InfisicalAuthRef: authRef,
 			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
 			Sources: []secretsv1beta1.SecretSource{{
@@ -466,26 +464,23 @@ func TestStaticSecret(t *testing.T) {
 				},
 			},
 		})
-		t.Cleanup(func() { mustDelete(t, operator, ctx, ss) })
 
-		synced := waitForSecret(t, operator, ctx, "e2e-mt-secret")
-		assertSecretData(t, synced, map[string]string{"SHARED_KEY": "shared-val"})
+		synced := expectSecret("e2e-mt-secret")
+		expectSecretData(synced, map[string]string{"SHARED_KEY": "shared-val"})
 
-		cm := waitForConfigMap(t, operator, ctx, "e2e-mt-configmap")
-		if got, want := cm.Data["SHARED_KEY"], "shared-val"; got != want {
-			t.Errorf("configmap SHARED_KEY = %q, want %q", got, want)
-		}
+		cm := expectConfigMap("e2e-mt-configmap")
+		Expect(cm.Data).To(HaveKeyWithValue("SHARED_KEY", "shared-val"))
 	})
 
-	t.Run("secret import", func(t *testing.T) {
-		api.CreateFolder(t, project.ID, project.EnvSlug, "/", "shared-lib")
-		api.CreateSecret(t, project.ID, project.EnvSlug, "/shared-lib", "REDIS_URL", "redis://cache:6379", nil)
+	It("should sync with secret imports", func() {
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "shared-lib")
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/shared-lib", "REDIS_URL", "redis://cache:6379", nil)
 
-		api.CreateFolder(t, project.ID, project.EnvSlug, "/", "app-with-import")
-		api.CreateSecret(t, project.ID, project.EnvSlug, "/app-with-import", "APP_NAME", "my-app", nil)
-		api.CreateSecretImport(t, project.ID, project.EnvSlug, "/app-with-import", project.EnvSlug, "/shared-lib")
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "app-with-import")
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/app-with-import", "APP_NAME", "my-app", nil)
+		api.CreateSecretImport(GinkgoT(), project.ID, project.EnvSlug, "/app-with-import", project.EnvSlug, "/shared-lib")
 
-		ss := mustCreateStaticSecret(t, operator, ctx, "e2e-import-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+		createStaticSecret("e2e-import-sync", secretsv1beta1.InfisicalStaticSecretSpec{
 			InfisicalAuthRef: authRef,
 			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
 			Sources: []secretsv1beta1.SecretSource{{
@@ -501,86 +496,11 @@ func TestStaticSecret(t *testing.T) {
 				CreationPolicy: secretsv1beta1.CreationPolicyOwner,
 			}},
 		})
-		t.Cleanup(func() { mustDelete(t, operator, ctx, ss) })
 
-		synced := waitForSecret(t, operator, ctx, "e2e-import-synced")
-
-		assertSecretData(t, synced, map[string]string{
+		synced := expectSecret("e2e-import-synced")
+		expectSecretData(synced, map[string]string{
 			"APP_NAME":  "my-app",
 			"REDIS_URL": "redis://cache:6379",
 		})
 	})
-}
-
-func mustCreate(t *testing.T, k client.Client, ctx context.Context, obj client.Object) {
-	t.Helper()
-	if err := k.Create(ctx, obj); err != nil {
-		t.Fatalf("create %T %q: %v", obj, obj.GetName(), err)
-	}
-}
-
-func mustDelete(t *testing.T, k client.Client, ctx context.Context, obj client.Object) {
-	t.Helper()
-	if err := k.Delete(ctx, obj); client.IgnoreNotFound(err) != nil {
-		t.Logf("cleanup %T %q: %v", obj, obj.GetName(), err)
-	}
-}
-
-func mustCreateStaticSecret(t *testing.T, k client.Client, ctx context.Context, name string, spec secretsv1beta1.InfisicalStaticSecretSpec) *secretsv1beta1.InfisicalStaticSecret {
-	t.Helper()
-	ss := &secretsv1beta1.InfisicalStaticSecret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: testNamespace,
-		},
-		Spec: spec,
-	}
-	if err := k.Create(ctx, ss); err != nil {
-		t.Fatalf("create InfisicalStaticSecret %q: %v", name, err)
-	}
-	return ss
-}
-
-func waitForSecret(t *testing.T, k client.Client, ctx context.Context, name string) corev1.Secret {
-	t.Helper()
-	var secret corev1.Secret
-	waitFor(t, 30*time.Second, time.Second, func() bool {
-		err := k.Get(ctx, types.NamespacedName{Name: name, Namespace: testNamespace}, &secret)
-		return err == nil && len(secret.Data) > 0
-	})
-	return secret
-}
-
-func waitForConfigMap(t *testing.T, k client.Client, ctx context.Context, name string) corev1.ConfigMap {
-	t.Helper()
-	var cm corev1.ConfigMap
-	waitFor(t, 30*time.Second, time.Second, func() bool {
-		err := k.Get(ctx, types.NamespacedName{Name: name, Namespace: testNamespace}, &cm)
-		return err == nil && len(cm.Data) > 0
-	})
-	return cm
-}
-
-func waitFor(t *testing.T, timeout, interval time.Duration, condition func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for {
-		if condition() {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("timed out waiting for condition")
-		}
-		time.Sleep(interval)
-	}
-}
-
-func assertSecretData(t *testing.T, secret corev1.Secret, expected map[string]string) {
-	t.Helper()
-	for key, want := range expected {
-		got := string(secret.Data[key])
-		if got != want {
-			t.Errorf("secret data %q = %q, want %q", key, got, want)
-		}
-	}
-}
+})

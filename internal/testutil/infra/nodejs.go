@@ -4,13 +4,20 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"testing"
 	"time"
 
 	"github.com/go-resty/resty/v2"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
+
+// Interface that allows us to use Ginkgo with this setup
+type TestingT interface {
+	Helper()
+	Fatalf(format string, args ...any)
+	Logf(format string, args ...any)
+	Cleanup(func())
+}
 
 type ProjectSeed struct {
 	ID      string
@@ -206,7 +213,7 @@ func (n *NodeJSService) MustCreateProject(name string) *ProjectSeed {
 	}
 }
 
-func (n *NodeJSService) CreateProject(t *testing.T, name string) *ProjectSeed {
+func (n *NodeJSService) CreateProject(t TestingT, name string) *ProjectSeed {
 	t.Helper()
 
 	slug := RandomID(fmt.Sprintf("t-%s-", name))
@@ -254,7 +261,7 @@ func (n *NodeJSService) CreateProject(t *testing.T, name string) *ProjectSeed {
 	}
 }
 
-func (n *NodeJSService) DeleteProject(t *testing.T, projectID string) {
+func (n *NodeJSService) DeleteProject(t TestingT, projectID string) {
 	t.Helper()
 
 	resp, err := n.client.R().
@@ -268,7 +275,7 @@ func (n *NodeJSService) DeleteProject(t *testing.T, projectID string) {
 	}
 }
 
-func (n *NodeJSService) CreateIdentity(t *testing.T, name string) *IdentitySeed {
+func (n *NodeJSService) CreateIdentity(t TestingT, name string) *IdentitySeed {
 	t.Helper()
 
 	var resp CreateIdentityResponse
@@ -294,7 +301,7 @@ func (n *NodeJSService) CreateIdentity(t *testing.T, name string) *IdentitySeed 
 	}
 }
 
-func (n *NodeJSService) DeleteIdentity(t *testing.T, identityID string) {
+func (n *NodeJSService) DeleteIdentity(t TestingT, identityID string) {
 	t.Helper()
 
 	r, err := n.client.R().
@@ -308,7 +315,7 @@ func (n *NodeJSService) DeleteIdentity(t *testing.T, identityID string) {
 	}
 }
 
-func (n *NodeJSService) AddIdentityToProject(t *testing.T, projectID, identityID string, roles []RoleAssignment) {
+func (n *NodeJSService) AddIdentityToProject(t TestingT, projectID, identityID string, roles []RoleAssignment) {
 	t.Helper()
 
 	r, err := n.client.R().
@@ -329,7 +336,7 @@ func Role(slug string) []RoleAssignment {
 	return []RoleAssignment{{Role: slug}}
 }
 
-func (n *NodeJSService) CreateSecret(t *testing.T, projectID, environment, secretPath, key, value string, opts *CreateSecretOpts) *SecretSeed {
+func (n *NodeJSService) CreateSecret(t TestingT, projectID, environment, secretPath, key, value string, opts *CreateSecretOpts) *SecretSeed {
 	t.Helper()
 
 	var comment string
@@ -388,7 +395,7 @@ type CreateSecretOpts struct {
 	Type     string
 }
 
-func (n *NodeJSService) CreateFolder(t *testing.T, projectID, environment, path, name string) *FolderSeed {
+func (n *NodeJSService) CreateFolder(t TestingT, projectID, environment, path, name string) *FolderSeed {
 	t.Helper()
 
 	var resp CreateFolderResponse
@@ -415,7 +422,7 @@ func (n *NodeJSService) CreateFolder(t *testing.T, projectID, environment, path,
 	}
 }
 
-func (n *NodeJSService) CreateSecretImport(t *testing.T, projectID, environment, path, importEnv, importPath string) *SecretImportSeed {
+func (n *NodeJSService) CreateSecretImport(t TestingT, projectID, environment, path, importEnv, importPath string) *SecretImportSeed {
 	t.Helper()
 
 	var resp CreateSecretImportResponse
@@ -444,7 +451,7 @@ func (n *NodeJSService) CreateSecretImport(t *testing.T, projectID, environment,
 	}
 }
 
-func (n *NodeJSService) CreateEnvironment(t *testing.T, projectID, slug, name string) *EnvironmentSeed {
+func (n *NodeJSService) CreateEnvironment(t TestingT, projectID, slug, name string) *EnvironmentSeed {
 	t.Helper()
 
 	var resp CreateEnvironmentResponse
@@ -470,7 +477,7 @@ func (n *NodeJSService) CreateEnvironment(t *testing.T, projectID, slug, name st
 	}
 }
 
-func (n *NodeJSService) CreateTag(t *testing.T, projectID, slug, name, color string) *TagSeed {
+func (n *NodeJSService) CreateTag(t TestingT, projectID, slug, name, color string) *TagSeed {
 	t.Helper()
 
 	var resp CreateTagResponse
@@ -497,7 +504,7 @@ func (n *NodeJSService) CreateTag(t *testing.T, projectID, slug, name, color str
 	}
 }
 
-func (n *NodeJSService) SetupUniversalAuth(t *testing.T, identityID string) *UniversalAuthCredentials {
+func (n *NodeJSService) SetupUniversalAuth(t TestingT, identityID string) *UniversalAuthCredentials {
 	t.Helper()
 
 	var universalAuthResp CreateUniversalAuthResponse
@@ -545,7 +552,7 @@ func (n *NodeJSService) SetupUniversalAuth(t *testing.T, identityID string) *Uni
 	}
 }
 
-func (n *NodeJSService) GetIdentityAccessToken(t *testing.T, identityID string) string {
+func (n *NodeJSService) GetIdentityAccessToken(t TestingT, identityID string) string {
 	t.Helper()
 
 	var universalAuthResp CreateUniversalAuthResponse
@@ -609,7 +616,7 @@ func (n *NodeJSService) GetIdentityAccessToken(t *testing.T, identityID string) 
 	return loginResp.AccessToken
 }
 
-func (n *NodeJSService) RevokeAccessToken(t *testing.T, accessToken string) {
+func (n *NodeJSService) RevokeAccessToken(t TestingT, accessToken string) {
 	t.Helper()
 
 	r, err := n.client.R().

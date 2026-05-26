@@ -1,9 +1,11 @@
 package e2e
 
 import (
-	"log"
 	"os"
 	"testing"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 
 	"github.com/Infisical/infisical/k8-operator/internal/testutil/infra"
 	"github.com/Infisical/infisical/k8-operator/internal/testutil/operator"
@@ -14,21 +16,29 @@ var (
 	testManager *operator.Manager
 )
 
-func TestMain(m *testing.M) {
+func TestE2E(t *testing.T) {
+	if os.Getenv("INTEGRATION_TESTS") != "true" {
+		t.Skip("set INTEGRATION_TESTS=true to run e2e tests")
+	}
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "E2E Suite")
+}
+
+var _ = BeforeSuite(func() {
 	testInfra = infra.New().WithNodeJSApi().MustStart()
 
 	var err error
 	testManager, err = operator.Install(operator.InstallOpts{
 		HostAPIURL: testInfra.NodeJS().URL(),
 	})
-	if err != nil {
-		testInfra.Stop()
-		log.Fatalf("install operator: %v", err)
+	Expect(err).NotTo(HaveOccurred())
+})
+
+var _ = AfterSuite(func() {
+	if testManager != nil {
+		testManager.Stop()
 	}
-
-	code := m.Run()
-
-	testManager.Stop()
-	testInfra.Stop()
-	os.Exit(code)
-}
+	if testInfra != nil {
+		testInfra.Stop()
+	}
+})

@@ -63,6 +63,7 @@ rules:
   - infisicaldynamicsecrets
   - infisicalpushsecrets
   - infisicalsecrets
+  - infisicalstaticsecrets
   verbs:
   - create
   - delete
@@ -79,6 +80,7 @@ rules:
   - infisicaldynamicsecrets/status
   - infisicalpushsecrets/status
   - infisicalsecrets/status
+  - infisicalstaticsecrets/status
   verbs:
   - get
   - patch
@@ -89,6 +91,7 @@ rules:
   - infisicaldynamicsecrets/finalizers
   - infisicalpushsecrets/finalizers
   - infisicalsecrets/finalizers
+  - infisicalstaticsecrets/finalizers
   verbs:
   - update
 {{- end }}

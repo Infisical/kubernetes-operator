@@ -1,6 +1,47 @@
-# Intentionally left empty
-# I am developing this in another branch so I don't polute this branch commits
 name: Operator E2E Tests
+
 on:
   pull_request:
-jobs: {}
+
+jobs:
+  unit:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run unit tests
+        run: make test
+
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Create Kind cluster
+        uses: helm/kind-action@v1.12.0
+        with:
+          cluster_name: infisical-operator-e2e
+
+      - name: Run E2E tests
+        env:
+          INTEGRATION_TESTS: true
+        run: |
+          go test ./test/e2e/ -v -timeout 20m

@@ -339,6 +339,105 @@ func TestStaticSecret(t *testing.T) {
 		assertSecretData(t, synced, map[string]string{"TOKEN": "abc123"})
 	})
 
+	t.Run("merged metadata", func(t *testing.T) {
+		api.CreateFolder(t, project.ID, project.EnvSlug, "/", "merged")
+		api.CreateSecret(t, project.ID, project.EnvSlug, "/merged", "SECRET_A", "val-a", nil)
+
+		preExisting := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        "e2e-merged-metadata",
+				Namespace:   testNamespace,
+				Annotations: map[string]string{"custom.io/note": "keep-me"},
+				Labels:      map[string]string{"existing": "true"},
+			},
+			StringData: map[string]string{"placeholder": "old"},
+		}
+		mustCreate(t, operator, ctx, preExisting)
+		t.Cleanup(func() { mustDelete(t, operator, ctx, preExisting) })
+
+		ss := mustCreateStaticSecret(t, operator, ctx, "e2e-merged-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+			InfisicalAuthRef: authRef,
+			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
+			Sources: []secretsv1beta1.SecretSource{{
+				ProjectId:       project.ID,
+				EnvironmentSlug: project.EnvSlug,
+				SecretPath:      "/merged",
+			}},
+			Targets: []secretsv1beta1.SecretTarget{{
+				Name:           "e2e-merged-metadata",
+				Namespace:      testNamespace,
+				Kind:           secretsv1beta1.SecretTargetKindSecret,
+				SecretType:     corev1.SecretTypeOpaque,
+				CreationPolicy: secretsv1beta1.CreationPolicyOrphan,
+			}},
+		})
+		ss.Annotations = map[string]string{"infisical.com/env": "staging"}
+		ss.Labels = map[string]string{"app": "e2e"}
+		if err := operator.Update(ctx, ss); err != nil {
+			t.Fatalf("set StaticSecret metadata: %v", err)
+		}
+
+		var synced corev1.Secret
+		waitFor(t, 30*time.Second, time.Second, func() bool {
+			if err := operator.Get(ctx, types.NamespacedName{Name: "e2e-merged-metadata", Namespace: testNamespace}, &synced); err != nil {
+				return false
+			}
+			return synced.Labels["app"] == "e2e"
+		})
+
+		if got, want := synced.Labels["existing"], "true"; got != want {
+			t.Errorf("pre-existing label existing = %q, want %q", got, want)
+		}
+		if got, want := synced.Labels["app"], "e2e"; got != want {
+			t.Errorf("merged label app = %q, want %q", got, want)
+		}
+		if got, want := synced.Annotations["custom.io/note"], "keep-me"; got != want {
+			t.Errorf("pre-existing annotation custom.io/note = %q, want %q", got, want)
+		}
+		if got, want := synced.Annotations["infisical.com/env"], "staging"; got != want {
+			t.Errorf("merged annotation infisical.com/env = %q, want %q", got, want)
+		}
+		assertSecretData(t, synced, map[string]string{"SECRET_A": "val-a"})
+
+		if err := operator.Get(ctx, types.NamespacedName{Name: ss.Name, Namespace: ss.Namespace}, ss); err != nil {
+			t.Fatalf("get StaticSecret: %v", err)
+		}
+		ss.Annotations["infisical.com/env"] = "production"
+		ss.Annotations["infisical.com/owner"] = "platform-team"
+		ss.Labels["tier"] = "backend"
+		if err := operator.Update(ctx, ss); err != nil {
+			t.Fatalf("update StaticSecret metadata: %v", err)
+		}
+
+		var updated corev1.Secret
+		waitFor(t, 30*time.Second, time.Second, func() bool {
+			if err := operator.Get(ctx, types.NamespacedName{Name: "e2e-merged-metadata", Namespace: testNamespace}, &updated); err != nil {
+				return false
+			}
+			return updated.Annotations["infisical.com/env"] == "production"
+		})
+
+		if got, want := updated.Labels["existing"], "true"; got != want {
+			t.Errorf("pre-existing label existing = %q, want %q (after update)", got, want)
+		}
+		if got, want := updated.Labels["app"], "e2e"; got != want {
+			t.Errorf("label app = %q, want %q (after update)", got, want)
+		}
+		if got, want := updated.Labels["tier"], "backend"; got != want {
+			t.Errorf("new label tier = %q, want %q", got, want)
+		}
+		if got, want := updated.Annotations["custom.io/note"], "keep-me"; got != want {
+			t.Errorf("pre-existing annotation custom.io/note = %q, want %q (after update)", got, want)
+		}
+		if got, want := updated.Annotations["infisical.com/env"], "production"; got != want {
+			t.Errorf("updated annotation infisical.com/env = %q, want %q", got, want)
+		}
+		if got, want := updated.Annotations["infisical.com/owner"], "platform-team"; got != want {
+			t.Errorf("new annotation infisical.com/owner = %q, want %q", got, want)
+		}
+		assertSecretData(t, updated, map[string]string{"SECRET_A": "val-a"})
+	})
+
 	t.Run("multiple targets", func(t *testing.T) {
 		api.CreateFolder(t, project.ID, project.EnvSlug, "/", "multitarget")
 		api.CreateSecret(t, project.ID, project.EnvSlug, "/multitarget", "SHARED_KEY", "shared-val", nil)

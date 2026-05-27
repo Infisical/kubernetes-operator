@@ -10,6 +10,7 @@ resources:
   # v1beta1
   - bases/secrets.infisical.com_infisicalconnections.yaml
   - bases/secrets.infisical.com_infisicalauths.yaml
+  - bases/secrets.infisical.com_infisicalstaticsecrets.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 patchesStrategicMerge:

@@ -1,0 +1,23 @@
+apiVersion: secrets.infisical.com/v1beta1
+kind: InfisicalStaticSecret
+metadata:
+  name: infisicalstaticsecret-demo
+spec:
+  infisicalAuthRef:
+    name: infisicalauth-universal-demo
+    namespace: default
+
+  syncOptions:
+    refreshInterval: 60s
+    instantUpdates: false
+
+  sources:
+    - projectId: <your-project-id>
+      environmentSlug: dev
+      secretPath: /
+
+  targets:
+    - name: my-infisical-secrets
+      namespace: default
+      kind: Secret
+      creationPolicy: Owner

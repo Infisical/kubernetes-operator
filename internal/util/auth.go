@@ -423,9 +423,10 @@ func HandleAzureAuth(ctx context.Context, reconcilerClient client.Client, secret
 		}
 
 		azureAuthSpec = v1alpha1.AzureAuthDetails{
-			IdentityID:   infisicalPushSecret.Spec.Authentication.AzureAuth.IdentityID,
-			Resource:     infisicalPushSecret.Spec.Authentication.AzureAuth.Resource,
-			SecretsScope: v1alpha1.MachineIdentityScopeInWorkspace{},
+			IdentityID:                   infisicalPushSecret.Spec.Authentication.AzureAuth.IdentityID,
+			Resource:                     infisicalPushSecret.Spec.Authentication.AzureAuth.Resource,
+			AzureManagedIdentityClientId: "",
+			SecretsScope:                 v1alpha1.MachineIdentityScopeInWorkspace{},
 		}
 
 	case SecretCrd.INFISICAL_DYNAMIC_SECRET:
@@ -436,9 +437,10 @@ func HandleAzureAuth(ctx context.Context, reconcilerClient client.Client, secret
 		}
 
 		azureAuthSpec = v1alpha1.AzureAuthDetails{
-			IdentityID:   infisicalDynamicSecret.Spec.Authentication.AzureAuth.IdentityID,
-			Resource:     infisicalDynamicSecret.Spec.Authentication.AzureAuth.Resource,
-			SecretsScope: v1alpha1.MachineIdentityScopeInWorkspace{},
+			IdentityID:                   infisicalDynamicSecret.Spec.Authentication.AzureAuth.IdentityID,
+			Resource:                     infisicalDynamicSecret.Spec.Authentication.AzureAuth.Resource,
+			AzureManagedIdentityClientId: "",
+			SecretsScope:                 v1alpha1.MachineIdentityScopeInWorkspace{},
 		}
 	}
 
@@ -446,9 +448,17 @@ func HandleAzureAuth(ctx context.Context, reconcilerClient client.Client, secret
 		return AuthenticationDetails{}, ErrAuthNotApplicable
 	}
 
-	_, err := infisicalClient.Auth().AzureAuthLogin(azureAuthSpec.IdentityID, azureAuthSpec.Resource) // If resource is empty(""), it will default to "https://management.azure.com/" in the SDK.
-	if err != nil {
-		return AuthenticationDetails{}, fmt.Errorf("unable to login with Azure auth [err=%s]", err)
+	if azureAuthSpec.AzureManagedIdentityClientId != "" {
+		_, err := infisicalClient.Auth().WithAzureClientID(azureAuthSpec.AzureManagedIdentityClientId).AzureAuthLogin(azureAuthSpec.IdentityID, azureAuthSpec.Resource)
+
+		if err != nil {
+			return AuthenticationDetails{}, fmt.Errorf("unable to login with Azure auth using managed identity [err=%s]", err)
+		}
+	} else {
+		_, err := infisicalClient.Auth().AzureAuthLogin(azureAuthSpec.IdentityID, azureAuthSpec.Resource) // If resource is empty(""), it will default to "https://management.azure.com/" in the SDK.
+		if err != nil {
+			return AuthenticationDetails{}, fmt.Errorf("unable to login with Azure auth [err=%s]", err)
+		}
 	}
 
 	return AuthenticationDetails{

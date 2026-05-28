@@ -40,7 +40,7 @@ func (s *sseRegistryStore) SubscribeForEvents(
 	ctx context.Context,
 	uid string,
 	crd *secretsv1beta1.InfisicalStaticSecret,
-	handler *infisicalstaticsecret.InfisicalAuthHandler,
+	handler *infisicalstaticsecret.InfisicalStaticSecretHandler,
 	eventCh chan event.TypedGenericEvent[client.Object],
 ) error {
 	s.mu.Lock()

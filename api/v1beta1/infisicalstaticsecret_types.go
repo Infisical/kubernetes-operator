@@ -50,7 +50,7 @@ const (
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 // +kubebuilder:printcolumn:name="Auth Method",type=string,JSONPath=`.status.conditions[?(@.type=="secrets.infisical.com/LastReconcileAuthMethod")].message`
 // +kubebuilder:printcolumn:name="Synced",type=string,JSONPath=`.status.conditions[?(@.type=="secrets.infisical.com/LastReconcileStatus")].status`
-// +kubebuilder:printcolumn:name="Affected Deployments",type=string,JSONPath=`.status.conditions[?(@.type=="secrets.infisical.com/LastReconcileAutoRedeployReady")].message`
+// +kubebuilder:printcolumn:name="Affected Deployments",type=string,JSONPath=`.status.conditions[?(@.type=="secrets.infisical.com/LastReconcileAffectedDeployments")].message`
 type InfisicalStaticSecret struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

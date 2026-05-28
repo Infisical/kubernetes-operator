@@ -26,8 +26,8 @@ func NewInfisicalStaticSecretHandler(
 	isNamespaceScoped bool,
 	authResolver *auth.AuthStrategyResolver,
 	logger logr.Logger,
-) *InfisicalAuthHandler {
-	return &InfisicalAuthHandler{
+) *InfisicalStaticSecretHandler {
+	return &InfisicalStaticSecretHandler{
 		Client:            client,
 		Scheme:            scheme,
 		IsNamespaceScoped: isNamespaceScoped,
@@ -43,7 +43,7 @@ func NewInfisicalStaticSecretHandler(
 	}
 }
 
-type InfisicalAuthHandler struct {
+type InfisicalStaticSecretHandler struct {
 	client.Client
 	Scheme            *runtime.Scheme
 	Random            *rand.Rand
@@ -53,7 +53,7 @@ type InfisicalAuthHandler struct {
 	logger            logr.Logger
 }
 
-func (h *InfisicalAuthHandler) SyncSecrets(ctx context.Context, infisicalStaticSecret *v1beta1.InfisicalStaticSecret) (int, error) {
+func (h *InfisicalStaticSecretHandler) SyncSecrets(ctx context.Context, infisicalStaticSecret *v1beta1.InfisicalStaticSecret) (int, error) {
 	defer h.reconciler.UpdateConditions(ctx, infisicalStaticSecret)
 
 	if err := h.reconciler.Validate(infisicalStaticSecret); err != nil {
@@ -96,7 +96,7 @@ func sourceSSEKey(source v1beta1.SecretSource) string {
 	return path.Join(source.ProjectId, source.EnvironmentSlug, source.SecretPath)
 }
 
-func (h *InfisicalAuthHandler) OpenInstantUpdatesStreams(
+func (h *InfisicalStaticSecretHandler) OpenInstantUpdatesStreams(
 	ctx context.Context,
 	infisicalStaticSecret *v1beta1.InfisicalStaticSecret,
 	registries map[string]*sse.ConnectionRegistry,
@@ -228,7 +228,7 @@ func CloseInstantUpdatesStreams(registries map[string]*sse.ConnectionRegistry) {
 	}
 }
 
-func (h *InfisicalAuthHandler) syncTargetSecrets(ctx context.Context, owner *v1beta1.InfisicalStaticSecret, secrets []api.Secret, target v1beta1.SecretTarget) (int, error) {
+func (h *InfisicalStaticSecretHandler) syncTargetSecrets(ctx context.Context, owner *v1beta1.InfisicalStaticSecret, secrets []api.Secret, target v1beta1.SecretTarget) (int, error) {
 	content, err := h.reconciler.RenderTargetOutput(secrets, target)
 	if err != nil {
 		return 0, fmt.Errorf("failed to render target output: %w", err)

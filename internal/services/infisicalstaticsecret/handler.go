@@ -112,7 +112,7 @@ func (h *InfisicalStaticSecretHandler) OpenInstantUpdatesStreams(
 	}
 
 	token := auth.Credentials.MachineIdentity.AccessToken
-	baseURL := util.AppendAPIEndpoint(auth.Connection.Spec.Address)
+	baseURL := util.AppendAPIEndpoint(auth.Connection.Address())
 
 	if registries == nil {
 		registries = make(map[string]*sse.ConnectionRegistry)

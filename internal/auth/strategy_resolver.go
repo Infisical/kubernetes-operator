@@ -1,10 +1,8 @@
 package auth
 
 import (
-	"cmp"
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
@@ -118,7 +116,7 @@ func (r *AuthStrategyResolver) Authenticate(
 	}
 
 	conn := model.InfisicalConnection{
-		Host:          cmp.Or(connection.Spec.Address, os.Getenv("INFISICAL_HOST_API")),
+		Host:          connection.Address(),
 		CaCertificate: caCertificate,
 	}
 

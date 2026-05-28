@@ -25,6 +25,9 @@ SOFTWARE.
 package v1beta1
 
 import (
+	"cmp"
+	"os"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -40,6 +43,10 @@ type InfisicalConnection struct {
 
 	Spec   InfisicalConnectionSpec   `json:"spec,omitempty"`
 	Status InfisicalConnectionStatus `json:"status,omitempty"`
+}
+
+func (c InfisicalConnection) Address() string {
+	return cmp.Or(c.Spec.Address, os.Getenv("INFISICAL_HOST_API"))
 }
 
 // InfisicalConnectionSpec defines how the operator connects to a Infisical instance

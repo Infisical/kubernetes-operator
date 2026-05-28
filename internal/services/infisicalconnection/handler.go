@@ -1,7 +1,6 @@
 package infisicalconnection
 
 import (
-	"cmp"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -10,7 +9,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
@@ -66,12 +64,11 @@ type apiStatusResponse struct {
 }
 
 func (h *InfisicalConnectionHandler) ResolveAddress(connection *v1beta1.InfisicalConnection) (string, error) {
-	hostAPIFromEnv := os.Getenv("INFISICAL_HOST_API")
 	if connection == nil {
 		return "", errors.New("connection is nil")
 	}
 
-	return cmp.Or(connection.Spec.Address, hostAPIFromEnv), nil
+	return connection.Address(), nil
 }
 
 func (h *InfisicalConnectionHandler) GetInfisicalConnection(ctx context.Context, namespacedName types.NamespacedName) (*v1beta1.InfisicalConnection, error) {

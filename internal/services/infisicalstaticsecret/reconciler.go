@@ -323,7 +323,7 @@ func (r *InfisicalStaticSecretReconciler) ListSecretsFromSources(ctx context.Con
 		return nil, nil, fmt.Errorf("failed to get REST client: %w", err)
 	}
 
-	restClient = restClient.SetBaseURL(authenticationResult.Connection.Spec.Address)
+	restClient = restClient.SetBaseURL(authenticationResult.Connection.Address())
 	requests := make([]api.ListSecretsRequest, 0, len(infisicalStaticSecret.Spec.Sources))
 	for _, source := range infisicalStaticSecret.Spec.Sources {
 		requests = append(requests, api.ListSecretsRequest{

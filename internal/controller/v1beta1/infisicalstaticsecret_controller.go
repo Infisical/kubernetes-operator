@@ -187,8 +187,7 @@ func (r *InfisicalStaticSecretReconciler) SetupWithManager(mgr ctrl.Manager) err
 					return true
 				}
 
-				sseRegistries.Cleanup(string(e.ObjectNew.GetUID()))
-				return true
+				return false
 			},
 			DeleteFunc: func(e event.DeleteEvent) bool {
 				sseRegistries.Cleanup(string(e.Object.GetUID()))

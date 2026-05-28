@@ -232,7 +232,7 @@ func (r *InfisicalStaticSecretReconciler) getInfisicalAuth(ctx context.Context, 
 
 	readyCond := meta.FindStatusCondition(auth.Status.Conditions, "secrets.infisical.com/IsReady")
 	if readyCond == nil || readyCond.Status != metav1.ConditionTrue {
-		return nil, fmt.Errorf("InfisicalAuthh is not ready")
+		return nil, fmt.Errorf("InfisicalAuth is not ready")
 	}
 
 	return &auth, nil

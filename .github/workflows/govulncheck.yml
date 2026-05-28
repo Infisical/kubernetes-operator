@@ -22,7 +22,7 @@ jobs:
                   go-version: "1.25"
 
             - name: Install govulncheck
-              run: go install golang.org/x/vuln/cmd/govulncheck@latest
+              run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
 
             # Build as the Dockerfile does and scan the binary, so results reflect
             # what actually ships in the image.

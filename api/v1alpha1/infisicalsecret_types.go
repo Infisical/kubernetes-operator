@@ -82,6 +82,9 @@ type AzureAuthDetails struct {
 	// +kubebuilder:validation:Optional
 	Resource string `json:"resource"`
 
+	// +kubebuilder:validation:Optional
+	AzureManagedIdentityClientId string `json:"azureManagedIdentityClientId"`
+
 	// +kubebuilder:validation:Required
 	SecretsScope MachineIdentityScopeInWorkspace `json:"secretsScope"`
 }

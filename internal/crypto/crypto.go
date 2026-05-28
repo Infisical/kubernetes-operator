@@ -1,10 +1,12 @@
 package crypto
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"fmt"
 	"hash/crc32"
+	"sort"
 
 	"golang.org/x/crypto/nacl/box"
 )
@@ -39,4 +41,24 @@ func DecryptAsymmetric(ciphertext []byte, nonce []byte, publicKey []byte, privat
 func ComputeEtag(data []byte) string {
 	crc := crc32.ChecksumIEEE(data)
 	return fmt.Sprintf(`W/"secrets-%d-%08X"`, len(data), crc)
+}
+
+// ComputeRenderedEtag hashes the post-template bytes that land in a managed
+// Secret/ConfigMap. Keys are sorted so iteration order doesn't perturb the hash;
+// each key/value is null-separated to prevent boundary collisions.
+func ComputeRenderedEtag(rendered map[string][]byte) string {
+	keys := make([]string, 0, len(rendered))
+	for k := range rendered {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var buf bytes.Buffer
+	for _, k := range keys {
+		buf.WriteString(k)
+		buf.WriteByte(0)
+		buf.Write(rendered[k])
+		buf.WriteByte(0)
+	}
+	return ComputeEtag(buf.Bytes())
 }

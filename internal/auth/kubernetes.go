@@ -75,7 +75,7 @@ func (k *kubernetesAuth) Authenticate(
 	sdkClient := infisicalSdk.NewInfisicalClient(ctx, infisicalSdk.Config{
 		SiteUrl:          connection.Host,
 		CaCertificate:    connection.CaCertificate,
-		AutoTokenRefresh: false,
+		AutoTokenRefresh: infisicalSdk.BoolPtr(false),
 	})
 
 	cred, err := sdkClient.Auth().KubernetesRawServiceAccountTokenLogin(string(identityID), saToken)

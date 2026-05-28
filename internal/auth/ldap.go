@@ -76,7 +76,7 @@ func (l *ldapAuth) Authenticate(
 	sdkClient := infisicalSdk.NewInfisicalClient(ctx, infisicalSdk.Config{
 		SiteUrl:          connection.Host,
 		CaCertificate:    connection.CaCertificate,
-		AutoTokenRefresh: false,
+		AutoTokenRefresh: infisicalSdk.BoolPtr(false),
 	})
 
 	cred, err := sdkClient.Auth().LdapAuthLogin(string(identityID), string(username), string(password))

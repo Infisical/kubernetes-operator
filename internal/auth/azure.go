@@ -53,7 +53,7 @@ func (a *azureAuth) Authenticate(
 	sdkClient := infisicalSdk.NewInfisicalClient(ctx, infisicalSdk.Config{
 		SiteUrl:          connection.Host,
 		CaCertificate:    connection.CaCertificate,
-		AutoTokenRefresh: false,
+		AutoTokenRefresh: infisicalSdk.BoolPtr(false),
 	})
 
 	identityID, err := util.ResolveSecretReference(ctx, a.client, auth.Spec.Azure.IdentityIDRef, ".spec.azure.identityIdRef")

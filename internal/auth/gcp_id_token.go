@@ -53,7 +53,7 @@ func (g *gcpIdTokenAuth) Authenticate(
 	sdkClient := infisicalSdk.NewInfisicalClient(ctx, infisicalSdk.Config{
 		SiteUrl:          connection.Host,
 		CaCertificate:    connection.CaCertificate,
-		AutoTokenRefresh: false,
+		AutoTokenRefresh: infisicalSdk.BoolPtr(false),
 	})
 
 	identityID, err := util.ResolveSecretReference(ctx, g.client, auth.Spec.GCPIdToken.IdentityIDRef, ".spec.gcpIdToken.identityIdRef")

@@ -1,0 +1,38 @@
+name: govulncheck
+
+on:
+    workflow_dispatch: {}
+    workflow_call: {}
+
+permissions:
+    contents: read
+
+jobs:
+    govulncheck:
+        name: Vulnerability scan
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Set up Go
+              uses: actions/setup-go@v5
+              with:
+                  # Keep in sync with the Dockerfile builder (FROM golang:X.Y).
+                  go-version: "1.25"
+
+            - name: Install govulncheck
+              run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+            # Build as the Dockerfile does and scan the binary, so results reflect
+            # what actually ships in the image.
+            - name: Build manager binary
+              run: CGO_ENABLED=0 GOOS=linux go build -a -o manager cmd/main.go
+
+            - name: Scan built binary
+              run: |
+                  govulncheck -mode=binary ./manager || true
+                  govulncheck -format json -mode=binary ./manager > result.json || true
+                  count=$(jq -s '[.[] | select(.finding) | .finding.osv] | unique | length' result.json)
+                  echo "Vulnerabilities found: $count"
+                  test "$count" -eq 0 || exit 1

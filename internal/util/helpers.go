@@ -1,6 +1,7 @@
 package util
 
 import (
+	"cmp"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -53,13 +54,12 @@ func ConvertIntervalToDuration(resyncInterval *string) (time.Duration, error) {
 }
 
 func AppendAPIEndpoint(address string) string {
-	if strings.HasSuffix(address, "/api") {
-		return address
+	trimmedPath := strings.TrimRight(address, "/")
+	if strings.HasSuffix(trimmedPath, "/api") {
+		return trimmedPath
 	}
-	if address[len(address)-1] == '/' {
-		return address + "api"
-	}
-	return address + "/api"
+
+	return trimmedPath + "/api"
 }
 
 func IsNamespaceScopedError(err error, isNamespaceScoped bool) bool {
@@ -80,13 +80,14 @@ func CreateRestyClient(options model.CreateRestyClientOptions) (*resty.Client, e
 	}
 	httpClient.SetHeader("User-Agent", constants.USER_AGENT_NAME)
 
-	if config.API_CA_CERTIFICATE != "" {
+	caCertificate := cmp.Or(config.API_CA_CERTIFICATE, options.CaCertificate)
+	if caCertificate != "" {
 		caCertPool, err := x509.SystemCertPool()
 		if err != nil {
 			return nil, fmt.Errorf("failed to load system root CA pool: %v", err)
 		}
 
-		if ok := caCertPool.AppendCertsFromPEM([]byte(config.API_CA_CERTIFICATE)); !ok {
+		if ok := caCertPool.AppendCertsFromPEM([]byte(caCertificate)); !ok {
 			return nil, fmt.Errorf("failed to append CA certificate")
 		}
 

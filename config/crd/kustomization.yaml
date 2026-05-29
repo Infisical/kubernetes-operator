@@ -2,10 +2,15 @@
 # since it depends on service name and namespace that are out of this kustomize package.
 # It should be run by config/default
 resources:
+  # v1alpha1
   - bases/secrets.infisical.com_infisicalsecrets.yaml
   - bases/secrets.infisical.com_infisicalpushsecrets.yaml
   - bases/secrets.infisical.com_infisicaldynamicsecrets.yaml
   - bases/secrets.infisical.com_clustergenerators.yaml
+  # v1beta1
+  - bases/secrets.infisical.com_infisicalconnections.yaml
+  - bases/secrets.infisical.com_infisicalauths.yaml
+  - bases/secrets.infisical.com_infisicalstaticsecrets.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 patchesStrategicMerge:

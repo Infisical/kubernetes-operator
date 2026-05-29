@@ -1,5 +1,7 @@
 package model
 
+import infisicalSdk "github.com/infisical/go-sdk"
+
 type ServiceAccountDetails struct {
 	AccessKey  string
 	PublicKey  string
@@ -42,6 +44,17 @@ type Project struct {
 }
 
 type CreateRestyClientOptions struct {
-	AccessToken string
-	Headers     map[string]string
+	AccessToken   string
+	Headers       map[string]string
+	CaCertificate string
+}
+
+type InfisicalConnection struct {
+	Host          string
+	CaCertificate string
+}
+
+type AuthenticationResult struct {
+	MachineIdentity infisicalSdk.MachineIdentityCredential
+	SdkClient       infisicalSdk.InfisicalClientInterface
 }

@@ -64,9 +64,12 @@ rules:
       - secrets.infisical.com
     resources:
       - clustergenerators
+      - infisicalauths
+      - infisicalconnections
       - infisicaldynamicsecrets
       - infisicalpushsecrets
       - infisicalsecrets
+      - infisicalstaticsecrets
     verbs:
       - create
       - delete
@@ -81,14 +84,18 @@ rules:
       - infisicaldynamicsecrets/finalizers
       - infisicalpushsecrets/finalizers
       - infisicalsecrets/finalizers
+      - infisicalstaticsecrets/finalizers
     verbs:
       - update
   - apiGroups:
       - secrets.infisical.com
     resources:
+      - infisicalauths/status
+      - infisicalconnections/status
       - infisicaldynamicsecrets/status
       - infisicalpushsecrets/status
       - infisicalsecrets/status
+      - infisicalstaticsecrets/status
     verbs:
       - get
       - patch

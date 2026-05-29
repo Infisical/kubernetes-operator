@@ -1,0 +1,11 @@
+apiVersion: secrets.infisical.com/v1beta1
+kind: InfisicalConnection
+metadata:
+  name: infisicalconnection-demo
+spec:
+  address: https://app.infisical.com
+  tls:
+    caCertificate:
+      name: secretName
+      namespace: default
+      key: certificate

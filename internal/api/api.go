@@ -104,6 +104,10 @@ func CallGetProjectBySlugV2(httpClient *resty.Client, request GetProjectBySlugRe
 }
 
 func CallSubscribeProjectEvents(httpClient *resty.Client, projectId, secretsPath, envSlug string) (*http.Response, error) {
+	return CallSubscribeProjectEventsWithBaseURL(httpClient, config.API_HOST_URL, projectId, secretsPath, envSlug)
+}
+
+func CallSubscribeProjectEventsWithBaseURL(httpClient *resty.Client, baseURL, projectId, secretsPath, envSlug string) (*http.Response, error) {
 	conditions := &SubscribeProjectEventsRequestCondition{
 		SecretPath:      secretsPath,
 		EnvironmentSlug: envSlug,
@@ -139,7 +143,7 @@ func CallSubscribeProjectEvents(httpClient *resty.Client, projectId, secretsPath
 		R().
 		SetDoNotParseResponse(true).
 		SetBody(body).
-		Post(fmt.Sprintf("%s/v1/events/subscribe/project-events", config.API_HOST_URL))
+		Post(fmt.Sprintf("%s/v1/events/subscribe/project-events", baseURL))
 
 	if err != nil {
 		return nil, fmt.Errorf("CallSubscribeProjectEvents: Unable to complete api request [err=%s]", err)

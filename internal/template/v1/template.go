@@ -88,10 +88,10 @@ func BuildSecretTree(ctx map[string]model.SecretTemplateOptions) map[string]any 
 func newTemplate(name, templateString string, ctx map[string]model.SecretTemplateOptions) (*tpl.Template, error) {
 	funcs := template.GetTemplateFunctions()
 	tree := BuildSecretTree(ctx)
-	funcs["secretRef"] = func(ref string) (string, error) {
+	funcs["resolveSecretFromPath"] = func(ref string) (string, error) {
 		parts := strings.Split(ref, ".")
 		if len(parts) < 2 {
-			return "", fmt.Errorf("secretRef %q must have at least a secret name and accessor (value or secretPath)", ref)
+			return "", fmt.Errorf("resolveSecretFromPath %q must have at least a secret name and accessor (value or secretPath)", ref)
 		}
 
 		accessor := parts[len(parts)-1]
@@ -101,18 +101,18 @@ func newTemplate(name, templateString string, ctx map[string]model.SecretTemplat
 		for _, p := range pathParts {
 			node, ok := current.(map[string]any)
 			if !ok {
-				return "", fmt.Errorf("secretRef %q: segment %q is not a folder", ref, p)
+				return "", fmt.Errorf("resolveSecretFromPath %q: segment %q is not a folder", ref, p)
 			}
 			child, exists := node[p]
 			if !exists {
-				return "", fmt.Errorf("secretRef %q: segment %q not found", ref, p)
+				return "", fmt.Errorf("resolveSecretFromPath %q: segment %q not found", ref, p)
 			}
 			current = child
 		}
 
 		opts, ok := current.(model.SecretTemplateOptions)
 		if !ok {
-			return "", fmt.Errorf("secretRef %q: does not resolve to a secret", ref)
+			return "", fmt.Errorf("resolveSecretFromPath %q: does not resolve to a secret", ref)
 		}
 
 		switch strings.ToLower(accessor) {
@@ -121,7 +121,7 @@ func newTemplate(name, templateString string, ctx map[string]model.SecretTemplat
 		case "secretpath":
 			return opts.SecretPath, nil
 		default:
-			return "", fmt.Errorf("secretRef %q: unknown accessor %q (use value or secretPath)", ref, accessor)
+			return "", fmt.Errorf("resolveSecretFromPath %q: unknown accessor %q (use value or secretPath)", ref, accessor)
 		}
 	}
 	return tpl.New(name).Funcs(funcs).Parse(templateString)

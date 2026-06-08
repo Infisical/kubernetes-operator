@@ -376,6 +376,34 @@ var _ = Describe("RenderTargetOutput", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to parse template"))
 		})
+
+		It("renders template using secretRef to reference secrets in subfolders", func() {
+			subfolderSecrets := []api.Secret{
+				{SecretKey: "DB_HOST", SecretValue: "prod-db.example.com", SecretPath: "/folder/subfolder"},
+				{SecretKey: "DB_PORT", SecretValue: "5432", SecretPath: "/folder/subfolder"},
+				{SecretKey: "API_KEY", SecretValue: "sk-secret-123", SecretPath: "/folder/other"},
+			}
+
+			target := v1beta1.SecretTarget{
+				Name:      "ref-test",
+				Namespace: "default",
+				Kind:      v1beta1.SecretTargetKindSecret,
+				Template: &v1beta1.SecretTemplate{
+					Data: v1beta1.SecretTemplateData{
+						Map: map[string]string{
+							"dsn":     `postgresql://user:pass@{{ secretRef "folder.subfolder.DB_HOST.value" }}:{{ secretRef "folder.subfolder.DB_PORT.value" }}/mydb`,
+							"api_key": `{{ secretRef "folder.other.API_KEY.value" }}`,
+						},
+					},
+				},
+			}
+
+			data, err := reconciler.RenderTargetOutput(subfolderSecrets, target)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(data).To(HaveLen(2))
+			Expect(data).To(HaveKeyWithValue("dsn", []byte("postgresql://user:pass@prod-db.example.com:5432/mydb")))
+			Expect(data).To(HaveKeyWithValue("api_key", []byte("sk-secret-123")))
+		})
 	})
 
 	Context("with a bulk (string) template", func() {

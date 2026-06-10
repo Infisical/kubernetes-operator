@@ -81,6 +81,28 @@ var _ = Describe("BuildSecretTree", func() {
 		Expect(d["DEEP"]).To(Equal(model.SecretTemplateOptions{Value: "deep-val", SecretPath: "/a/b/c/d"}))
 	})
 
+	It("keeps first occurrence when duplicate keys exist at the same path", func() {
+		ctx := v1.NewTemplateContext([]api.Secret{
+			{SecretKey: "DB_HOST", SecretValue: "project-a-host", SecretPath: "/shared"},
+			{SecretKey: "DB_PORT", SecretValue: "5432", SecretPath: "/shared"},
+			{SecretKey: "DB_HOST", SecretValue: "project-b-host", SecretPath: "/shared"},
+			{SecretKey: "API_KEY", SecretValue: "key-from-b", SecretPath: "/shared"},
+			{SecretKey: "DB_PORT", SecretValue: "1234", SecretPath: "/db"},
+		}, nil)
+
+		tree := v1.BuildSecretTree(ctx)
+
+		shared, ok := tree["shared"].(map[string]any)
+		Expect(ok).To(BeTrue())
+		Expect(shared["DB_HOST"]).To(Equal(model.SecretTemplateOptions{Value: "project-a-host", SecretPath: "/shared"}))
+		Expect(shared["DB_PORT"]).To(Equal(model.SecretTemplateOptions{Value: "5432", SecretPath: "/shared"}))
+		Expect(shared["API_KEY"]).To(Equal(model.SecretTemplateOptions{Value: "key-from-b", SecretPath: "/shared"}))
+
+		db, ok := tree["db"].(map[string]any)
+		Expect(ok).To(BeTrue())
+		Expect(db["DB_PORT"]).To(Equal(model.SecretTemplateOptions{Value: "1234", SecretPath: "/db"}))
+	})
+
 	It("handles mixed root and nested secrets", func() {
 		ctx := v1.NewTemplateContext([]api.Secret{
 			{SecretKey: "AT_ROOT", SecretValue: "r", SecretPath: "/"},

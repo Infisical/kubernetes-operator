@@ -100,9 +100,11 @@ func BuildSecretTree(ctx TemplateContext) map[string]any {
 			node = child.(map[string]any)
 		}
 
-		node[s.SecretKey] = model.SecretTemplateOptions{
-			Value:      s.SecretValue,
-			SecretPath: s.SecretPath,
+		if _, exists := node[s.SecretKey]; !exists {
+			node[s.SecretKey] = model.SecretTemplateOptions{
+				Value:      s.SecretValue,
+				SecretPath: s.SecretPath,
+			}
 		}
 	}
 

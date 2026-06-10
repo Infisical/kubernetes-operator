@@ -77,7 +77,7 @@ func (h *InfisicalStaticSecretHandler) SyncSecrets(ctx context.Context, infisica
 
 	var totalAffectedWorkloads = 0
 	for _, target := range infisicalStaticSecret.Spec.Targets {
-		affectedWorkloads, err := h.syncTargetSecrets(ctx, infisicalStaticSecret, mergedSecrets, target)
+		affectedWorkloads, err := h.syncTargetSecrets(ctx, infisicalStaticSecret, mergedSecrets, secrets, target)
 		totalAffectedWorkloads += affectedWorkloads
 		if err != nil {
 			setReconcileStatusCondition(infisicalStaticSecret, err)
@@ -228,8 +228,8 @@ func CloseInstantUpdatesStreams(registries map[string]*sse.ConnectionRegistry) {
 	}
 }
 
-func (h *InfisicalStaticSecretHandler) syncTargetSecrets(ctx context.Context, owner *v1beta1.InfisicalStaticSecret, secrets []api.Secret, target v1beta1.SecretTarget) (int, error) {
-	content, err := h.reconciler.RenderTargetOutput(secrets, target)
+func (h *InfisicalStaticSecretHandler) syncTargetSecrets(ctx context.Context, owner *v1beta1.InfisicalStaticSecret, mergedSecrets, rawSecrets []api.Secret, target v1beta1.SecretTarget) (int, error) {
+	content, err := h.reconciler.RenderTargetOutput(mergedSecrets, rawSecrets, target)
 	if err != nil {
 		return 0, fmt.Errorf("failed to render target output: %w", err)
 	}

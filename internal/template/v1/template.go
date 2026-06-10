@@ -6,12 +6,34 @@ import (
 	"strings"
 	tpl "text/template"
 
+	"github.com/Infisical/infisical/k8-operator/internal/api"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
 	"github.com/Infisical/infisical/k8-operator/internal/template"
 	"gopkg.in/yaml.v3"
 )
 
-func RenderPerKeyTemplates(tmpls map[string]string, ctx map[string]model.SecretTemplateOptions) (map[string][]byte, error) {
+type TemplateContext struct {
+	rawSecrets    []api.Secret
+	mergedSecrets map[string]model.SecretTemplateOptions
+}
+
+func NewTemplateContext(rawSecrets []api.Secret, mergedSecrets []api.Secret) TemplateContext {
+	ctx := TemplateContext{
+		rawSecrets:    rawSecrets,
+		mergedSecrets: make(map[string]model.SecretTemplateOptions, 0),
+	}
+
+	for _, s := range mergedSecrets {
+		ctx.mergedSecrets[s.SecretKey] = model.SecretTemplateOptions{
+			Value:      s.SecretValue,
+			SecretPath: s.SecretPath,
+		}
+	}
+
+	return ctx
+}
+
+func RenderPerKeyTemplates(tmpls map[string]string, ctx TemplateContext) (map[string][]byte, error) {
 	data := make(map[string][]byte, len(tmpls))
 
 	for key, tmplStr := range tmpls {
@@ -21,7 +43,7 @@ func RenderPerKeyTemplates(tmpls map[string]string, ctx map[string]model.SecretT
 		}
 
 		var buf bytes.Buffer
-		if err := tmpl.Execute(&buf, ctx); err != nil {
+		if err := tmpl.Execute(&buf, ctx.mergedSecrets); err != nil {
 			return nil, fmt.Errorf("failed to execute template at key %q: %w", key, err)
 		}
 
@@ -31,14 +53,14 @@ func RenderPerKeyTemplates(tmpls map[string]string, ctx map[string]model.SecretT
 	return data, nil
 }
 
-func RenderBulkTemplate(tmplStr string, ctx map[string]model.SecretTemplateOptions) (map[string][]byte, error) {
+func RenderBulkTemplate(tmplStr string, ctx TemplateContext) (map[string][]byte, error) {
 	tmpl, err := newTemplate("template.data", tmplStr, ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse bulk template: %w", err)
 	}
 
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, ctx); err != nil {
+	if err := tmpl.Execute(&buf, ctx.mergedSecrets); err != nil {
 		return nil, fmt.Errorf("failed to execute bulk template: %w", err)
 	}
 
@@ -59,12 +81,11 @@ func RenderBulkTemplate(tmplStr string, ctx map[string]model.SecretTemplateOptio
 	return data, nil
 }
 
-func BuildSecretTree(ctx map[string]model.SecretTemplateOptions) map[string]any {
+func BuildSecretTree(ctx TemplateContext) map[string]any {
 	root := make(map[string]any)
 
-	for key, opts := range ctx {
-		path := opts.SecretPath
-		segments := strings.Split(strings.Trim(path, "/"), "/")
+	for _, s := range ctx.rawSecrets {
+		segments := strings.Split(strings.Trim(s.SecretPath, "/"), "/")
 
 		node := root
 		for _, seg := range segments {
@@ -79,13 +100,16 @@ func BuildSecretTree(ctx map[string]model.SecretTemplateOptions) map[string]any 
 			node = child.(map[string]any)
 		}
 
-		node[key] = opts
+		node[s.SecretKey] = model.SecretTemplateOptions{
+			Value:      s.SecretValue,
+			SecretPath: s.SecretPath,
+		}
 	}
 
 	return root
 }
 
-func newTemplate(name, templateString string, ctx map[string]model.SecretTemplateOptions) (*tpl.Template, error) {
+func newTemplate(name, templateString string, ctx TemplateContext) (*tpl.Template, error) {
 	funcs := template.GetTemplateFunctions()
 	tree := BuildSecretTree(ctx)
 	funcs["resolveSecretFromPath"] = func(ref string) (string, error) {

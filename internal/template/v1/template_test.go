@@ -40,12 +40,12 @@ var _ = Describe("BuildSecretTree", func() {
 
 		subfolder, ok := folder["subfolder"].(map[string]any)
 		Expect(ok).To(BeTrue())
-		Expect(subfolder["SECRET_1"]).To(Equal(model.SecretTemplateOptions{Value: "val1", SecretPath: "/folder/subfolder"}))
-		Expect(subfolder["SECRET_2"]).To(Equal(model.SecretTemplateOptions{Value: "val2", SecretPath: "/folder/subfolder"}))
+		Expect(subfolder["SECRET_1"]).To(Equal(model.V1TemplateOptions{Value: "val1", SecretPath: "/folder/subfolder"}))
+		Expect(subfolder["SECRET_2"]).To(Equal(model.V1TemplateOptions{Value: "val2", SecretPath: "/folder/subfolder"}))
 
 		another, ok := folder["another"].(map[string]any)
 		Expect(ok).To(BeTrue())
-		Expect(another["SECRET_3"]).To(Equal(model.SecretTemplateOptions{Value: "val3", SecretPath: "/folder/another"}))
+		Expect(another["SECRET_3"]).To(Equal(model.V1TemplateOptions{Value: "val3", SecretPath: "/folder/another"}))
 	})
 
 	It("places secrets at the root path", func() {
@@ -54,7 +54,7 @@ var _ = Describe("BuildSecretTree", func() {
 		}, nil)
 
 		tree := v1.BuildSecretTree(ctx)
-		Expect(tree["ROOT_SECRET"]).To(Equal(model.SecretTemplateOptions{Value: "root-val", SecretPath: "/"}))
+		Expect(tree["ROOT_SECRET"]).To(Equal(model.V1TemplateOptions{Value: "root-val", SecretPath: "/"}))
 	})
 
 	It("returns an empty tree for empty context", func() {
@@ -78,7 +78,7 @@ var _ = Describe("BuildSecretTree", func() {
 		Expect(ok).To(BeTrue())
 		d, ok := c["d"].(map[string]any)
 		Expect(ok).To(BeTrue())
-		Expect(d["DEEP"]).To(Equal(model.SecretTemplateOptions{Value: "deep-val", SecretPath: "/a/b/c/d"}))
+		Expect(d["DEEP"]).To(Equal(model.V1TemplateOptions{Value: "deep-val", SecretPath: "/a/b/c/d"}))
 	})
 
 	It("keeps first occurrence when duplicate keys exist at the same path", func() {
@@ -94,13 +94,13 @@ var _ = Describe("BuildSecretTree", func() {
 
 		shared, ok := tree["shared"].(map[string]any)
 		Expect(ok).To(BeTrue())
-		Expect(shared["DB_HOST"]).To(Equal(model.SecretTemplateOptions{Value: "project-a-host", SecretPath: "/shared"}))
-		Expect(shared["DB_PORT"]).To(Equal(model.SecretTemplateOptions{Value: "5432", SecretPath: "/shared"}))
-		Expect(shared["API_KEY"]).To(Equal(model.SecretTemplateOptions{Value: "key-from-b", SecretPath: "/shared"}))
+		Expect(shared["DB_HOST"]).To(Equal(model.V1TemplateOptions{Value: "project-a-host", SecretPath: "/shared"}))
+		Expect(shared["DB_PORT"]).To(Equal(model.V1TemplateOptions{Value: "5432", SecretPath: "/shared"}))
+		Expect(shared["API_KEY"]).To(Equal(model.V1TemplateOptions{Value: "key-from-b", SecretPath: "/shared"}))
 
 		db, ok := tree["db"].(map[string]any)
 		Expect(ok).To(BeTrue())
-		Expect(db["DB_PORT"]).To(Equal(model.SecretTemplateOptions{Value: "1234", SecretPath: "/db"}))
+		Expect(db["DB_PORT"]).To(Equal(model.V1TemplateOptions{Value: "1234", SecretPath: "/db"}))
 	})
 
 	It("handles mixed root and nested secrets", func() {
@@ -111,14 +111,14 @@ var _ = Describe("BuildSecretTree", func() {
 
 		tree := v1.BuildSecretTree(ctx)
 
-		Expect(tree["AT_ROOT"]).To(Equal(model.SecretTemplateOptions{Value: "r", SecretPath: "/"}))
+		Expect(tree["AT_ROOT"]).To(Equal(model.V1TemplateOptions{Value: "r", SecretPath: "/"}))
 		app, ok := tree["app"].(map[string]any)
 		Expect(ok).To(BeTrue())
-		Expect(app["IN_FOLDER"]).To(Equal(model.SecretTemplateOptions{Value: "f", SecretPath: "/app"}))
+		Expect(app["IN_FOLDER"]).To(Equal(model.V1TemplateOptions{Value: "f", SecretPath: "/app"}))
 	})
 })
 
-var _ = Describe("RenderPerKeyTemplates without resolveSecretFromPath", func() {
+var _ = Describe("RenderPerKeyTemplates without getSecretByPath", func() {
 
 	rootCtx := v1.NewTemplateContext(nil, []api.Secret{
 		{SecretKey: "DB_HOST", SecretValue: "localhost", SecretPath: "/"},
@@ -129,6 +129,16 @@ var _ = Describe("RenderPerKeyTemplates without resolveSecretFromPath", func() {
 	It("resolves .Value accessor directly", func() {
 		tmpls := map[string]string{
 			"host": `{{ .DB_HOST.Value }}`,
+		}
+
+		data, err := v1.RenderPerKeyTemplates(tmpls, rootCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(data).To(HaveKeyWithValue("host", []byte("localhost")))
+	})
+
+	It("resolves value when .Value is not used", func() {
+		tmpls := map[string]string{
+			"host": `{{ .DB_HOST }}`,
 		}
 
 		data, err := v1.RenderPerKeyTemplates(tmpls, rootCtx)
@@ -157,7 +167,7 @@ var _ = Describe("RenderPerKeyTemplates without resolveSecretFromPath", func() {
 	})
 })
 
-var _ = Describe("RenderBulkTemplate without resolveSecretFromPath", func() {
+var _ = Describe("RenderBulkTemplate without getSecretByPath", func() {
 
 	rootCtx := v1.NewTemplateContext(nil, []api.Secret{
 		{SecretKey: "DB_HOST", SecretValue: "localhost", SecretPath: "/"},
@@ -185,11 +195,11 @@ var _ = Describe("RenderBulkTemplate without resolveSecretFromPath", func() {
 	})
 })
 
-var _ = Describe("RenderPerKeyTemplates with resolveSecretFromPath", func() {
+var _ = Describe("RenderPerKeyTemplates with getSecretByPath", func() {
 
-	It("resolves value via resolveSecretFromPath with nested path", func() {
+	It("resolves value via getSecretByPath with .Value accessor", func() {
 		tmpls := map[string]string{
-			"host": `{{ resolveSecretFromPath "folder.subfolder.DB_HOST.value" }}`,
+			"host": `{{ (getSecretByPath "folder/subfolder/DB_HOST").Value }}`,
 		}
 
 		data, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
@@ -197,9 +207,19 @@ var _ = Describe("RenderPerKeyTemplates with resolveSecretFromPath", func() {
 		Expect(data).To(HaveKeyWithValue("host", []byte("prod-db.example.com")))
 	})
 
-	It("resolves secretPath via resolveSecretFromPath", func() {
+	It("resolves value via getSecretByPath without accessor", func() {
 		tmpls := map[string]string{
-			"path": `{{ resolveSecretFromPath "folder.subfolder.DB_HOST.secretPath" }}`,
+			"host": `{{ getSecretByPath "folder/subfolder/DB_HOST" }}`,
+		}
+
+		data, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(data).To(HaveKeyWithValue("host", []byte("prod-db.example.com")))
+	})
+
+	It("resolves secretPath via getSecretByPath", func() {
+		tmpls := map[string]string{
+			"path": `{{ (getSecretByPath "folder/subfolder/DB_HOST").SecretPath }}`,
 		}
 
 		data, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
@@ -209,7 +229,7 @@ var _ = Describe("RenderPerKeyTemplates with resolveSecretFromPath", func() {
 
 	It("resolves secrets from different subfolders in the same template", func() {
 		tmpls := map[string]string{
-			"combined": `{{ resolveSecretFromPath "folder.subfolder.DB_HOST.value" }}:{{ resolveSecretFromPath "folder.subfolder.DB_PORT.value" }} key={{ resolveSecretFromPath "folder.other.API_KEY.value" }}`,
+			"combined": `{{ getSecretByPath "folder/subfolder/DB_HOST" }}:{{ getSecretByPath "folder/subfolder/DB_PORT" }} key={{ getSecretByPath "folder/other/API_KEY" }}`,
 		}
 
 		data, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
@@ -217,19 +237,9 @@ var _ = Describe("RenderPerKeyTemplates with resolveSecretFromPath", func() {
 		Expect(data).To(HaveKeyWithValue("combined", []byte("prod-db.example.com:5432 key=other-secret")))
 	})
 
-	It("returns error for unknown accessor", func() {
-		tmpls := map[string]string{
-			"bad": `{{ resolveSecretFromPath "folder.subfolder.DB_HOST.unknown" }}`,
-		}
-
-		_, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
-		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("unknown accessor"))
-	})
-
 	It("returns error for non-existent path segment", func() {
 		tmpls := map[string]string{
-			"bad": `{{ resolveSecretFromPath "missing.DB_HOST.value" }}`,
+			"bad": `{{ getSecretByPath "missing/DB_HOST" }}`,
 		}
 
 		_, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
@@ -237,11 +247,11 @@ var _ = Describe("RenderPerKeyTemplates with resolveSecretFromPath", func() {
 		Expect(err.Error()).To(ContainSubstring("not found"))
 	})
 
-	It("does not duplicate values when ranging over all secrets alongside resolveSecretFromPath", func() {
+	It("does not duplicate values when ranging over all secrets alongside getSecretByPath", func() {
 		tmpls := map[string]string{
-			"ref_host": `{{ resolveSecretFromPath "folder.subfolder.DB_HOST.value" }}`,
-			"ref_port": `{{ resolveSecretFromPath "folder.subfolder.DB_PORT.value" }}`,
-			"ref_key":  `{{ resolveSecretFromPath "folder.other.API_KEY.value" }}`,
+			"ref_host": `{{ getSecretByPath "folder/subfolder/DB_HOST" }}`,
+			"ref_port": `{{ getSecretByPath "folder/subfolder/DB_PORT" }}`,
+			"ref_key":  `{{ getSecretByPath "folder/other/API_KEY" }}`,
 		}
 
 		data, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
@@ -259,13 +269,13 @@ var _ = Describe("RenderPerKeyTemplates with resolveSecretFromPath", func() {
 				unique = append(unique, v)
 			}
 		}
-		Expect(unique).To(HaveLen(3), "each resolveSecretFromPath should resolve to a distinct value")
+		Expect(unique).To(HaveLen(3), "each getSecretByPath should resolve to a distinct value")
 	})
 
 	It("resolves duplicate secret keys from different paths", func() {
 		tmpls := map[string]string{
-			"subfolder_key": `{{ resolveSecretFromPath "folder.subfolder.API_KEY.value" }}`,
-			"other_key":     `{{ resolveSecretFromPath "folder.other.API_KEY.value" }}`,
+			"subfolder_key": `{{ getSecretByPath "folder/subfolder/API_KEY" }}`,
+			"other_key":     `{{ getSecretByPath "folder/other/API_KEY" }}`,
 		}
 
 		data, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
@@ -276,8 +286,8 @@ var _ = Describe("RenderPerKeyTemplates with resolveSecretFromPath", func() {
 
 	It("resolves secretPath of duplicate secret keys from different paths", func() {
 		tmpls := map[string]string{
-			"subfolder_path": `{{ resolveSecretFromPath "folder.subfolder.API_KEY.secretPath" }}`,
-			"other_path":     `{{ resolveSecretFromPath "folder.other.API_KEY.secretPath" }}`,
+			"subfolder_path": `{{ (getSecretByPath "folder/subfolder/API_KEY").SecretPath }}`,
+			"other_path":     `{{ (getSecretByPath "folder/other/API_KEY").SecretPath }}`,
 		}
 
 		data, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
@@ -287,26 +297,26 @@ var _ = Describe("RenderPerKeyTemplates with resolveSecretFromPath", func() {
 	})
 })
 
-var _ = Describe("RenderBulkTemplate with resolveSecretFromPath", func() {
+var _ = Describe("RenderBulkTemplate with getSecretByPath", func() {
 
 	It("returns error for non-existent path segment", func() {
-		tmpl := `bad: "{{ resolveSecretFromPath "missing.DB_HOST.value" }}"`
+		tmpl := `bad: "{{ getSecretByPath "missing/DB_HOST" }}"`
 
 		_, err := v1.RenderBulkTemplate(tmpl, subfolderCtx)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("not found"))
 	})
 
-	It("resolves value via resolveSecretFromPath", func() {
-		tmpl := `host: "{{ resolveSecretFromPath "folder.subfolder.DB_HOST.value" }}"`
+	It("resolves value via getSecretByPath", func() {
+		tmpl := `host: "{{ getSecretByPath "folder/subfolder/DB_HOST" }}"`
 
 		data, err := v1.RenderBulkTemplate(tmpl, subfolderCtx)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(data).To(HaveKeyWithValue("host", []byte("prod-db.example.com")))
 	})
 
-	It("resolves secretPath via resolveSecretFromPath", func() {
-		tmpl := `path: "{{ resolveSecretFromPath "folder.other.API_KEY.secretPath" }}"`
+	It("resolves secretPath via getSecretByPath", func() {
+		tmpl := `path: "{{ (getSecretByPath "folder/other/API_KEY").SecretPath }}"`
 
 		data, err := v1.RenderBulkTemplate(tmpl, subfolderCtx)
 		Expect(err).NotTo(HaveOccurred())
@@ -314,8 +324,8 @@ var _ = Describe("RenderBulkTemplate with resolveSecretFromPath", func() {
 	})
 
 	It("resolves multiple secrets from different subfolders", func() {
-		tmpl := `dsn: "{{ resolveSecretFromPath "folder.subfolder.DB_HOST.value" }}:{{ resolveSecretFromPath "folder.subfolder.DB_PORT.value" }}"
-api_key: "{{ resolveSecretFromPath "folder.other.API_KEY.value" }}"`
+		tmpl := `dsn: "{{ getSecretByPath "folder/subfolder/DB_HOST" }}:{{ getSecretByPath "folder/subfolder/DB_PORT" }}"
+api_key: "{{ getSecretByPath "folder/other/API_KEY" }}"`
 
 		data, err := v1.RenderBulkTemplate(tmpl, subfolderCtx)
 		Expect(err).NotTo(HaveOccurred())
@@ -324,10 +334,10 @@ api_key: "{{ resolveSecretFromPath "folder.other.API_KEY.value" }}"`
 		Expect(data).To(HaveKeyWithValue("api_key", []byte("other-secret")))
 	})
 
-	It("does not duplicate values when rendering all secrets via resolveSecretFromPath", func() {
-		tmpl := `host: "{{ resolveSecretFromPath "folder.subfolder.DB_HOST.value" }}"
-port: "{{ resolveSecretFromPath "folder.subfolder.DB_PORT.value" }}"
-key: "{{ resolveSecretFromPath "folder.other.API_KEY.value" }}"`
+	It("does not duplicate values when rendering all secrets via getSecretByPath", func() {
+		tmpl := `host: "{{ getSecretByPath "folder/subfolder/DB_HOST" }}"
+port: "{{ getSecretByPath "folder/subfolder/DB_PORT" }}"
+key: "{{ getSecretByPath "folder/other/API_KEY" }}"`
 
 		data, err := v1.RenderBulkTemplate(tmpl, subfolderCtx)
 		Expect(err).NotTo(HaveOccurred())
@@ -344,12 +354,12 @@ key: "{{ resolveSecretFromPath "folder.other.API_KEY.value" }}"`
 				unique = append(unique, v)
 			}
 		}
-		Expect(unique).To(HaveLen(3), "each resolveSecretFromPath should resolve to a distinct value")
+		Expect(unique).To(HaveLen(3), "each getSecretByPath should resolve to a distinct value")
 	})
 
 	It("resolves duplicate secret keys from different paths", func() {
-		tmpl := `subfolder_key: "{{ resolveSecretFromPath "folder.subfolder.API_KEY.value" }}"
-other_key: "{{ resolveSecretFromPath "folder.other.API_KEY.value" }}"`
+		tmpl := `subfolder_key: "{{ getSecretByPath "folder/subfolder/API_KEY" }}"
+other_key: "{{ getSecretByPath "folder/other/API_KEY" }}"`
 
 		data, err := v1.RenderBulkTemplate(tmpl, subfolderCtx)
 		Expect(err).NotTo(HaveOccurred())
@@ -358,8 +368,8 @@ other_key: "{{ resolveSecretFromPath "folder.other.API_KEY.value" }}"`
 	})
 
 	It("resolves secretPath of duplicate secret keys from different paths", func() {
-		tmpl := `subfolder_path: "{{ resolveSecretFromPath "folder.subfolder.API_KEY.secretPath" }}"
-other_path: "{{ resolveSecretFromPath "folder.other.API_KEY.secretPath" }}"`
+		tmpl := `subfolder_path: "{{ (getSecretByPath "folder/subfolder/API_KEY").SecretPath }}"
+other_path: "{{ (getSecretByPath "folder/other/API_KEY").SecretPath }}"`
 
 		data, err := v1.RenderBulkTemplate(tmpl, subfolderCtx)
 		Expect(err).NotTo(HaveOccurred())

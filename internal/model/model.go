@@ -31,6 +31,15 @@ type SecretTemplateOptions struct {
 	SecretPath string `json:"secretPath"`
 }
 
+type V1TemplateOptions struct {
+	Value      string `json:"value"`
+	SecretPath string `json:"secretPath"`
+}
+
+func (o V1TemplateOptions) String() string {
+	return o.Value
+}
+
 type Project struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`

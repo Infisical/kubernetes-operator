@@ -377,6 +377,47 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 		})
 	})
 
+	It("should resolve duplicate keys from different paths via resolveSecretFromPath", func() {
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "resolve-tpl")
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/resolve-tpl", "db")
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/resolve-tpl", "cache")
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/resolve-tpl/db", "HOST", "db.internal", nil)
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/resolve-tpl/cache", "HOST", "cache.internal", nil)
+
+		createStaticSecret("e2e-resolve-path-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+			InfisicalAuthRef: authRef,
+			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
+			Sources: []secretsv1beta1.SecretSource{{
+				ProjectId:       project.ID,
+				EnvironmentSlug: project.EnvSlug,
+				SecretPath:      "/resolve-tpl",
+				Recursive:       true,
+			}},
+			Targets: []secretsv1beta1.SecretTarget{{
+				Name:           "e2e-resolve-path-synced",
+				Namespace:      testNamespace,
+				Kind:           secretsv1beta1.SecretTargetKindSecret,
+				SecretType:     corev1.SecretTypeOpaque,
+				CreationPolicy: secretsv1beta1.CreationPolicyOwner,
+				Template: &secretsv1beta1.SecretTemplate{
+					EngineVersion: "v1",
+					Data: secretsv1beta1.SecretTemplateData{
+						Map: map[string]string{
+							"DB_HOST":    `{{ resolveSecretFromPath "resolve-tpl.db.HOST.value" }}`,
+							"CACHE_HOST": `{{ resolveSecretFromPath "resolve-tpl.cache.HOST.value" }}`,
+						},
+					},
+				},
+			}},
+		})
+
+		synced := expectSecret("e2e-resolve-path-synced", "e2e-resolve-path-sync")
+		expectSecretData(synced, map[string]string{
+			"DB_HOST":    "db.internal",
+			"CACHE_HOST": "cache.internal",
+		})
+	})
+
 	It("should apply target metadata", func() {
 		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "labeled")
 		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/labeled", "TOKEN", "abc123", nil)

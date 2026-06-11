@@ -63,5 +63,11 @@ func InitializeTemplateFunctions() {
 }
 
 func GetTemplateFunctions() tpl.FuncMap {
-	return customInfisicalSecretTemplateFunctions
+	copy := make(tpl.FuncMap, len(customInfisicalSecretTemplateFunctions))
+	// secretFrom modifies the tpl.FuncMap, so to prevent data race conditions and go to panic,
+	// we copy the map to return it as value.
+	for k, v := range customInfisicalSecretTemplateFunctions {
+		copy[k] = v
+	}
+	return copy
 }

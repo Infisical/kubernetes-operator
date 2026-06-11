@@ -81,8 +81,25 @@ func RenderBulkTemplate(tmplStr string, ctx TemplateContext) (map[string][]byte,
 	return data, nil
 }
 
-func BuildSecretTree(ctx TemplateContext) map[string]any {
-	root := make(map[string]any)
+type SecretTreeNode struct {
+	Secret   *model.V1TemplateOptions
+	Children map[string]*SecretTreeNode
+}
+
+func (n *SecretTreeNode) getOrCreateChild(key string) *SecretTreeNode {
+	if n.Children == nil {
+		n.Children = make(map[string]*SecretTreeNode)
+	}
+	child, exists := n.Children[key]
+	if !exists {
+		child = &SecretTreeNode{}
+		n.Children[key] = child
+	}
+	return child
+}
+
+func BuildSecretTree(ctx TemplateContext) *SecretTreeNode {
+	root := &SecretTreeNode{}
 
 	for _, s := range ctx.rawSecrets {
 		segments := strings.Split(strings.Trim(s.SecretPath, "/"), "/")
@@ -92,16 +109,12 @@ func BuildSecretTree(ctx TemplateContext) map[string]any {
 			if seg == "" {
 				continue
 			}
-			child, exists := node[seg]
-			if !exists {
-				child = make(map[string]any)
-				node[seg] = child
-			}
-			node = child.(map[string]any)
+			node = node.getOrCreateChild(seg)
 		}
 
-		if _, exists := node[s.SecretKey]; !exists {
-			node[s.SecretKey] = model.V1TemplateOptions{
+		leaf := node.getOrCreateChild(s.SecretKey)
+		if leaf.Secret == nil {
+			leaf.Secret = &model.V1TemplateOptions{
 				Value:      s.SecretValue,
 				SecretPath: s.SecretPath,
 			}
@@ -115,36 +128,32 @@ func newTemplate(name, templateString string, ctx TemplateContext) (*tpl.Templat
 	funcs := template.GetTemplateFunctions()
 	tree := BuildSecretTree(ctx)
 	funcs["secretFrom"] = func(secretPath, secretName string) (model.V1TemplateOptions, error) {
-		var current any = tree
+		current := tree
 		for _, seg := range strings.Split(strings.Trim(secretPath, "/"), "/") {
 			if seg == "" {
 				continue
 			}
-			node, ok := current.(map[string]any)
-			if !ok {
-				return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: segment %q is not a folder", seg)
+			if current.Children == nil {
+				return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: segment %q not found", seg)
 			}
-			child, exists := node[seg]
+			child, exists := current.Children[seg]
 			if !exists {
 				return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: segment %q not found", seg)
 			}
 			current = child
 		}
 
-		node, ok := current.(map[string]any)
-		if !ok {
-			return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: path does not resolve to a folder")
+		if current.Children == nil {
+			return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: secret %q not found", secretName)
 		}
-		val, exists := node[secretName]
+		child, exists := current.Children[secretName]
 		if !exists {
 			return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: secret %q not found", secretName)
 		}
-		opts, ok := val.(model.V1TemplateOptions)
-		if !ok {
+		if child.Secret == nil {
 			return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: %q does not resolve to a secret", secretName)
 		}
-
-		return opts, nil
+		return *child.Secret, nil
 	}
 	return tpl.New(name).Funcs(funcs).Parse(templateString)
 }

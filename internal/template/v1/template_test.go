@@ -35,17 +35,17 @@ var _ = Describe("BuildSecretTree", func() {
 
 		tree := v1.BuildSecretTree(ctx)
 
-		folder, ok := tree["folder"].(map[string]any)
-		Expect(ok).To(BeTrue())
+		folder := tree.Children["folder"]
+		Expect(folder).NotTo(BeNil())
 
-		subfolder, ok := folder["subfolder"].(map[string]any)
-		Expect(ok).To(BeTrue())
-		Expect(subfolder["SECRET_1"]).To(Equal(model.V1TemplateOptions{Value: "val1", SecretPath: "/folder/subfolder"}))
-		Expect(subfolder["SECRET_2"]).To(Equal(model.V1TemplateOptions{Value: "val2", SecretPath: "/folder/subfolder"}))
+		subfolder := folder.Children["subfolder"]
+		Expect(subfolder).NotTo(BeNil())
+		Expect(subfolder.Children["SECRET_1"].Secret).To(HaveValue(Equal(model.V1TemplateOptions{Value: "val1", SecretPath: "/folder/subfolder"})))
+		Expect(subfolder.Children["SECRET_2"].Secret).To(HaveValue(Equal(model.V1TemplateOptions{Value: "val2", SecretPath: "/folder/subfolder"})))
 
-		another, ok := folder["another"].(map[string]any)
-		Expect(ok).To(BeTrue())
-		Expect(another["SECRET_3"]).To(Equal(model.V1TemplateOptions{Value: "val3", SecretPath: "/folder/another"}))
+		another := folder.Children["another"]
+		Expect(another).NotTo(BeNil())
+		Expect(another.Children["SECRET_3"].Secret).To(HaveValue(Equal(model.V1TemplateOptions{Value: "val3", SecretPath: "/folder/another"})))
 	})
 
 	It("places secrets at the root path", func() {
@@ -54,13 +54,13 @@ var _ = Describe("BuildSecretTree", func() {
 		}, nil)
 
 		tree := v1.BuildSecretTree(ctx)
-		Expect(tree["ROOT_SECRET"]).To(Equal(model.V1TemplateOptions{Value: "root-val", SecretPath: "/"}))
+		Expect(tree.Children["ROOT_SECRET"].Secret).To(HaveValue(Equal(model.V1TemplateOptions{Value: "root-val", SecretPath: "/"})))
 	})
 
 	It("returns an empty tree for empty context", func() {
 		ctx := v1.NewTemplateContext(nil, nil)
 		tree := v1.BuildSecretTree(ctx)
-		Expect(tree).To(BeEmpty())
+		Expect(tree.Children).To(BeNil())
 	})
 
 	It("handles deeply nested paths", func() {
@@ -70,15 +70,15 @@ var _ = Describe("BuildSecretTree", func() {
 
 		tree := v1.BuildSecretTree(ctx)
 
-		a, ok := tree["a"].(map[string]any)
-		Expect(ok).To(BeTrue())
-		b, ok := a["b"].(map[string]any)
-		Expect(ok).To(BeTrue())
-		c, ok := b["c"].(map[string]any)
-		Expect(ok).To(BeTrue())
-		d, ok := c["d"].(map[string]any)
-		Expect(ok).To(BeTrue())
-		Expect(d["DEEP"]).To(Equal(model.V1TemplateOptions{Value: "deep-val", SecretPath: "/a/b/c/d"}))
+		a := tree.Children["a"]
+		Expect(a).NotTo(BeNil())
+		b := a.Children["b"]
+		Expect(b).NotTo(BeNil())
+		c := b.Children["c"]
+		Expect(c).NotTo(BeNil())
+		d := c.Children["d"]
+		Expect(d).NotTo(BeNil())
+		Expect(d.Children["DEEP"].Secret).To(HaveValue(Equal(model.V1TemplateOptions{Value: "deep-val", SecretPath: "/a/b/c/d"})))
 	})
 
 	It("keeps first occurrence when duplicate keys exist at the same path", func() {
@@ -92,15 +92,15 @@ var _ = Describe("BuildSecretTree", func() {
 
 		tree := v1.BuildSecretTree(ctx)
 
-		shared, ok := tree["shared"].(map[string]any)
-		Expect(ok).To(BeTrue())
-		Expect(shared["DB_HOST"]).To(Equal(model.V1TemplateOptions{Value: "project-a-host", SecretPath: "/shared"}))
-		Expect(shared["DB_PORT"]).To(Equal(model.V1TemplateOptions{Value: "5432", SecretPath: "/shared"}))
-		Expect(shared["API_KEY"]).To(Equal(model.V1TemplateOptions{Value: "key-from-b", SecretPath: "/shared"}))
+		shared := tree.Children["shared"]
+		Expect(shared).NotTo(BeNil())
+		Expect(shared.Children["DB_HOST"].Secret).To(HaveValue(Equal(model.V1TemplateOptions{Value: "project-a-host", SecretPath: "/shared"})))
+		Expect(shared.Children["DB_PORT"].Secret).To(HaveValue(Equal(model.V1TemplateOptions{Value: "5432", SecretPath: "/shared"})))
+		Expect(shared.Children["API_KEY"].Secret).To(HaveValue(Equal(model.V1TemplateOptions{Value: "key-from-b", SecretPath: "/shared"})))
 
-		db, ok := tree["db"].(map[string]any)
-		Expect(ok).To(BeTrue())
-		Expect(db["DB_PORT"]).To(Equal(model.V1TemplateOptions{Value: "1234", SecretPath: "/db"}))
+		db := tree.Children["db"]
+		Expect(db).NotTo(BeNil())
+		Expect(db.Children["DB_PORT"].Secret).To(HaveValue(Equal(model.V1TemplateOptions{Value: "1234", SecretPath: "/db"})))
 	})
 
 	It("handles mixed root and nested secrets", func() {
@@ -111,10 +111,24 @@ var _ = Describe("BuildSecretTree", func() {
 
 		tree := v1.BuildSecretTree(ctx)
 
-		Expect(tree["AT_ROOT"]).To(Equal(model.V1TemplateOptions{Value: "r", SecretPath: "/"}))
-		app, ok := tree["app"].(map[string]any)
-		Expect(ok).To(BeTrue())
-		Expect(app["IN_FOLDER"]).To(Equal(model.V1TemplateOptions{Value: "f", SecretPath: "/app"}))
+		Expect(tree.Children["AT_ROOT"].Secret).To(HaveValue(Equal(model.V1TemplateOptions{Value: "r", SecretPath: "/"})))
+		app := tree.Children["app"]
+		Expect(app).NotTo(BeNil())
+		Expect(app.Children["IN_FOLDER"].Secret).To(HaveValue(Equal(model.V1TemplateOptions{Value: "f", SecretPath: "/app"})))
+	})
+
+	It("allows a secret key and folder segment with the same name", func() {
+		ctx := v1.NewTemplateContext([]api.Secret{
+			{SecretKey: "db", SecretValue: "some-value", SecretPath: "/"},
+			{SecretKey: "PASSWORD", SecretValue: "secret", SecretPath: "/db"},
+		}, nil)
+
+		tree := v1.BuildSecretTree(ctx)
+
+		dbNode := tree.Children["db"]
+		Expect(dbNode).NotTo(BeNil())
+		Expect(dbNode.Secret).To(HaveValue(Equal(model.V1TemplateOptions{Value: "some-value", SecretPath: "/"})))
+		Expect(dbNode.Children["PASSWORD"].Secret).To(HaveValue(Equal(model.V1TemplateOptions{Value: "secret", SecretPath: "/db"})))
 	})
 })
 

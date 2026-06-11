@@ -114,18 +114,7 @@ func BuildSecretTree(ctx TemplateContext) map[string]any {
 func newTemplate(name, templateString string, ctx TemplateContext) (*tpl.Template, error) {
 	funcs := template.GetTemplateFunctions()
 	tree := BuildSecretTree(ctx)
-	funcs["secretFrom"] = func(args ...string) (model.V1TemplateOptions, error) {
-		var secretPath, secretName string
-		switch len(args) {
-		case 1:
-			secretName = args[0]
-		case 2:
-			secretPath = args[0]
-			secretName = args[1]
-		default:
-			return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: expected 1 or 2 arguments, got %d", len(args))
-		}
-
+	funcs["secretFrom"] = func(secretPath, secretName string) (model.V1TemplateOptions, error) {
 		var current any = tree
 		for _, seg := range strings.Split(strings.Trim(secretPath, "/"), "/") {
 			if seg == "" {

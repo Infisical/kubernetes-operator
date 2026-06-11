@@ -217,7 +217,7 @@ var _ = Describe("RenderPerKeyTemplates with secretFrom", func() {
 		Expect(data).To(HaveKeyWithValue("host", []byte("prod-db.example.com")))
 	})
 
-	It("resolves value via secretFrom with single argument (name only)", func() {
+	It("resolves value via secretFrom for root path secrets", func() {
 		rootCtx := v1.NewTemplateContext(
 			[]api.Secret{
 				{SecretKey: "MY_SECRET", SecretValue: "root-val", SecretPath: "/"},
@@ -227,7 +227,7 @@ var _ = Describe("RenderPerKeyTemplates with secretFrom", func() {
 			},
 		)
 		tmpls := map[string]string{
-			"secret": `{{ secretFrom "MY_SECRET" }}`,
+			"secret": `{{ secretFrom "/" "MY_SECRET" }}`,
 		}
 
 		data, err := v1.RenderPerKeyTemplates(tmpls, rootCtx)
@@ -403,5 +403,13 @@ other_path: "{{ (secretFrom "/folder/other" "API_KEY").SecretPath }}"`
 		Expect(err).NotTo(HaveOccurred())
 		Expect(data).To(HaveKeyWithValue("subfolder_path", []byte("/folder/subfolder")))
 		Expect(data).To(HaveKeyWithValue("other_path", []byte("/folder/other")))
+	})
+
+	It("errors if only one parameter is passed to secretPath", func() {
+		tmpl := `subfolder_path: "{{ (secretFrom "API_KEY").Value }}"`
+
+		_, err := v1.RenderBulkTemplate(tmpl, subfolderCtx)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("wrong number of args"))
 	})
 })

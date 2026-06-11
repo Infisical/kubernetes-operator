@@ -377,7 +377,7 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 		})
 	})
 
-	It("should resolve duplicate keys from different paths via getSecretByPath", func() {
+	It("should resolve duplicate keys from different paths via secretFrom", func() {
 		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "resolve-tpl")
 		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/resolve-tpl", "db")
 		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/resolve-tpl", "cache")
@@ -403,8 +403,8 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 					EngineVersion: "v1",
 					Data: secretsv1beta1.SecretTemplateData{
 						Map: map[string]string{
-							"DB_HOST":    `{{ getSecretByPath "resolve-tpl/db/HOST" }}`,
-							"CACHE_HOST": `{{ (getSecretByPath "resolve-tpl/cache/HOST").Value }}`,
+							"DB_HOST":    `{{ secretFrom "/resolve-tpl/db" "HOST" }}`,
+							"CACHE_HOST": `{{ (secretFrom "/resolve-tpl/cache" "HOST").Value }}`,
 						},
 					},
 				},

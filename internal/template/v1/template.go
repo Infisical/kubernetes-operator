@@ -114,28 +114,45 @@ func BuildSecretTree(ctx TemplateContext) map[string]any {
 func newTemplate(name, templateString string, ctx TemplateContext) (*tpl.Template, error) {
 	funcs := template.GetTemplateFunctions()
 	tree := BuildSecretTree(ctx)
-	funcs["getSecretByPath"] = func(ref string) (model.V1TemplateOptions, error) {
-		parts := strings.Split(ref, "/")
-		if len(parts) < 1 {
-			return model.V1TemplateOptions{}, fmt.Errorf("getSecretByPath %q: path must not be empty", ref)
+	funcs["secretFrom"] = func(args ...string) (model.V1TemplateOptions, error) {
+		var secretPath, secretName string
+		switch len(args) {
+		case 1:
+			secretName = args[0]
+		case 2:
+			secretPath = args[0]
+			secretName = args[1]
+		default:
+			return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: expected 1 or 2 arguments, got %d", len(args))
 		}
 
 		var current any = tree
-		for _, p := range parts {
+		for _, seg := range strings.Split(strings.Trim(secretPath, "/"), "/") {
+			if seg == "" {
+				continue
+			}
 			node, ok := current.(map[string]any)
 			if !ok {
-				return model.V1TemplateOptions{}, fmt.Errorf("getSecretByPath %q: segment %q is not a folder", ref, p)
+				return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: segment %q is not a folder", seg)
 			}
-			child, exists := node[p]
+			child, exists := node[seg]
 			if !exists {
-				return model.V1TemplateOptions{}, fmt.Errorf("getSecretByPath %q: segment %q not found", ref, p)
+				return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: segment %q not found", seg)
 			}
 			current = child
 		}
 
-		opts, ok := current.(model.V1TemplateOptions)
+		node, ok := current.(map[string]any)
 		if !ok {
-			return model.V1TemplateOptions{}, fmt.Errorf("getSecretByPath %q: does not resolve to a secret", ref)
+			return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: path does not resolve to a folder")
+		}
+		val, exists := node[secretName]
+		if !exists {
+			return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: secret %q not found", secretName)
+		}
+		opts, ok := val.(model.V1TemplateOptions)
+		if !ok {
+			return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: %q does not resolve to a secret", secretName)
 		}
 
 		return opts, nil

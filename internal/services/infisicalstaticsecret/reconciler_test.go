@@ -377,7 +377,7 @@ var _ = Describe("RenderTargetOutput", func() {
 			Expect(err.Error()).To(ContainSubstring("failed to parse template"))
 		})
 
-		It("renders template using getSecretByPath to reference secrets in subfolders", func() {
+		It("renders template using secretFrom to reference secrets in subfolders", func() {
 			subfolderSecrets := []api.Secret{
 				{SecretKey: "DB_HOST", SecretValue: "prod-db.example.com", SecretPath: "/folder/subfolder"},
 				{SecretKey: "DB_PORT", SecretValue: "5432", SecretPath: "/folder/subfolder"},
@@ -391,8 +391,8 @@ var _ = Describe("RenderTargetOutput", func() {
 				Template: &v1beta1.SecretTemplate{
 					Data: v1beta1.SecretTemplateData{
 						Map: map[string]string{
-							"dsn":     `postgresql://user:pass@{{ getSecretByPath "folder/subfolder/DB_HOST" }}:{{ getSecretByPath "folder/subfolder/DB_PORT" }}/mydb`,
-							"api_key": `{{ getSecretByPath "folder/other/API_KEY" }}`,
+							"dsn":     `postgresql://user:pass@{{ secretFrom "/folder/subfolder" "DB_HOST" }}:{{ secretFrom "/folder/subfolder" "DB_PORT" }}/mydb`,
+							"api_key": `{{ secretFrom "/folder/other" "API_KEY" }}`,
 						},
 					},
 				},

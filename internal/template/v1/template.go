@@ -1,0 +1,159 @@
+package v1
+
+import (
+	"bytes"
+	"fmt"
+	"strings"
+	tpl "text/template"
+
+	"github.com/Infisical/infisical/k8-operator/internal/api"
+	"github.com/Infisical/infisical/k8-operator/internal/model"
+	"github.com/Infisical/infisical/k8-operator/internal/template"
+	"gopkg.in/yaml.v3"
+)
+
+type TemplateContext struct {
+	rawSecrets    []api.Secret
+	mergedSecrets map[string]model.V1TemplateOptions
+}
+
+func NewTemplateContext(rawSecrets []api.Secret, mergedSecrets []api.Secret) TemplateContext {
+	ctx := TemplateContext{
+		rawSecrets:    rawSecrets,
+		mergedSecrets: make(map[string]model.V1TemplateOptions, 0),
+	}
+
+	for _, s := range mergedSecrets {
+		ctx.mergedSecrets[s.SecretKey] = model.V1TemplateOptions{
+			Value:      s.SecretValue,
+			SecretPath: s.SecretPath,
+		}
+	}
+
+	return ctx
+}
+
+func RenderPerKeyTemplates(tmpls map[string]string, ctx TemplateContext) (map[string][]byte, error) {
+	data := make(map[string][]byte, len(tmpls))
+
+	for key, tmplStr := range tmpls {
+		tmpl, err := newTemplate(key, tmplStr, ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse template at key %q: %w", key, err)
+		}
+
+		var buf bytes.Buffer
+		if err := tmpl.Execute(&buf, ctx.mergedSecrets); err != nil {
+			return nil, fmt.Errorf("failed to execute template at key %q: %w", key, err)
+		}
+
+		data[key] = buf.Bytes()
+	}
+
+	return data, nil
+}
+
+func RenderBulkTemplate(tmplStr string, ctx TemplateContext) (map[string][]byte, error) {
+	tmpl, err := newTemplate("template.data", tmplStr, ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse bulk template: %w", err)
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, ctx.mergedSecrets); err != nil {
+		return nil, fmt.Errorf("failed to execute bulk template: %w", err)
+	}
+
+	rendered := bytes.TrimSpace(buf.Bytes())
+	if len(rendered) == 0 {
+		return map[string][]byte{}, nil
+	}
+
+	var parsed map[string]string
+	if err := yaml.Unmarshal(rendered, &parsed); err != nil {
+		return nil, fmt.Errorf("bulk template output is not a valid YAML map of key/value pairs: %w", err)
+	}
+
+	data := make(map[string][]byte, len(parsed))
+	for k, v := range parsed {
+		data[k] = []byte(v)
+	}
+	return data, nil
+}
+
+type SecretTreeNode struct {
+	Secret   *model.V1TemplateOptions
+	Children map[string]*SecretTreeNode
+}
+
+func (n *SecretTreeNode) getOrCreateChild(key string) *SecretTreeNode {
+	if n.Children == nil {
+		n.Children = make(map[string]*SecretTreeNode)
+	}
+	child, exists := n.Children[key]
+	if !exists {
+		child = &SecretTreeNode{}
+		n.Children[key] = child
+	}
+	return child
+}
+
+func BuildSecretTree(ctx TemplateContext) *SecretTreeNode {
+	root := &SecretTreeNode{}
+
+	for _, s := range ctx.rawSecrets {
+		segments := strings.Split(strings.Trim(s.SecretPath, "/"), "/")
+
+		node := root
+		for _, seg := range segments {
+			if seg == "" {
+				continue
+			}
+			node = node.getOrCreateChild(seg)
+		}
+
+		leaf := node.getOrCreateChild(s.SecretKey)
+		if leaf.Secret == nil {
+			leaf.Secret = &model.V1TemplateOptions{
+				Value:      s.SecretValue,
+				SecretPath: s.SecretPath,
+			}
+		}
+	}
+
+	return root
+}
+
+func newTemplate(name, templateString string, ctx TemplateContext) (*tpl.Template, error) {
+	funcs := template.GetTemplateFunctions()
+	tree := BuildSecretTree(ctx)
+	funcs["secretFrom"] = func(secretPath, secretName string) (model.V1TemplateOptions, error) {
+		current := tree
+		for _, seg := range strings.Split(strings.Trim(secretPath, "/"), "/") {
+			if seg == "" {
+				continue
+			}
+			if current.Children == nil {
+				return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: segment %q not found", seg)
+			}
+			child, exists := current.Children[seg]
+			if !exists {
+				return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: segment %q not found", seg)
+			}
+			current = child
+		}
+
+		if current.Children == nil {
+			return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: secret %q not found", secretName)
+		}
+		child, exists := current.Children[secretName]
+		if !exists {
+			return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: secret %q not found", secretName)
+		}
+		if child.Secret == nil {
+			return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: %q does not resolve to a secret", secretName)
+		}
+		return *child.Secret, nil
+	}
+	return tpl.New(name).Funcs(funcs).Parse(templateString)
+}

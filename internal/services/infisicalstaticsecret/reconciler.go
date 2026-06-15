@@ -1,14 +1,12 @@
 package infisicalstaticsecret
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"maps"
 	"sort"
 	"strings"
-	tpl "text/template"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/api"
@@ -16,10 +14,10 @@ import (
 	"github.com/Infisical/infisical/k8-operator/internal/constants"
 	"github.com/Infisical/infisical/k8-operator/internal/crypto"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
-	"github.com/Infisical/infisical/k8-operator/internal/template"
+	templatev1 "github.com/Infisical/infisical/k8-operator/internal/template/v1"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
+
 	"github.com/go-logr/logr"
-	"gopkg.in/yaml.v3"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8Errors "k8s.io/apimachinery/pkg/api/errors"
@@ -379,10 +377,10 @@ func (r *InfisicalStaticSecretReconciler) MergeSecretSources(secrets []api.Secre
 	return merged
 }
 
-func (r *InfisicalStaticSecretReconciler) RenderTargetOutput(secrets []api.Secret, target v1beta1.SecretTarget) (map[string][]byte, error) {
+func (r *InfisicalStaticSecretReconciler) RenderTargetOutput(mergedSecrets, rawSecrets []api.Secret, target v1beta1.SecretTarget) (map[string][]byte, error) {
 	data := make(map[string][]byte)
 
-	for _, s := range secrets {
+	for _, s := range mergedSecrets {
 		data[s.SecretKey] = []byte(s.SecretValue)
 	}
 
@@ -390,72 +388,12 @@ func (r *InfisicalStaticSecretReconciler) RenderTargetOutput(secrets []api.Secre
 		return data, nil
 	}
 
-	templateCtx := make(map[string]model.SecretTemplateOptions, len(secrets))
-	for _, s := range secrets {
-		templateCtx[s.SecretKey] = model.SecretTemplateOptions{
-			Value:      s.SecretValue,
-			SecretPath: s.SecretPath,
-		}
-	}
-
+	templateCtx := templatev1.NewTemplateContext(rawSecrets, mergedSecrets)
 	if target.Template.Data.IsRaw() {
-		return renderBulkTemplate(target.Template.Data.Raw, templateCtx)
+		return templatev1.RenderBulkTemplate(target.Template.Data.Raw, templateCtx)
 	}
 
-	return renderPerKeyTemplates(target.Template.Data.Map, templateCtx)
-}
-
-// renderPerKeyTemplates renders one Go template per map entry. Each entry's
-// rendered output becomes a single key in the resulting Secret / ConfigMap.
-func renderPerKeyTemplates(tmpls map[string]string, ctx map[string]model.SecretTemplateOptions) (map[string][]byte, error) {
-	data := make(map[string][]byte, len(tmpls))
-
-	for key, tmplStr := range tmpls {
-		tmpl, err := tpl.New(key).Funcs(template.GetTemplateFunctions()).Parse(tmplStr)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse template at key %q: %w", key, err)
-		}
-
-		var buf bytes.Buffer
-		if err := tmpl.Execute(&buf, ctx); err != nil {
-			return nil, fmt.Errorf("failed to execute template at key %q: %w", key, err)
-		}
-
-		data[key] = buf.Bytes()
-	}
-
-	return data, nil
-}
-
-// renderBulkTemplate renders a single Go template whose output is parsed as a
-// YAML map of key/value pairs. Each resulting entry becomes one key in the
-// Secret / ConfigMap.
-func renderBulkTemplate(tmplStr string, ctx map[string]model.SecretTemplateOptions) (map[string][]byte, error) {
-	tmpl, err := tpl.New("template.data").Funcs(template.GetTemplateFunctions()).Parse(tmplStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse bulk template: %w", err)
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, ctx); err != nil {
-		return nil, fmt.Errorf("failed to execute bulk template: %w", err)
-	}
-
-	rendered := bytes.TrimSpace(buf.Bytes())
-	if len(rendered) == 0 {
-		return map[string][]byte{}, nil
-	}
-
-	var parsed map[string]string
-	if err := yaml.Unmarshal(rendered, &parsed); err != nil {
-		return nil, fmt.Errorf("bulk template output is not a valid YAML map of key/value pairs: %w", err)
-	}
-
-	data := make(map[string][]byte, len(parsed))
-	for k, v := range parsed {
-		data[k] = []byte(v)
-	}
-	return data, nil
+	return templatev1.RenderPerKeyTemplates(target.Template.Data.Map, templateCtx)
 }
 
 // SyncKubeSecret creates or updates a Kubernetes Secret with the secrets content.

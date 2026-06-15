@@ -275,7 +275,7 @@ var _ = Describe("RenderTargetOutput", func() {
 				Kind:      v1beta1.SecretTargetKindSecret,
 			}
 
-			data, err := reconciler.RenderTargetOutput(secrets, target)
+			data, err := reconciler.RenderTargetOutput(secrets, secrets, target)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(data).To(HaveLen(3))
 			Expect(data).To(HaveKeyWithValue("DB_HOST", []byte("localhost")))
@@ -290,7 +290,7 @@ var _ = Describe("RenderTargetOutput", func() {
 				Kind:      v1beta1.SecretTargetKindSecret,
 			}
 
-			data, err := reconciler.RenderTargetOutput([]api.Secret{}, target)
+			data, err := reconciler.RenderTargetOutput([]api.Secret{}, []api.Secret{}, target)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(data).To(BeEmpty())
 		})
@@ -311,7 +311,7 @@ var _ = Describe("RenderTargetOutput", func() {
 				},
 			}
 
-			data, err := reconciler.RenderTargetOutput(secrets, target)
+			data, err := reconciler.RenderTargetOutput(secrets, secrets, target)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(data).To(HaveLen(1))
 			Expect(data).To(HaveKeyWithValue("dsn", []byte("postgresql://user:pass@localhost:5432/mydb")))
@@ -331,7 +331,7 @@ var _ = Describe("RenderTargetOutput", func() {
 				},
 			}
 
-			data, err := reconciler.RenderTargetOutput(secrets, target)
+			data, err := reconciler.RenderTargetOutput(secrets, secrets, target)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(data).To(HaveKeyWithValue("info", []byte("localhost from /db")))
 		})
@@ -351,7 +351,7 @@ var _ = Describe("RenderTargetOutput", func() {
 				},
 			}
 
-			data, err := reconciler.RenderTargetOutput(secrets, target)
+			data, err := reconciler.RenderTargetOutput(secrets, secrets, target)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(data).To(HaveLen(2))
 			Expect(data).To(HaveKeyWithValue("host", []byte("localhost")))
@@ -372,9 +372,37 @@ var _ = Describe("RenderTargetOutput", func() {
 				},
 			}
 
-			_, err := reconciler.RenderTargetOutput(secrets, target)
+			_, err := reconciler.RenderTargetOutput(secrets, secrets, target)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to parse template"))
+		})
+
+		It("renders template using secretFrom to reference secrets in subfolders", func() {
+			subfolderSecrets := []api.Secret{
+				{SecretKey: "DB_HOST", SecretValue: "prod-db.example.com", SecretPath: "/folder/subfolder"},
+				{SecretKey: "DB_PORT", SecretValue: "5432", SecretPath: "/folder/subfolder"},
+				{SecretKey: "API_KEY", SecretValue: "sk-secret-123", SecretPath: "/folder/other"},
+			}
+
+			target := v1beta1.SecretTarget{
+				Name:      "ref-test",
+				Namespace: "default",
+				Kind:      v1beta1.SecretTargetKindSecret,
+				Template: &v1beta1.SecretTemplate{
+					Data: v1beta1.SecretTemplateData{
+						Map: map[string]string{
+							"dsn":     `postgresql://user:pass@{{ secretFrom "/folder/subfolder" "DB_HOST" }}:{{ secretFrom "/folder/subfolder" "DB_PORT" }}/mydb`,
+							"api_key": `{{ secretFrom "/folder/other" "API_KEY" }}`,
+						},
+					},
+				},
+			}
+
+			data, err := reconciler.RenderTargetOutput(subfolderSecrets, subfolderSecrets, target)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(data).To(HaveLen(2))
+			Expect(data).To(HaveKeyWithValue("dsn", []byte("postgresql://user:pass@prod-db.example.com:5432/mydb")))
+			Expect(data).To(HaveKeyWithValue("api_key", []byte("sk-secret-123")))
 		})
 	})
 
@@ -393,7 +421,7 @@ var _ = Describe("RenderTargetOutput", func() {
 				},
 			}
 
-			data, err := reconciler.RenderTargetOutput(secrets, target)
+			data, err := reconciler.RenderTargetOutput(secrets, secrets, target)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(data).To(HaveLen(3))
 			Expect(data).To(HaveKeyWithValue("DB_HOST", []byte("localhost")))
@@ -414,7 +442,7 @@ COUNT: "{{ len . }}"`,
 				},
 			}
 
-			data, err := reconciler.RenderTargetOutput(secrets, target)
+			data, err := reconciler.RenderTargetOutput(secrets, secrets, target)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(data).To(HaveKeyWithValue("DSN", []byte("postgres://localhost:5432/mydb")))
 			Expect(data).To(HaveKeyWithValue("COUNT", []byte("3")))
@@ -430,7 +458,7 @@ COUNT: "{{ len . }}"`,
 				},
 			}
 
-			data, err := reconciler.RenderTargetOutput(secrets, target)
+			data, err := reconciler.RenderTargetOutput(secrets, secrets, target)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(data).To(BeEmpty())
 		})
@@ -445,7 +473,7 @@ COUNT: "{{ len . }}"`,
 				},
 			}
 
-			_, err := reconciler.RenderTargetOutput(secrets, target)
+			_, err := reconciler.RenderTargetOutput(secrets, secrets, target)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to parse bulk template"))
 		})
@@ -462,7 +490,7 @@ COUNT: "{{ len . }}"`,
 				},
 			}
 
-			_, err := reconciler.RenderTargetOutput(secrets, target)
+			_, err := reconciler.RenderTargetOutput(secrets, secrets, target)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("bulk template output is not a valid YAML map"))
 		})

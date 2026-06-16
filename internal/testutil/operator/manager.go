@@ -30,13 +30,20 @@ const (
 	kindNetwork     = "kind"
 )
 
+type KubernetesClusterInfo struct {
+	Host   string
+	CACert string
+}
+
 type Manager struct {
 	client          client.Client
 	inClusterAPIURL string
+	clusterInfo     *KubernetesClusterInfo
 }
 
-func (m *Manager) Client() client.Client   { return m.client }
-func (m *Manager) InClusterAPIURL() string { return m.inClusterAPIURL }
+func (m *Manager) Client() client.Client               { return m.client }
+func (m *Manager) InClusterAPIURL() string             { return m.inClusterAPIURL }
+func (m *Manager) ClusterInfo() *KubernetesClusterInfo { return m.clusterInfo }
 
 func (m *Manager) Stop() {
 	cmd := exec.Command("helm", "uninstall", helmReleaseName, "--namespace", helmNamespace, "--wait")
@@ -46,7 +53,8 @@ func (m *Manager) Stop() {
 }
 
 type InstallOpts struct {
-	HostAPIURL string
+	HostAPIURL      string
+	ScopedNamespace string
 }
 
 func Install(opts InstallOpts) (*Manager, error) {
@@ -90,6 +98,13 @@ controllerManager:
     - --health-probe-bind-address=:8081
 `, inClusterURL)
 
+	if opts.ScopedNamespace != "" {
+		valuesContent += fmt.Sprintf(`scopedNamespaces:
+  - %q
+scopedRBAC: true
+`, opts.ScopedNamespace)
+	}
+
 	if _, err := valuesFile.WriteString(valuesContent); err != nil {
 		return nil, fmt.Errorf("write values file: %w", err)
 	}
@@ -123,9 +138,15 @@ controllerManager:
 		return nil, fmt.Errorf("create k8s client: %w", err)
 	}
 
+	clusterInfo, err := buildClusterInfo(kindNetwork)
+	if err != nil {
+		return nil, fmt.Errorf("get cluster info: %w", err)
+	}
+
 	return &Manager{
 		client:          k8sClient,
 		inClusterAPIURL: inClusterURL,
+		clusterInfo:     clusterInfo,
 	}, nil
 }
 
@@ -245,4 +266,29 @@ func kindIPv4Gateway(networkName string) (string, error) {
 	}
 
 	return "", fmt.Errorf("no IPv4 gateway found in docker network %q IPAM config", networkName)
+}
+
+func buildClusterInfo(networkName string) (*KubernetesClusterInfo, error) {
+	clusterName := os.Getenv("KIND_CLUSTER")
+	if clusterName == "" {
+		clusterName = "infisical-operator-test-e2e"
+	}
+
+	controlPlaneIP, err := cmdOutput(
+		"docker", "inspect", clusterName+"-control-plane",
+		"--format", fmt.Sprintf("{{(index .NetworkSettings.Networks %q).IPAddress}}", networkName),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get control plane IP: %w", err)
+	}
+
+	caCert, err := cmdOutput("docker", "exec", clusterName+"-control-plane", "cat", "/etc/kubernetes/pki/ca.crt")
+	if err != nil {
+		return nil, fmt.Errorf("get CA cert: %w", err)
+	}
+
+	return &KubernetesClusterInfo{
+		Host:   fmt.Sprintf("https://%s:6443", controlPlaneIP),
+		CACert: caCert,
+	}, nil
 }

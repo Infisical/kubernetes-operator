@@ -556,6 +556,71 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 		Expect(cm.Data).To(HaveKeyWithValue("SHARED_KEY", "shared-val"))
 	})
 
+	It("should fail to sync to a namespace outside the operator's scope", func() {
+		outsideNs := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{Name: "e2e-outside-ns"},
+		}
+		Expect(k.Create(ctx, outsideNs)).To(Succeed())
+		DeferCleanup(func() { _ = client.IgnoreNotFound(k.Delete(ctx, outsideNs)) })
+
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "outside-ns")
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/outside-ns", "SOME_KEY", "some-val", nil)
+
+		createStaticSecret("e2e-outside-ns-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+			InfisicalAuthRef: authRef,
+			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
+			Sources: []secretsv1beta1.SecretSource{{
+				ProjectId:       project.ID,
+				EnvironmentSlug: project.EnvSlug,
+				SecretPath:      "/outside-ns",
+			}},
+			Targets: []secretsv1beta1.SecretTarget{{
+				Name:           "e2e-outside-ns-synced",
+				Namespace:      "e2e-outside-ns",
+				Kind:           secretsv1beta1.SecretTargetKindSecret,
+				SecretType:     corev1.SecretTypeOpaque,
+				CreationPolicy: secretsv1beta1.CreationPolicyOwner,
+			}},
+		})
+
+		Eventually(func(g Gomega) {
+			var ss secretsv1beta1.InfisicalStaticSecret
+			g.Expect(k.Get(ctx, types.NamespacedName{Name: "e2e-outside-ns-sync", Namespace: testNamespace}, &ss)).To(Succeed())
+			cond := meta.FindStatusCondition(ss.Status.Conditions, "secrets.infisical.com/LastReconcileStatus")
+			g.Expect(cond).NotTo(BeNil(), "no LastReconcileStatus condition yet")
+			g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			g.Expect(cond.Message).To(ContainSubstring("namespace-scoped"))
+		}).WithTimeout(60 * time.Second).WithPolling(time.Second).Should(Succeed())
+	})
+
+	It("should fail when the source path does not exist in Infisical", func() {
+		createStaticSecret("e2e-nonexistent-path", secretsv1beta1.InfisicalStaticSecretSpec{
+			InfisicalAuthRef: authRef,
+			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
+			Sources: []secretsv1beta1.SecretSource{{
+				ProjectId:       project.ID,
+				EnvironmentSlug: project.EnvSlug,
+				SecretPath:      "/this-path-does-not-exist",
+			}},
+			Targets: []secretsv1beta1.SecretTarget{{
+				Name:           "e2e-nonexistent-path-synced",
+				Namespace:      testNamespace,
+				Kind:           secretsv1beta1.SecretTargetKindSecret,
+				SecretType:     corev1.SecretTypeOpaque,
+				CreationPolicy: secretsv1beta1.CreationPolicyOwner,
+			}},
+		})
+
+		Eventually(func(g Gomega) {
+			var ss secretsv1beta1.InfisicalStaticSecret
+			g.Expect(k.Get(ctx, types.NamespacedName{Name: "e2e-nonexistent-path", Namespace: testNamespace}, &ss)).To(Succeed())
+			cond := meta.FindStatusCondition(ss.Status.Conditions, "secrets.infisical.com/LastReconcileStatus")
+			g.Expect(cond).NotTo(BeNil(), "no LastReconcileStatus condition yet")
+			g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			g.Expect(cond.Message).To(ContainSubstring("failed to list secrets"))
+		}).WithTimeout(60 * time.Second).WithPolling(time.Second).Should(Succeed())
+	})
+
 	It("should sync with secret imports", func() {
 		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "shared-lib")
 		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/shared-lib", "REDIS_URL", "redis://cache:6379", nil)

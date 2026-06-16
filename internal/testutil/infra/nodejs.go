@@ -78,16 +78,18 @@ func (n *NodeJSService) IdentityToken() string { return n.identityToken }
 func (n *NodeJSService) UserToken() string     { return n.userToken }
 func (n *NodeJSService) Client() *resty.Client { return n.client }
 
-func startNodeJS(ctx context.Context, networkName string, files []testcontainers.ContainerFile, cmd []string) (*NodeJSService, error) {
+func startNodeJS(ctx context.Context, networkName string, files []testcontainers.ContainerFile, cmd []string, extraNetworks []string) (*NodeJSService, error) {
 	user := ""
 	if len(cmd) > 0 {
 		user = "root"
 	}
 
+	networks := append([]string{networkName}, extraNetworks...)
+
 	req := testcontainers.ContainerRequest{
 		Image:        "infisical/infisical:latest",
 		ExposedPorts: []string{"8080/tcp"},
-		Networks:     []string{networkName},
+		Networks:     networks,
 		NetworkAliases: map[string][]string{
 			networkName: {"backend-nodejs"},
 		},
@@ -627,5 +629,59 @@ func (n *NodeJSService) RevokeAccessToken(t TestingT, accessToken string) {
 	}
 	if r.IsError() {
 		t.Fatalf("infra.RevokeAccessToken: returned %d: %s", r.StatusCode(), r.String())
+	}
+}
+
+func (n *NodeJSService) SetupKubernetesAuth(t TestingT, identityID string, opts KubernetesAuthSetup) {
+	t.Helper()
+
+	var resp CreateKubernetesAuthResponse
+	r, err := n.client.R().
+		SetAuthToken(n.identityToken).
+		SetBody(CreateKubernetesAuthRequest{
+			KubernetesHost:          opts.KubernetesHost,
+			CACert:                  opts.CACert,
+			TokenReviewerJwt:        opts.TokenReviewerJwt,
+			AllowedNamespaces:       opts.AllowedNamespaces,
+			AllowedNames:            opts.AllowedNames,
+			AllowedAudience:         "",
+			AccessTokenTrustedIPs:   []IPAddress{{IPAddress: "0.0.0.0/0"}},
+			AccessTokenTTL:          3600,
+			AccessTokenMaxTTL:       7200,
+			AccessTokenNumUsesLimit: 0,
+		}).
+		SetResult(&resp).
+		Post("/api/v1/auth/kubernetes-auth/identities/" + identityID)
+	if err != nil {
+		t.Fatalf("infra.SetupKubernetesAuth: request failed: %v", err)
+	}
+	if r.IsError() {
+		t.Fatalf("infra.SetupKubernetesAuth: returned %d: %s", r.StatusCode(), r.String())
+	}
+}
+
+func (n *NodeJSService) CreateProjectRole(t TestingT, projectID, slug, name string, permissions []Permission) *ProjectRoleSeed {
+	t.Helper()
+
+	var resp CreateProjectRoleResponse
+	r, err := n.client.R().
+		SetAuthToken(n.identityToken).
+		SetBody(CreateProjectRoleRequest{
+			Slug:        slug,
+			Name:        name,
+			Permissions: permissions,
+		}).
+		SetResult(&resp).
+		Post(fmt.Sprintf("/api/v1/projects/%s/roles", projectID))
+	if err != nil {
+		t.Fatalf("infra.CreateProjectRole: request failed: %v", err)
+	}
+	if r.IsError() {
+		t.Fatalf("infra.CreateProjectRole: returned %d: %s", r.StatusCode(), r.String())
+	}
+
+	return &ProjectRoleSeed{
+		ID:   resp.Role.ID,
+		Slug: slug,
 	}
 }

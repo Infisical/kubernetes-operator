@@ -14,11 +14,12 @@ import (
 const licenseFeaturePath = "/backend/dist/ee/services/license/license-fns.mjs"
 
 type Builder struct {
-	wantPostgres bool
-	wantRedis    bool
-	wantNodeJS   bool
-	nodeJSFiles  []testcontainers.ContainerFile
-	eeFeatures   []string
+	wantPostgres  bool
+	wantRedis     bool
+	wantNodeJS    bool
+	nodeJSFiles   []testcontainers.ContainerFile
+	eeFeatures    []string
+	extraNetworks []string
 }
 
 func New() *Builder { return &Builder{} }
@@ -36,6 +37,11 @@ func (b *Builder) WithNodeJSApi() *Builder {
 
 func (b *Builder) WithNodeJSFile(file testcontainers.ContainerFile) *Builder {
 	b.nodeJSFiles = append(b.nodeJSFiles, file)
+	return b
+}
+
+func (b *Builder) WithExtraNetworks(networks ...string) *Builder {
+	b.extraNetworks = append(b.extraNetworks, networks...)
 	return b
 }
 
@@ -97,7 +103,7 @@ func (b *Builder) MustStart() *Stack {
 	}
 
 	if b.wantNodeJS {
-		stack.nodejs, err = startNodeJS(ctx, net.Name, b.nodeJSFiles, b.buildNodeJSCmd())
+		stack.nodejs, err = startNodeJS(ctx, net.Name, b.nodeJSFiles, b.buildNodeJSCmd(), b.extraNetworks)
 		if err != nil {
 			log.Fatalf("infra: %v", err)
 		}

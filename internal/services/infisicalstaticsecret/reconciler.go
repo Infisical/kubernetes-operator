@@ -438,6 +438,9 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeSecret(ctx context.Context, ow
 	}
 
 	if err != nil {
+		if util.IsNamespaceScopedError(err, r.IsNamespaceScoped) {
+			return false, model.NewTargetNamespaceScopedError(err, target.Name, target.Namespace)
+		}
 		return false, fmt.Errorf("failed to get existing secret: %w", err)
 	}
 
@@ -508,6 +511,9 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeConfigMap(ctx context.Context,
 	}
 
 	if err != nil {
+		if util.IsNamespaceScopedError(err, r.IsNamespaceScoped) {
+			return false, model.NewTargetNamespaceScopedError(err, target.Name, target.Namespace)
+		}
 		return false, fmt.Errorf("failed to get existing config map: %w", err)
 	}
 

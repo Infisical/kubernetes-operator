@@ -213,3 +213,47 @@ type UniversalAuthCredentials struct {
 	ClientID     string
 	ClientSecret string
 }
+
+type CreateKubernetesAuthRequest struct {
+	KubernetesHost          string      `json:"kubernetesHost"`
+	CACert                  string      `json:"caCert"`
+	TokenReviewerJwt        string      `json:"tokenReviewerJwt"`
+	AllowedNamespaces       string      `json:"allowedNamespaces"`
+	AllowedNames            string      `json:"allowedNames"`
+	AllowedAudience         string      `json:"allowedAudience"`
+	AccessTokenTrustedIPs   []IPAddress `json:"accessTokenTrustedIps"`
+	AccessTokenTTL          int         `json:"accessTokenTTL"`
+	AccessTokenMaxTTL       int         `json:"accessTokenMaxTTL"`
+	AccessTokenNumUsesLimit int         `json:"accessTokenNumUsesLimit"`
+}
+
+type CreateKubernetesAuthResponse struct {
+	IdentityKubernetesAuth struct {
+		ID string `json:"id"`
+	} `json:"identityKubernetesAuth"`
+}
+
+type KubernetesAuthSetup struct {
+	KubernetesHost    string
+	CACert            string
+	TokenReviewerJwt  string
+	AllowedNamespaces string
+	AllowedNames      string
+}
+
+type CreateProjectRoleRequest struct {
+	Slug        string       `json:"slug"`
+	Name        string       `json:"name"`
+	Permissions []Permission `json:"permissions"`
+}
+
+type CreateProjectRoleResponse struct {
+	Role struct {
+		ID string `json:"id"`
+	} `json:"role"`
+}
+
+type ProjectRoleSeed struct {
+	ID   string
+	Slug string
+}

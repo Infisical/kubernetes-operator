@@ -25,11 +25,12 @@ func TestE2E(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	testInfra = infra.New().WithNodeJSApi().MustStart()
+	testInfra = infra.New().WithNodeJSApi().WithExtraNetworks("kind").WithEEFeatures("rbac").MustStart()
 
 	var err error
 	testManager, err = operator.Install(operator.InstallOpts{
-		HostAPIURL: testInfra.NodeJS().URL(),
+		HostAPIURL:      testInfra.NodeJS().URL(),
+		ScopedNamespace: "default",
 	})
 	Expect(err).NotTo(HaveOccurred())
 })

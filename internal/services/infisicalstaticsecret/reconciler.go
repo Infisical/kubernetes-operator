@@ -169,7 +169,7 @@ func (r *InfisicalStaticSecretReconciler) Validate(infisicalStaticSecret *v1beta
 			return fmt.Errorf("either sources[%d].projectId or sources[%d].projectSlug must be set", i, i)
 		}
 		if source.ProjectId != "" && source.ProjectSlug != "" {
-			return fmt.Errorf("you declared both sources[%d].projectId or sources[%d].projectSlug: you should declare only one", i, i)
+			return fmt.Errorf("you declared both sources[%d].projectId and sources[%d].projectSlug: you should declare only one", i, i)
 		}
 		if source.EnvironmentSlug == "" {
 			return fmt.Errorf("sources[%d].environmentSlug is required", i)

@@ -90,13 +90,24 @@ var _ = Describe("Validate", func() {
 		Expect(err.Error()).To(ContainSubstring("at least one source is required"))
 	})
 
-	It("returns error when a source is missing projectId", func() {
+	It("returns error when a source is missing both projectId and projectSlug", func() {
 		spec := validSpec()
 		spec.Sources[0].ProjectId = ""
+		spec.Sources[0].ProjectSlug = ""
 		obj := &v1beta1.InfisicalStaticSecret{Spec: spec}
 		err := reconciler.Validate(obj)
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("sources[0].projectId is required"))
+		Expect(err.Error()).To(ContainSubstring("either sources[0].projectId or sources[0].projectSlug must be set"))
+	})
+
+	It("returns error when a source has both projectId and projectSlug", func() {
+		spec := validSpec()
+		spec.Sources[0].ProjectId = "proj-1"
+		spec.Sources[0].ProjectSlug = "proj-slug"
+		obj := &v1beta1.InfisicalStaticSecret{Spec: spec}
+		err := reconciler.Validate(obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("you declared both sources[0].projectId or sources[0].projectSlug"))
 	})
 
 	It("returns error when a source is missing environmentSlug", func() {

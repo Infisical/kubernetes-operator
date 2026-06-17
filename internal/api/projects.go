@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/Infisical/infisical/k8-operator/internal/model"
 	"github.com/go-resty/resty/v2"
@@ -13,7 +14,7 @@ func FindProjectBySlug(httpClient *resty.Client, slug string) (model.Project, er
 	response, err := httpClient.
 		R().
 		SetResult(&project).
-		Get(fmt.Sprintf("/api/v1/projects/slug/%s", slug))
+		Get(fmt.Sprintf("/api/v1/projects/slug/%s", url.PathEscape(slug)))
 	if err != nil {
 		return model.Project{}, fmt.Errorf("failed to find project by slug: %w", err)
 	}

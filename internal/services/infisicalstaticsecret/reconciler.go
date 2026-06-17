@@ -409,8 +409,8 @@ func (r *InfisicalStaticSecretReconciler) RenderTargetOutput(mergedSecrets, rawS
 }
 
 // SyncKubeSecret creates or updates a Kubernetes Secret with the secrets content.
-// Returns true when secret data changed (triggers workload propagation).
-func (r *InfisicalStaticSecretReconciler) SyncKubeSecret(ctx context.Context, owner metav1.Object, data map[string][]byte, target v1beta1.SecretTarget) (bool, error) {
+// Returns (changed, etag, error). The etag is the version written to the annotation.
+func (r *InfisicalStaticSecretReconciler) SyncKubeSecret(ctx context.Context, owner metav1.Object, data map[string][]byte, target v1beta1.SecretTarget) (bool, string, error) {
 	newEtag := crypto.ComputeEtag([]byte(fmt.Sprintf("%v", data)))
 
 	namespacedName := types.NamespacedName{
@@ -438,19 +438,19 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeSecret(ctx context.Context, ow
 
 		if target.CreationPolicy == v1beta1.CreationPolicyOwner {
 			if err := ctrl.SetControllerReference(owner, newSecret, r.Scheme); err != nil {
-				return false, fmt.Errorf("failed to set owner reference: %w", err)
+				return false, "", fmt.Errorf("failed to set owner reference: %w", err)
 			}
 		}
 
 		if err := r.Client.Create(ctx, newSecret); err != nil {
-			return false, fmt.Errorf("failed to create secret: %w", err)
+			return false, "", fmt.Errorf("failed to create secret: %w", err)
 		}
 
-		return true, nil
+		return true, newEtag, nil
 	}
 
 	if err != nil {
-		return false, fmt.Errorf("failed to get existing secret: %w", err)
+		return false, "", fmt.Errorf("failed to get existing secret: %w", err)
 	}
 
 	dataChanged := existingSecret.Annotations[constants.SECRET_VERSION_ANNOTATION] != newEtag
@@ -461,22 +461,22 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeSecret(ctx context.Context, ow
 	metadataChanged := !maps.Equal(existingSecret.Labels, labels) || !maps.Equal(existingSecret.Annotations, annotations)
 
 	if !dataChanged && !metadataChanged {
-		return false, nil
+		return false, newEtag, nil
 	}
 
 	existingSecret.Labels = labels
 	existingSecret.Annotations = annotations
 	existingSecret.Data = data
 	if err := r.Client.Update(ctx, existingSecret); err != nil {
-		return false, fmt.Errorf("failed to update secret: %w", err)
+		return false, "", fmt.Errorf("failed to update secret: %w", err)
 	}
 
-	return dataChanged, nil
+	return dataChanged, newEtag, nil
 }
 
 // SyncKubeConfigMap creates or updates a Kubernetes ConfigMap with the secrets content.
-// Returns true when config map data changed (triggers workload propagation).
-func (r *InfisicalStaticSecretReconciler) SyncKubeConfigMap(ctx context.Context, owner metav1.Object, data map[string][]byte, target v1beta1.SecretTarget) (bool, error) {
+// Returns (changed, etag, error). The etag is the version written to the annotation.
+func (r *InfisicalStaticSecretReconciler) SyncKubeConfigMap(ctx context.Context, owner metav1.Object, data map[string][]byte, target v1beta1.SecretTarget) (bool, string, error) {
 	newEtag := crypto.ComputeEtag([]byte(fmt.Sprintf("%v", data)))
 
 	namespacedName := types.NamespacedName{
@@ -508,19 +508,19 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeConfigMap(ctx context.Context,
 
 		if target.CreationPolicy == v1beta1.CreationPolicyOwner {
 			if err := ctrl.SetControllerReference(owner, newConfigMap, r.Scheme); err != nil {
-				return false, fmt.Errorf("failed to set owner reference: %w", err)
+				return false, "", fmt.Errorf("failed to set owner reference: %w", err)
 			}
 		}
 
 		if err := r.Client.Create(ctx, newConfigMap); err != nil {
-			return false, fmt.Errorf("failed to create config map: %w", err)
+			return false, "", fmt.Errorf("failed to create config map: %w", err)
 		}
 
-		return true, nil
+		return true, newEtag, nil
 	}
 
 	if err != nil {
-		return false, fmt.Errorf("failed to get existing config map: %w", err)
+		return false, "", fmt.Errorf("failed to get existing config map: %w", err)
 	}
 
 	dataChanged := existingConfigMap.Annotations[constants.SECRET_VERSION_ANNOTATION] != newEtag
@@ -531,7 +531,7 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeConfigMap(ctx context.Context,
 	metadataChanged := !maps.Equal(existingConfigMap.Labels, labels) || !maps.Equal(existingConfigMap.Annotations, annotations)
 
 	if !dataChanged && !metadataChanged {
-		return false, nil
+		return false, newEtag, nil
 	}
 
 	stringData := make(map[string]string, len(data))
@@ -543,41 +543,13 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeConfigMap(ctx context.Context,
 	existingConfigMap.Annotations = annotations
 	existingConfigMap.Data = stringData
 	if err := r.Client.Update(ctx, existingConfigMap); err != nil {
-		return false, fmt.Errorf("failed to update config map: %w", err)
+		return false, "", fmt.Errorf("failed to update config map: %w", err)
 	}
 
-	return dataChanged, nil
+	return dataChanged, newEtag, nil
 }
 
-func (r *InfisicalStaticSecretReconciler) getTargetEtag(ctx context.Context, target v1beta1.SecretTarget) (string, error) {
-	nn := types.NamespacedName{Name: target.Name, Namespace: target.Namespace}
-
-	switch target.Kind {
-	case v1beta1.SecretTargetKindSecret:
-		s := &corev1.Secret{}
-		if err := r.Client.Get(ctx, nn, s); err != nil {
-			return "", fmt.Errorf("failed to get target Secret %q: %w", target.Name, err)
-		}
-		return s.Annotations[constants.SECRET_VERSION_ANNOTATION], nil
-
-	case v1beta1.SecretTargetKindConfigMap:
-		cm := &corev1.ConfigMap{}
-		if err := r.Client.Get(ctx, nn, cm); err != nil {
-			return "", fmt.Errorf("failed to get target ConfigMap %q: %w", target.Name, err)
-		}
-		return cm.Annotations[constants.SECRET_VERSION_ANNOTATION], nil
-
-	default:
-		return "", fmt.Errorf("unsupported target kind %q", target.Kind)
-	}
-}
-
-func (r *InfisicalStaticSecretReconciler) PropagateSecretToWorkloads(ctx context.Context, target v1beta1.SecretTarget) (int, error) {
-	etag, err := r.getTargetEtag(ctx, target)
-	if err != nil {
-		return 0, err
-	}
-
+func (r *InfisicalStaticSecretReconciler) PropagateSecretToWorkloads(ctx context.Context, target v1beta1.SecretTarget, etag string) (int, error) {
 	annotationKey := fmt.Sprintf(ManagedSecretAnnotationFmt, target.Name)
 
 	workloads, err := r.listWorkloadsConsumingTarget(ctx, target)

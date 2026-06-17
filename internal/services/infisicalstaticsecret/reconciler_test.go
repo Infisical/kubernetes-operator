@@ -17,8 +17,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	k8Errors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 func secret(key, env, path string) api.Secret {
@@ -590,7 +593,7 @@ var _ = Describe("SyncKubeSecret", func() {
 		reconciler := newReconciler()
 		owner := newStaticSecret()
 
-		changed, err := reconciler.SyncKubeSecret(ctx, owner, data, target)
+		changed, _, err := reconciler.SyncKubeSecret(ctx, owner, data, target)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(changed).To(BeTrue())
 
@@ -612,7 +615,7 @@ var _ = Describe("SyncKubeSecret", func() {
 		ownerTarget := target
 		ownerTarget.CreationPolicy = v1beta1.CreationPolicyOwner
 
-		changed, err := reconciler.SyncKubeSecret(ctx, owner, data, ownerTarget)
+		changed, _, err := reconciler.SyncKubeSecret(ctx, owner, data, ownerTarget)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(changed).To(BeTrue())
 
@@ -627,7 +630,7 @@ var _ = Describe("SyncKubeSecret", func() {
 		reconciler := newReconciler()
 		owner := newStaticSecret()
 
-		changed, err := reconciler.SyncKubeSecret(ctx, owner, data, target)
+		changed, _, err := reconciler.SyncKubeSecret(ctx, owner, data, target)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(changed).To(BeTrue())
 
@@ -651,7 +654,7 @@ var _ = Describe("SyncKubeSecret", func() {
 		reconciler := newReconciler(existing)
 		owner := newStaticSecret()
 
-		changed, err := reconciler.SyncKubeSecret(ctx, owner, data, target)
+		changed, _, err := reconciler.SyncKubeSecret(ctx, owner, data, target)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(changed).To(BeTrue())
 
@@ -681,7 +684,7 @@ var _ = Describe("SyncKubeSecret", func() {
 		reconciler := newReconciler(existing)
 		owner := newStaticSecret()
 
-		changed, err := reconciler.SyncKubeSecret(ctx, owner, data, target)
+		changed, _, err := reconciler.SyncKubeSecret(ctx, owner, data, target)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(changed).To(BeFalse())
 
@@ -711,7 +714,7 @@ var _ = Describe("SyncKubeConfigMap", func() {
 		reconciler := newReconciler()
 		owner := newStaticSecret()
 
-		changed, err := reconciler.SyncKubeConfigMap(ctx, owner, data, target)
+		changed, _, err := reconciler.SyncKubeConfigMap(ctx, owner, data, target)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(changed).To(BeTrue())
 
@@ -732,7 +735,7 @@ var _ = Describe("SyncKubeConfigMap", func() {
 		ownerTarget := target
 		ownerTarget.CreationPolicy = v1beta1.CreationPolicyOwner
 
-		changed, err := reconciler.SyncKubeConfigMap(ctx, owner, data, ownerTarget)
+		changed, _, err := reconciler.SyncKubeConfigMap(ctx, owner, data, ownerTarget)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(changed).To(BeTrue())
 
@@ -747,7 +750,7 @@ var _ = Describe("SyncKubeConfigMap", func() {
 		reconciler := newReconciler()
 		owner := newStaticSecret()
 
-		changed, err := reconciler.SyncKubeConfigMap(ctx, owner, data, target)
+		changed, _, err := reconciler.SyncKubeConfigMap(ctx, owner, data, target)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(changed).To(BeTrue())
 
@@ -771,7 +774,7 @@ var _ = Describe("SyncKubeConfigMap", func() {
 		reconciler := newReconciler(existing)
 		owner := newStaticSecret()
 
-		changed, err := reconciler.SyncKubeConfigMap(ctx, owner, data, target)
+		changed, _, err := reconciler.SyncKubeConfigMap(ctx, owner, data, target)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(changed).To(BeTrue())
 
@@ -801,7 +804,7 @@ var _ = Describe("SyncKubeConfigMap", func() {
 		reconciler := newReconciler(existing)
 		owner := newStaticSecret()
 
-		changed, err := reconciler.SyncKubeConfigMap(ctx, owner, data, target)
+		changed, _, err := reconciler.SyncKubeConfigMap(ctx, owner, data, target)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(changed).To(BeFalse())
 	})
@@ -810,7 +813,7 @@ var _ = Describe("SyncKubeConfigMap", func() {
 		reconciler := newReconciler()
 		owner := newStaticSecret()
 
-		_, err := reconciler.SyncKubeConfigMap(ctx, owner, data, target)
+		_, _, err := reconciler.SyncKubeConfigMap(ctx, owner, data, target)
 		Expect(err).NotTo(HaveOccurred())
 
 		created := &corev1.ConfigMap{}
@@ -846,7 +849,7 @@ var _ = Describe("SyncKubeSecret metadata", func() {
 				Annotations: map[string]string{"note": "managed-by-test"},
 			}
 
-			changed, err := reconciler.SyncKubeSecret(ctx, owner, data, target)
+			changed, _, err := reconciler.SyncKubeSecret(ctx, owner, data, target)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(changed).To(BeTrue())
 
@@ -881,7 +884,7 @@ var _ = Describe("SyncKubeSecret metadata", func() {
 				Annotations: map[string]string{"note": "injected"},
 			}
 
-			changed, err := reconciler.SyncKubeSecret(ctx, owner, data, target)
+			changed, _, err := reconciler.SyncKubeSecret(ctx, owner, data, target)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(changed).To(BeTrue())
 
@@ -902,7 +905,7 @@ var _ = Describe("SyncKubeSecret metadata", func() {
 			owner.Labels = map[string]string{"env": "dev"}
 			owner.Annotations = map[string]string{"description": "test secret"}
 
-			changed, err := reconciler.SyncKubeSecret(ctx, owner, data, baseTarget)
+			changed, _, err := reconciler.SyncKubeSecret(ctx, owner, data, baseTarget)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(changed).To(BeTrue())
 
@@ -923,7 +926,7 @@ var _ = Describe("SyncKubeSecret metadata", func() {
 				"custom-annotation":                  "keep-me",
 			}
 
-			changed, err := reconciler.SyncKubeSecret(ctx, owner, data, baseTarget)
+			changed, _, err := reconciler.SyncKubeSecret(ctx, owner, data, baseTarget)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(changed).To(BeTrue())
 
@@ -953,7 +956,7 @@ var _ = Describe("SyncKubeSecret metadata", func() {
 			owner := newStaticSecret()
 			// CRD no longer has the "env" label
 
-			changed, err := reconciler.SyncKubeSecret(ctx, owner, data, baseTarget)
+			changed, _, err := reconciler.SyncKubeSecret(ctx, owner, data, baseTarget)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(changed).To(BeTrue())
 
@@ -981,7 +984,7 @@ var _ = Describe("SyncKubeSecret metadata", func() {
 			reconciler := newReconciler(existing)
 			owner := newStaticSecret()
 
-			changed, err := reconciler.SyncKubeSecret(ctx, owner, data, baseTarget)
+			changed, _, err := reconciler.SyncKubeSecret(ctx, owner, data, baseTarget)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(changed).To(BeFalse())
 
@@ -1016,7 +1019,7 @@ var _ = Describe("SyncKubeConfigMap metadata", func() {
 			Annotations: map[string]string{"note": "injected"},
 		}
 
-		changed, err := reconciler.SyncKubeConfigMap(ctx, owner, data, target)
+		changed, _, err := reconciler.SyncKubeConfigMap(ctx, owner, data, target)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(changed).To(BeTrue())
 
@@ -1032,7 +1035,7 @@ var _ = Describe("SyncKubeConfigMap metadata", func() {
 		owner := newStaticSecret()
 		owner.Labels = map[string]string{"env": "staging"}
 
-		changed, err := reconciler.SyncKubeConfigMap(ctx, owner, data, baseTarget)
+		changed, _, err := reconciler.SyncKubeConfigMap(ctx, owner, data, baseTarget)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(changed).To(BeTrue())
 
@@ -1058,7 +1061,7 @@ var _ = Describe("SyncKubeConfigMap metadata", func() {
 		owner := newStaticSecret()
 		owner.Labels = map[string]string{"new-label": "added"}
 
-		changed, err := reconciler.SyncKubeConfigMap(ctx, owner, data, baseTarget)
+		changed, _, err := reconciler.SyncKubeConfigMap(ctx, owner, data, baseTarget)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(changed).To(BeFalse())
 
@@ -1213,7 +1216,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			dep := newDeployment("web", true, consumesSecret, secretName)
 			reconciler := newReconciler(newTargetSecret(), dep)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1227,7 +1230,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			ds := newDaemonSet("agent", true, consumesSecret, secretName)
 			reconciler := newReconciler(newTargetSecret(), ds)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1241,7 +1244,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			ss := newStatefulSet("db", true, consumesSecret, secretName)
 			reconciler := newReconciler(newTargetSecret(), ss)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1255,7 +1258,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			dep := newDeployment("no-reload", false, consumesSecret, secretName)
 			reconciler := newReconciler(newTargetSecret(), dep)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(0))
 
@@ -1268,7 +1271,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			dep := newDeployment("unrelated", true, consumesNothing, "")
 			reconciler := newReconciler(newTargetSecret(), dep)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(0))
 
@@ -1283,7 +1286,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			dep.Spec.Template.Annotations = map[string]string{annotationKey: etag}
 			reconciler := newReconciler(newTargetSecret(), dep)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1298,7 +1301,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			ss := newStatefulSet("db", true, consumesSecret, secretName)
 			reconciler := newReconciler(newTargetSecret(), dep, ds, ss)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(3))
 
@@ -1322,7 +1325,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			dep := newDeploymentWithInitContainer("web-init", true, consumesSecret, secretName)
 			reconciler := newReconciler(newTargetSecret(), dep)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1336,7 +1339,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			ds := newDaemonSetWithInitContainer("agent-init", true, consumesSecret, secretName)
 			reconciler := newReconciler(newTargetSecret(), ds)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1350,7 +1353,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			ss := newStatefulSetWithInitContainer("db-init", true, consumesSecret, secretName)
 			reconciler := newReconciler(newTargetSecret(), ss)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1360,18 +1363,10 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			Expect(updated.Spec.Template.Annotations[annotationKey]).To(Equal(etag))
 		})
 
-		It("returns error when target secret does not exist", func() {
-			reconciler := newReconciler()
-
-			_, err := reconciler.PropagateSecretToWorkloads(ctx, target)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("failed to get target Secret"))
-		})
-
 		It("does nothing when no workloads exist", func() {
 			reconciler := newReconciler(newTargetSecret())
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(0))
 		})
@@ -1404,7 +1399,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			dep := newDeployment("web", true, consumesConfigMap, configMapName)
 			reconciler := newReconciler(newTargetConfigMap(), dep)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1418,7 +1413,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			ss := newStatefulSet("db", true, consumesConfigMap, configMapName)
 			reconciler := newReconciler(newTargetConfigMap(), ss)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1432,7 +1427,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			dep := newDeploymentWithInitContainer("web-init", true, consumesConfigMap, configMapName)
 			reconciler := newReconciler(newTargetConfigMap(), dep)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1446,7 +1441,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			ds := newDaemonSetWithInitContainer("agent-init", true, consumesConfigMap, configMapName)
 			reconciler := newReconciler(newTargetConfigMap(), ds)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1460,7 +1455,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			ss := newStatefulSetWithInitContainer("db-init", true, consumesConfigMap, configMapName)
 			reconciler := newReconciler(newTargetConfigMap(), ss)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1474,7 +1469,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			dep := newDeployment("secret-only", true, consumesSecret, configMapName)
 			reconciler := newReconciler(newTargetConfigMap(), dep)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget)
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(0))
 
@@ -1483,12 +1478,91 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			Expect(updated.Annotations).NotTo(HaveKey(configMapAnnotationKey))
 		})
 
-		It("returns error when target configmap does not exist", func() {
-			reconciler := newReconciler()
+	})
+})
 
-			_, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("failed to get target ConfigMap"))
-		})
+// newStaleCacheReconciler builds a reconciler where Get returns NotFound for
+// a specific namespaced name, simulating the informer cache lag that occurs
+// in a real cluster when a resource is created via the API server but the
+// watch event has not yet reached the local cache.
+func newStaleCacheReconciler(staleNN types.NamespacedName, objs ...client.Object) *svc.InfisicalStaticSecretReconciler {
+	s := newScheme()
+	underlying := fake.NewClientBuilder().WithScheme(s).WithObjects(objs...).Build()
+
+	wrapped := interceptor.NewClient(underlying, interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if key == staleNN {
+				return k8Errors.NewNotFound(schema.GroupResource{Resource: "secrets"}, key.Name)
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	})
+
+	return svc.NewReconcilerForTest(wrapped, s)
+}
+
+var _ = Describe("Cache lag bug: SyncKubeSecret then PropagateSecretToWorkloads", func() {
+	ctx := context.Background()
+
+	const namespace = "default"
+	const secretName = "new-target"
+
+	data := map[string][]byte{
+		"KEY": []byte("value"),
+	}
+
+	target := v1beta1.SecretTarget{
+		Name:           secretName,
+		Namespace:      namespace,
+		Kind:           v1beta1.SecretTargetKindSecret,
+		SecretType:     corev1.SecretTypeOpaque,
+		CreationPolicy: v1beta1.CreationPolicyOrphan,
+	}
+
+	It("propagates to workloads even when the informer cache has not caught up", func() {
+		dep := &appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "web",
+				Namespace: namespace,
+				Annotations: map[string]string{
+					svc.AutoReloadAnnotation: "true",
+				},
+			},
+			Spec: appsv1.DeploymentSpec{
+				Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "web"}},
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "web"}},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:  "main",
+								Image: "busybox",
+								EnvFrom: []corev1.EnvFromSource{
+									{SecretRef: &corev1.SecretEnvSource{
+										LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+									}},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		staleNN := types.NamespacedName{Name: secretName, Namespace: namespace}
+		reconciler := newStaleCacheReconciler(staleNN, dep)
+		owner := newStaticSecret()
+
+		// Step 1: SyncKubeSecret creates the target Secret. The Create call
+		// bypasses the interceptor (only Get is intercepted), so this succeeds.
+		changed, newEtag, err := reconciler.SyncKubeSecret(ctx, owner, data, target)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(changed).To(BeTrue())
+
+		// Step 2: PropagateSecretToWorkloads should succeed even though the
+		// informer cache has not caught up with the newly created Secret.
+		affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, newEtag)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(affected).To(Equal(1))
 	})
 })

@@ -234,14 +234,15 @@ func (h *InfisicalStaticSecretHandler) syncTargetSecrets(ctx context.Context, ow
 		return 0, fmt.Errorf("failed to render target output: %w", err)
 	}
 
-	var targetResourceChanged = false
+	var targetResourceChanged bool
+	var etag string
 	if target.Kind == v1beta1.SecretTargetKindSecret {
-		targetResourceChanged, err = h.reconciler.SyncKubeSecret(ctx, owner, content, target)
+		targetResourceChanged, etag, err = h.reconciler.SyncKubeSecret(ctx, owner, content, target)
 		if err != nil {
 			return 0, fmt.Errorf("failed to sync Secret %q: %w", target.Name, err)
 		}
 	} else if target.Kind == v1beta1.SecretTargetKindConfigMap {
-		targetResourceChanged, err = h.reconciler.SyncKubeConfigMap(ctx, owner, content, target)
+		targetResourceChanged, etag, err = h.reconciler.SyncKubeConfigMap(ctx, owner, content, target)
 		if err != nil {
 			return 0, fmt.Errorf("failed to sync ConfigMap %q: %w", target.Name, err)
 		}
@@ -250,7 +251,7 @@ func (h *InfisicalStaticSecretHandler) syncTargetSecrets(ctx context.Context, ow
 	}
 
 	if targetResourceChanged {
-		affectedWorkloads, err := h.reconciler.PropagateSecretToWorkloads(ctx, target)
+		affectedWorkloads, err := h.reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 		if err != nil {
 			return affectedWorkloads, fmt.Errorf("failed to reconcile dependent resources of target %q: %w", target.Name, err)
 		}

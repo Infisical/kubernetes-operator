@@ -165,8 +165,11 @@ func (r *InfisicalStaticSecretReconciler) Validate(infisicalStaticSecret *v1beta
 	}
 
 	for i, source := range spec.Sources {
-		if source.ProjectId == "" {
-			return fmt.Errorf("sources[%d].projectId is required", i)
+		if source.ProjectId == "" && source.ProjectSlug == "" {
+			return fmt.Errorf("either sources[%d].projectId or sources[%d].projectSlug must be set", i, i)
+		}
+		if source.ProjectId != "" && source.ProjectSlug != "" {
+			return fmt.Errorf("you declared both sources[%d].projectId or sources[%d].projectSlug: you should declare only one", i, i)
 		}
 		if source.EnvironmentSlug == "" {
 			return fmt.Errorf("sources[%d].environmentSlug is required", i)
@@ -324,8 +327,17 @@ func (r *InfisicalStaticSecretReconciler) ListSecretsFromSources(ctx context.Con
 	restClient = restClient.SetBaseURL(authenticationResult.Connection.Address())
 	requests := make([]api.ListSecretsRequest, 0, len(infisicalStaticSecret.Spec.Sources))
 	for _, source := range infisicalStaticSecret.Spec.Sources {
+		projectID := source.ProjectId
+		if source.ProjectSlug != "" {
+			project, err := api.FindProjectBySlug(restClient, source.ProjectSlug)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to list secrets: %w", err)
+			}
+			projectID = project.ID
+		}
+
 		requests = append(requests, api.ListSecretsRequest{
-			ProjectId:       source.ProjectId,
+			ProjectId:       projectID,
 			EnvironmentSlug: source.EnvironmentSlug,
 			SecretPath:      source.SecretPath,
 			Tags:            source.TagSlugs,

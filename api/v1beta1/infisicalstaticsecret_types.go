@@ -82,8 +82,11 @@ type SyncOptions struct {
 }
 
 type SecretSource struct {
-	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Optional
 	ProjectId string `json:"projectId"`
+
+	// +kubebuilder:validation:Optional
+	ProjectSlug string `json:"projectSlug"`
 
 	// +kubebuilder:validation:Required
 	EnvironmentSlug string `json:"environmentSlug"`

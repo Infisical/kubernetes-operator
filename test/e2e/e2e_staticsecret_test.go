@@ -556,6 +556,33 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 		Expect(cm.Data).To(HaveKeyWithValue("SHARED_KEY", "shared-val"))
 	})
 
+	It("should sync using project slug instead of project ID", func() {
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "slug-test")
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/slug-test", "SLUG_KEY", "slug-value", nil)
+
+		createStaticSecret("e2e-slug-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+			InfisicalAuthRef: authRef,
+			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
+			Sources: []secretsv1beta1.SecretSource{{
+				ProjectSlug:     project.Slug,
+				EnvironmentSlug: project.EnvSlug,
+				SecretPath:      "/slug-test",
+			}},
+			Targets: []secretsv1beta1.SecretTarget{{
+				Name:           "e2e-slug-synced",
+				Namespace:      testNamespace,
+				Kind:           secretsv1beta1.SecretTargetKindSecret,
+				SecretType:     corev1.SecretTypeOpaque,
+				CreationPolicy: secretsv1beta1.CreationPolicyOwner,
+			}},
+		})
+
+		synced := expectSecret("e2e-slug-synced", "e2e-slug-sync")
+		expectSecretData(synced, map[string]string{
+			"SLUG_KEY": "slug-value",
+		})
+	})
+
 	It("should sync with secret imports", func() {
 		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "shared-lib")
 		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/shared-lib", "REDIS_URL", "redis://cache:6379", nil)

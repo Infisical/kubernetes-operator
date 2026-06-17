@@ -27,6 +27,7 @@ func (e *TooManyRequestsError) Error() string {
 
 type ListSecretsRequest struct {
 	ProjectId       string   `json:"workspaceId"`
+	ProjectSlug     string   `json:"projectSlug"`
 	EnvironmentSlug string   `json:"environment"`
 	SecretPath      string   `json:"secretPath"`
 	Tags            []string `json:"tags,omitempty"`

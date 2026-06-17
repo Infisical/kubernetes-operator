@@ -107,7 +107,7 @@ var _ = Describe("Validate", func() {
 		obj := &v1beta1.InfisicalStaticSecret{Spec: spec}
 		err := reconciler.Validate(obj)
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("you declared both sources[0].projectId or sources[0].projectSlug"))
+		Expect(err.Error()).To(ContainSubstring("you declared both sources[0].projectId and sources[0].projectSlug"))
 	})
 
 	It("returns error when a source is missing environmentSlug", func() {

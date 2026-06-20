@@ -8,7 +8,6 @@ on:
             - "helm-charts/**"
             - "scripts/generate-helm.sh"
             - "Makefile"
-            - ".github/workflows/validate-k8-operator-helm.yml"
 
 jobs:
     validate-helm:
@@ -70,19 +69,24 @@ jobs:
                     exit 1
                   fi
 
-                  if [ "$VERSION" = "$BASE_VERSION" ]; then
-                    echo "Chart.yaml version has not been bumped (still $VERSION on ${{ github.base_ref }})."
-                    echo "Bump both version and appVersion in $CHART_FILE before merging."
-                    exit 1
+                  if git diff --exit-code --quiet "origin/${{ github.base_ref }}" -- helm-charts/secrets-operator; then
+                    echo "Helm chart unchanged from ${{ github.base_ref }}; version bump not required (current $VERSION)."
+                  else
+                    if [ "$VERSION" = "$BASE_VERSION" ]; then
+                      echo "Helm chart changed but version has not been bumped (still $VERSION on ${{ github.base_ref }})."
+                      echo "Bump both version and appVersion in $CHART_FILE before merging."
+                      exit 1
+                    fi
+
+                    HIGHEST=$(printf '%s\n%s\n' "$BASE_VERSION" "$VERSION" | sort -V | tail -n1)
+                    if [ "$HIGHEST" != "$VERSION" ]; then
+                      echo "Chart.yaml version ($VERSION) must be greater than the ${{ github.base_ref }} version ($BASE_VERSION)."
+                      exit 1
+                    fi
+
+                    echo "Chart.yaml version $VERSION is valid and bumped from $BASE_VERSION."
                   fi
 
-                  HIGHEST=$(printf '%s\n%s\n' "$BASE_VERSION" "$VERSION" | sort -V | tail -n1)
-                  if [ "$HIGHEST" != "$VERSION" ]; then
-                    echo "Chart.yaml version ($VERSION) must be greater than the ${{ github.base_ref }} version ($BASE_VERSION)."
-                    exit 1
-                  fi
-
-                  echo "Chart.yaml version $VERSION is valid and bumped from $BASE_VERSION."
                   echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
             - name: Regenerate Helm Chart

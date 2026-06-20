@@ -23,7 +23,7 @@ jobs:
 
             - name: Verify chart version matches tag
               run: |
-                  CHART_VERSION=$(grep '^version:' helm-charts/secrets-operator/Chart.yaml | awk '{print $2}')
+                  CHART_VERSION=$(grep '^version:' helm-charts/secrets-operator/Chart.yaml | awk '{print $2}' | tr -d '"')
                   TAG_VERSION="${{ steps.extract_version.outputs.version }}"
                   if [ "$CHART_VERSION" != "$TAG_VERSION" ]; then
                     echo "Chart version ($CHART_VERSION) does not match tag version ($TAG_VERSION)."

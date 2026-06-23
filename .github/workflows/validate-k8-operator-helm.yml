@@ -1,0 +1,103 @@
+name: Validate K8 Operator Helm Chart
+on:
+    pull_request:
+        types: [opened, synchronize]
+        paths:
+            - "api/**"
+            - "config/**"
+            - "helm-charts/**"
+            - "scripts/generate-helm.sh"
+            - "Makefile"
+
+jobs:
+    validate-helm:
+        name: Validate Helm Chart is up to date
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0 Aug 24, 2023
+              with:
+                  fetch-depth: 0
+
+            - name: Install Helm
+              uses: azure/setup-helm@5119fcb9089d432beecbf79bb2c7915207344b78 # v3.5 Dec 12, 2022
+              with:
+                  version: v3.10.0
+
+            - name: Install Go
+              uses: actions/setup-go@7b8cf10d4e4a01d4992d18a89f4d7dc5a3e6d6f4 # v4.3.0 Dec 15, 2015
+              with:
+                  go-version: 1.21
+
+            - name: Install dependencies
+              run: |
+                  make helmify
+                  make kustomize
+                  make controller-gen
+
+            - name: Validate Chart.yaml version
+              id: chart_version
+              run: |
+                  CHART_FILE=helm-charts/secrets-operator/Chart.yaml
+                  VERSION=$(grep '^version:' "$CHART_FILE" | awk '{print $2}' | tr -d '"')
+                  APP_VERSION=$(grep '^appVersion:' "$CHART_FILE" | awk '{print $2}' | tr -d '"')
+
+                  if [ -z "$VERSION" ]; then
+                    echo "Failed to read version from $CHART_FILE"
+                    exit 1
+                  fi
+
+                  if [ -z "$APP_VERSION" ]; then
+                    echo "Failed to read appVersion from $CHART_FILE"
+                    exit 1
+                  fi
+
+                  if [ "$VERSION" != "$APP_VERSION" ]; then
+                    echo "Chart.yaml version ($VERSION) and appVersion ($APP_VERSION) must be identical."
+                    exit 1
+                  fi
+
+                  if ! [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                    echo "Chart.yaml version ($VERSION) must follow semantic versioning prefixed with 'v' (e.g. v1.2.3)."
+                    exit 1
+                  fi
+
+                  git fetch origin "${{ github.base_ref }}" --depth=1
+                  BASE_VERSION=$(git show "origin/${{ github.base_ref }}:$CHART_FILE" | grep '^version:' | awk '{print $2}' | tr -d '"')
+                  if [ -z "$BASE_VERSION" ]; then
+                    echo "Failed to read version from base branch (${{ github.base_ref }})."
+                    exit 1
+                  fi
+
+                  if git diff --exit-code --quiet "origin/${{ github.base_ref }}" -- helm-charts/secrets-operator; then
+                    echo "Helm chart unchanged from ${{ github.base_ref }}; version bump not required (current $VERSION)."
+                  else
+                    if [ "$VERSION" = "$BASE_VERSION" ]; then
+                      echo "Helm chart changed but version has not been bumped (still $VERSION on ${{ github.base_ref }})."
+                      echo "Bump both version and appVersion in $CHART_FILE before merging."
+                      exit 1
+                    fi
+
+                    HIGHEST=$(printf '%s\n%s\n' "$BASE_VERSION" "$VERSION" | sort -V | tail -n1)
+                    if [ "$HIGHEST" != "$VERSION" ]; then
+                      echo "Chart.yaml version ($VERSION) must be greater than the ${{ github.base_ref }} version ($BASE_VERSION)."
+                      exit 1
+                    fi
+
+                    echo "Chart.yaml version $VERSION is valid and bumped from $BASE_VERSION."
+                  fi
+
+                  echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+            - name: Regenerate Helm Chart
+              run: make helm VERSION=${{ steps.chart_version.outputs.version }}
+
+            - name: Check for Helm chart differences
+              run: |
+                  if ! git diff --exit-code --quiet helm-charts/secrets-operator; then
+                    echo "Generated Helm chart differs from the committed Helm chart."
+                    echo "Run 'make helm VERSION=${{ steps.chart_version.outputs.version }}' locally and commit the changes."
+                    git diff helm-charts/secrets-operator
+                    exit 1
+                  fi
+                  echo "Helm chart is up to date."

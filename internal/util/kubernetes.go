@@ -24,6 +24,8 @@ const INFISICAL_MACHINE_IDENTITY_CLIENT_SECRET = "clientSecret"
 const INFISICAL_MACHINE_IDENTITY_LDAP_USERNAME = "username"
 const INFISICAL_MACHINE_IDENTITY_LDAP_PASSWORD = "password"
 
+const INFISICAL_MACHINE_IDENTITY_JWT = "jwt"
+
 func GetKubeSecretByNamespacedName(ctx context.Context, reconcilerClient client.Client, namespacedName types.NamespacedName) (*corev1.Secret, error) {
 	kubeSecret := &corev1.Secret{}
 	err := reconcilerClient.Get(ctx, namespacedName, kubeSecret)
@@ -91,6 +93,30 @@ func GetInfisicalLdapAuthFromKubeSecret(ctx context.Context, reconcilerClient cl
 	passwordFromSecret := ldapAuthCredsFromKubeSecret.Data[INFISICAL_MACHINE_IDENTITY_LDAP_PASSWORD]
 
 	return model.LdapIdentityDetails{Username: string(usernameFromSecret), Password: string(passwordFromSecret)}, nil
+
+}
+
+func GetInfisicalJwtAuthFromKubeSecret(ctx context.Context, reconcilerClient client.Client, jwtAuthRef v1alpha1.KubeSecretReference, isNamespaceScoped bool) (machineIdentityDetails model.JwtIdentityDetails, err error) {
+
+	jwtAuthCredsFromKubeSecret, err := GetKubeSecretByNamespacedName(ctx, reconcilerClient, types.NamespacedName{
+		Namespace: jwtAuthRef.SecretNamespace,
+		Name:      jwtAuthRef.SecretName,
+	})
+
+	if k8Errors.IsNotFound(err) {
+		return model.JwtIdentityDetails{}, nil
+	}
+
+	if err != nil {
+		if IsNamespaceScopedError(err, isNamespaceScoped) {
+			return model.JwtIdentityDetails{}, fmt.Errorf("unable to fetch Kubernetes secret. Your Operator is namespace scoped, and cannot read secrets outside of its namespace. Please ensure the secret is in the same namespace as the operator. [err=%v]", err)
+		}
+		return model.JwtIdentityDetails{}, fmt.Errorf("something went wrong when fetching your machine identity credentials [err=%s]", err)
+	}
+
+	jwtFromSecret := jwtAuthCredsFromKubeSecret.Data[INFISICAL_MACHINE_IDENTITY_JWT]
+
+	return model.JwtIdentityDetails{JWT: string(jwtFromSecret)}, nil
 
 }
 

@@ -70,6 +70,9 @@ type InfisicalAuthSpec struct {
 
 	// +kubebuilder:validation:Optional
 	LDAP *LDAPAuthConfig `json:"ldap,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	JWT *JWTAuthConfig `json:"jwt,omitempty"`
 }
 
 type UniversalAuthConfig struct {
@@ -129,6 +132,14 @@ type LDAPAuthConfig struct {
 	IdentityIDRef SecretReference `json:"identityIdRef"`
 }
 
+type JWTAuthConfig struct {
+	// +kubebuilder:validation:Required
+	IdentityIDRef SecretReference `json:"identityIdRef"`
+
+	// +kubebuilder:validation:Required
+	JWTRef SecretReference `json:"jwtRef"`
+}
+
 type NamespacedName struct {
 	// +kubebuilder:validation:Required
 	Name string `json:"name"`
@@ -142,7 +153,7 @@ type InfisicalAuthStatus struct {
 	Conditions []metav1.Condition `json:"conditions"`
 }
 
-// +kubebuilder:validation:Enum=universal;kubernetes;aws-iam;azure;gcp-id-token;gcp-iam;ldap
+// +kubebuilder:validation:Enum=universal;kubernetes;aws-iam;azure;gcp-id-token;gcp-iam;ldap;jwt
 type InfisicalAuthMethod string
 
 const (
@@ -150,6 +161,7 @@ const (
 	AzureAuth      InfisicalAuthMethod = "azure"
 	GCPIamAuth     InfisicalAuthMethod = "gcp-iam"
 	GCPIdTokenAuth InfisicalAuthMethod = "gcp-id-token"
+	JWTAuth        InfisicalAuthMethod = "jwt"
 	KubernetesAuth InfisicalAuthMethod = "kubernetes"
 	LDAPAuth       InfisicalAuthMethod = "ldap"
 	UniversalAuth  InfisicalAuthMethod = "universal"

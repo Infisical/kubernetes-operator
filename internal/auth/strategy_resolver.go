@@ -40,6 +40,7 @@ func NewAuthStrategyResolver(client client.Client, cache *cache.AuthCache, logge
 	r.add(v1beta1.GCPIdTokenAuth, NewGCPIdTokenAuth(client))
 	r.add(v1beta1.GCPIamAuth, NewGCPIamAuth(client))
 	r.add(v1beta1.LDAPAuth, NewLDAPAuth(client))
+	r.add(v1beta1.JWTAuth, NewJWTAuth(client))
 
 	return r
 }

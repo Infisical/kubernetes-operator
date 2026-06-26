@@ -1,0 +1,18 @@
+apiVersion: secrets.infisical.com/v1beta1
+kind: InfisicalAuth
+metadata:
+  name: infisicalauth-jwt-demo
+spec:
+  infisicalConnectionRef:
+    name: infisicalconnection-demo
+    namespace: default
+  method: jwt
+  jwt:
+    identityIdRef:
+      name: jwt-credentials
+      namespace: default
+      key: identityId
+    jwtRef:
+      name: jwt-credentials
+      namespace: default
+      key: jwt

@@ -25,6 +25,8 @@ type Authentication struct {
 	GcpIamAuth GcpIamAuthDetails `json:"gcpIamAuth"`
 	// +kubebuilder:validation:Optional
 	LdapAuth LdapAuthDetails `json:"ldapAuth"`
+	// +kubebuilder:validation:Optional
+	JwtAuth JwtAuthDetails `json:"jwtAuth"`
 }
 
 type UniversalAuthDetails struct {
@@ -35,6 +37,15 @@ type UniversalAuthDetails struct {
 }
 
 type LdapAuthDetails struct {
+	// +kubebuilder:validation:Required
+	IdentityID string `json:"identityId"`
+	// +kubebuilder:validation:Required
+	CredentialsRef KubeSecretReference `json:"credentialsRef"`
+	// +kubebuilder:validation:Required
+	SecretsScope MachineIdentityScopeInWorkspace `json:"secretsScope"`
+}
+
+type JwtAuthDetails struct {
 	// +kubebuilder:validation:Required
 	IdentityID string `json:"identityId"`
 	// +kubebuilder:validation:Required

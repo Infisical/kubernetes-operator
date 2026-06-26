@@ -18,6 +18,10 @@ type LdapIdentityDetails struct {
 	Password string
 }
 
+type JwtIdentityDetails struct {
+	JWT string
+}
+
 type SingleEnvironmentVariable struct {
 	Key        string `json:"key"`
 	Value      string `json:"value"`

@@ -314,6 +314,10 @@ func HandleJwtAuth(ctx context.Context, reconcilerClient client.Client, secretCr
 		return AuthenticationDetails{}, ErrAuthNotApplicable
 	}
 
+	if jwtAuthSpec.IdentityID == "" {
+		return AuthenticationDetails{}, ErrAuthNotApplicable
+	}
+
 	jwtAuthKubeSecret, err := GetInfisicalJwtAuthFromKubeSecret(ctx, reconcilerClient, v1alpha1.KubeSecretReference{
 		SecretNamespace: jwtAuthSpec.CredentialsRef.SecretNamespace,
 		SecretName:      jwtAuthSpec.CredentialsRef.SecretName,

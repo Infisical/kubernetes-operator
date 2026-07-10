@@ -186,13 +186,17 @@ var _ = Describe("ResourceCache", func() {
 	})
 
 	Describe("ProjectBySlugCacheKey", func() {
-		It("should produce a deterministic key from a slug", func() {
-			key := cache.ProjectBySlugCacheKey("my-project")
-			Expect(key).To(Equal("project_by_slug_my-project"))
+		It("should produce a deterministic key from auth ref and slug", func() {
+			key := cache.ProjectBySlugCacheKey("default", "my-auth", "my-project")
+			Expect(key).To(Equal("project_by_slug_default/my-auth/my-project"))
 		})
 
 		It("should produce distinct keys for different slugs", func() {
-			Expect(cache.ProjectBySlugCacheKey("a")).NotTo(Equal(cache.ProjectBySlugCacheKey("b")))
+			Expect(cache.ProjectBySlugCacheKey("ns", "auth", "a")).NotTo(Equal(cache.ProjectBySlugCacheKey("ns", "auth", "b")))
+		})
+
+		It("should produce distinct keys for the same slug with different auth refs", func() {
+			Expect(cache.ProjectBySlugCacheKey("ns-a", "auth-a", "slug")).NotTo(Equal(cache.ProjectBySlugCacheKey("ns-b", "auth-b", "slug")))
 		})
 	})
 })

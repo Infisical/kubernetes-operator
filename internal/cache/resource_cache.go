@@ -40,6 +40,6 @@ func (c *ResourceCache) Cleanup() {
 	}
 }
 
-func ProjectBySlugCacheKey(slug string) string {
-	return fmt.Sprintf("project_by_slug_%s", slug)
+func ProjectBySlugCacheKey(authNamespace, authName, slug string) string {
+	return fmt.Sprintf("project_by_slug_%s/%s/%s", authNamespace, authName, slug)
 }

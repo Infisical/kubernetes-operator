@@ -34,7 +34,6 @@ func NewInfisicalStaticSecretHandler(
 		Scheme:            scheme,
 		IsNamespaceScoped: isNamespaceScoped,
 		authResolver:      authResolver,
-		resourceCache:     resourceCache,
 		logger:            logger,
 		reconciler: &InfisicalStaticSecretReconciler{
 			Client:            client,
@@ -53,7 +52,6 @@ type InfisicalStaticSecretHandler struct {
 	Random            *rand.Rand
 	IsNamespaceScoped bool
 	authResolver      *auth.AuthStrategyResolver
-	resourceCache     *cache.ResourceCache
 	reconciler        *InfisicalStaticSecretReconciler
 	logger            logr.Logger
 }

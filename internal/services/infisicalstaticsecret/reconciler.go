@@ -148,8 +148,8 @@ type InfisicalStaticSecretReconciler struct {
 	logger            logr.Logger
 }
 
-func (r *InfisicalStaticSecretReconciler) getProjectIDBySlug(restClient *resty.Client, slug string) (string, error) {
-	cacheKey := cache.ProjectBySlugCacheKey(slug)
+func (r *InfisicalStaticSecretReconciler) getProjectIDBySlug(restClient *resty.Client, authRef v1beta1.NamespacedName, slug string) (string, error) {
+	cacheKey := cache.ProjectBySlugCacheKey(authRef.Namespace, authRef.Name, slug)
 	if r.resourceCache != nil {
 		if cached, ok := r.resourceCache.Get(cacheKey); ok {
 			return cached, nil
@@ -352,7 +352,7 @@ func (r *InfisicalStaticSecretReconciler) ListSecretsFromSources(ctx context.Con
 	for _, source := range infisicalStaticSecret.Spec.Sources {
 		projectID := source.ProjectId
 		if source.ProjectSlug != "" {
-			resolvedID, err := r.getProjectIDBySlug(restClient, source.ProjectSlug)
+			resolvedID, err := r.getProjectIDBySlug(restClient, infisicalStaticSecret.Spec.InfisicalAuthRef, source.ProjectSlug)
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to list secrets: %w", err)
 			}

@@ -11,6 +11,7 @@ import (
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/api"
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
+	"github.com/Infisical/infisical/k8-operator/internal/cache"
 	"github.com/Infisical/infisical/k8-operator/internal/constants"
 	"github.com/Infisical/infisical/k8-operator/internal/crypto"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
@@ -18,6 +19,7 @@ import (
 	"github.com/Infisical/infisical/k8-operator/internal/util"
 
 	"github.com/go-logr/logr"
+	"github.com/go-resty/resty/v2"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8Errors "k8s.io/apimachinery/pkg/api/errors"
@@ -142,7 +144,28 @@ type InfisicalStaticSecretReconciler struct {
 	Scheme            *runtime.Scheme
 	IsNamespaceScoped bool
 	authResolver      *auth.AuthStrategyResolver
+	resourceCache     *cache.ResourceCache
 	logger            logr.Logger
+}
+
+func (r *InfisicalStaticSecretReconciler) getProjectIDBySlug(restClient *resty.Client, slug string) (string, error) {
+	cacheKey := cache.ProjectBySlugCacheKey(slug)
+	if r.resourceCache != nil {
+		if cached, ok := r.resourceCache.Get(cacheKey); ok {
+			return cached, nil
+		}
+	}
+
+	project, err := api.FindProjectBySlug(restClient, slug)
+	if err != nil {
+		return "", err
+	}
+
+	if r.resourceCache != nil {
+		r.resourceCache.Set(cacheKey, project.ID)
+	}
+
+	return project.ID, nil
 }
 
 func (r *InfisicalStaticSecretReconciler) Validate(infisicalStaticSecret *v1beta1.InfisicalStaticSecret) error {
@@ -329,11 +352,11 @@ func (r *InfisicalStaticSecretReconciler) ListSecretsFromSources(ctx context.Con
 	for _, source := range infisicalStaticSecret.Spec.Sources {
 		projectID := source.ProjectId
 		if source.ProjectSlug != "" {
-			project, err := api.FindProjectBySlug(restClient, source.ProjectSlug)
+			resolvedID, err := r.getProjectIDBySlug(restClient, source.ProjectSlug)
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to list secrets: %w", err)
 			}
-			projectID = project.ID
+			projectID = resolvedID
 		}
 
 		requests = append(requests, api.ListSecretsRequest{

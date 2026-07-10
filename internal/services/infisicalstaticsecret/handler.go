@@ -10,6 +10,7 @@ import (
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/api"
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
+	"github.com/Infisical/infisical/k8-operator/internal/cache"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
 	"github.com/Infisical/infisical/k8-operator/internal/util/sse"
@@ -25,6 +26,7 @@ func NewInfisicalStaticSecretHandler(
 	scheme *runtime.Scheme,
 	isNamespaceScoped bool,
 	authResolver *auth.AuthStrategyResolver,
+	resourceCache *cache.ResourceCache,
 	logger logr.Logger,
 ) *InfisicalStaticSecretHandler {
 	return &InfisicalStaticSecretHandler{
@@ -32,12 +34,14 @@ func NewInfisicalStaticSecretHandler(
 		Scheme:            scheme,
 		IsNamespaceScoped: isNamespaceScoped,
 		authResolver:      authResolver,
+		resourceCache:     resourceCache,
 		logger:            logger,
 		reconciler: &InfisicalStaticSecretReconciler{
 			Client:            client,
 			Scheme:            scheme,
 			IsNamespaceScoped: isNamespaceScoped,
 			authResolver:      authResolver,
+			resourceCache:     resourceCache,
 			logger:            logger,
 		},
 	}
@@ -49,6 +53,7 @@ type InfisicalStaticSecretHandler struct {
 	Random            *rand.Rand
 	IsNamespaceScoped bool
 	authResolver      *auth.AuthStrategyResolver
+	resourceCache     *cache.ResourceCache
 	reconciler        *InfisicalStaticSecretReconciler
 	logger            logr.Logger
 }

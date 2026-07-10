@@ -25,6 +25,7 @@ import (
 	secretsv1beta1 "github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/api"
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
+	"github.com/Infisical/infisical/k8-operator/internal/cache"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
 	"github.com/Infisical/infisical/k8-operator/internal/services/infisicalstaticsecret"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
@@ -74,6 +75,7 @@ type InfisicalStaticSecretReconciler struct {
 	Scheme            *runtime.Scheme
 	IsNamespaceScoped bool
 	AuthResolver      *auth.AuthStrategyResolver
+	ProjectIDCache     *cache.ResourceCache[string]
 	SourceCh          chan event.TypedGenericEvent[client.Object]
 }
 
@@ -125,7 +127,7 @@ func (r *InfisicalStaticSecretReconciler) Reconcile(ctx context.Context, req ctr
 
 	instantUpdates := staticSecretCRD.Spec.SyncOptions != nil && staticSecretCRD.Spec.SyncOptions.InstantUpdates
 
-	handler := infisicalstaticsecret.NewInfisicalStaticSecretHandler(r.Client, r.Scheme, r.IsNamespaceScoped, r.AuthResolver, logger)
+	handler := infisicalstaticsecret.NewInfisicalStaticSecretHandler(r.Client, r.Scheme, r.IsNamespaceScoped, r.AuthResolver, r.ProjectIDCache, logger)
 	secretsCount, err := handler.SyncSecrets(ctx, &staticSecretCRD)
 	if err != nil {
 		var rateLimitErr *api.TooManyRequestsError

@@ -276,7 +276,7 @@ func main() {
 	}
 	defer authCache.Cleanup()
 
-	resourceCache, err := inmemoryCache.NewResourceCache(5 * time.Minute)
+	resourceCache, err := inmemoryCache.NewResourceCache(30 * time.Minute)
 	if err != nil {
 		setupLog.Error(err, "unable to start resource cache")
 		os.Exit(1)

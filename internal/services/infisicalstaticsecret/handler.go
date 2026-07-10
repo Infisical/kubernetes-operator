@@ -26,7 +26,7 @@ func NewInfisicalStaticSecretHandler(
 	scheme *runtime.Scheme,
 	isNamespaceScoped bool,
 	authResolver *auth.AuthStrategyResolver,
-	resourceCache *cache.ResourceCache,
+	projectIDCache *cache.ResourceCache[string],
 	logger logr.Logger,
 ) *InfisicalStaticSecretHandler {
 	return &InfisicalStaticSecretHandler{
@@ -40,7 +40,7 @@ func NewInfisicalStaticSecretHandler(
 			Scheme:            scheme,
 			IsNamespaceScoped: isNamespaceScoped,
 			authResolver:      authResolver,
-			resourceCache:     resourceCache,
+			projectIDCache:     projectIDCache,
 			logger:            logger,
 		},
 	}

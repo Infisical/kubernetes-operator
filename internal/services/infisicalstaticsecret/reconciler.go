@@ -144,14 +144,14 @@ type InfisicalStaticSecretReconciler struct {
 	Scheme            *runtime.Scheme
 	IsNamespaceScoped bool
 	authResolver      *auth.AuthStrategyResolver
-	resourceCache     *cache.ResourceCache
+	projectIDCache     *cache.ResourceCache[string]
 	logger            logr.Logger
 }
 
 func (r *InfisicalStaticSecretReconciler) getProjectIDBySlug(restClient *resty.Client, authRef v1beta1.NamespacedName, slug string) (string, error) {
 	cacheKey := cache.ProjectBySlugCacheKey(authRef.Namespace, authRef.Name, slug)
-	if r.resourceCache != nil {
-		if cached, ok := r.resourceCache.Get(cacheKey); ok {
+	if r.projectIDCache != nil {
+		if cached, ok := r.projectIDCache.Get(cacheKey); ok {
 			return cached, nil
 		}
 	}
@@ -161,8 +161,8 @@ func (r *InfisicalStaticSecretReconciler) getProjectIDBySlug(restClient *resty.C
 		return "", err
 	}
 
-	if r.resourceCache != nil {
-		r.resourceCache.Set(cacheKey, project.ID)
+	if r.projectIDCache != nil {
+		r.projectIDCache.Set(cacheKey, project.ID)
 	}
 
 	return project.ID, nil

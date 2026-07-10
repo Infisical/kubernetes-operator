@@ -7,13 +7,13 @@ import (
 	"github.com/dgraph-io/ristretto/v2"
 )
 
-type ResourceCache struct {
-	cache *ristretto.Cache[string, string]
+type ResourceCache[V any] struct {
+	cache *ristretto.Cache[string, V]
 	ttl   time.Duration
 }
 
-func NewResourceCache(ttl time.Duration) (*ResourceCache, error) {
-	cache, err := ristretto.NewCache(&ristretto.Config[string, string]{
+func NewResourceCache[V any](ttl time.Duration) (*ResourceCache[V], error) {
+	cache, err := ristretto.NewCache(&ristretto.Config[string, V]{
 		NumCounters:        1000,
 		MaxCost:            1 << 20,
 		BufferItems:        64,
@@ -22,19 +22,19 @@ func NewResourceCache(ttl time.Duration) (*ResourceCache, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create resource cache: %w", err)
 	}
-	return &ResourceCache{cache: cache, ttl: ttl}, nil
+	return &ResourceCache[V]{cache: cache, ttl: ttl}, nil
 }
 
-func (c *ResourceCache) Get(key string) (string, bool) {
+func (c *ResourceCache[V]) Get(key string) (V, bool) {
 	return c.cache.Get(key)
 }
 
-func (c *ResourceCache) Set(key string, value string) {
+func (c *ResourceCache[V]) Set(key string, value V) {
 	c.cache.SetWithTTL(key, value, 1, c.ttl)
 	c.cache.Wait()
 }
 
-func (c *ResourceCache) Cleanup() {
+func (c *ResourceCache[V]) Cleanup() {
 	if c.cache != nil {
 		c.cache.Close()
 	}

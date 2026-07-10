@@ -75,7 +75,7 @@ type InfisicalStaticSecretReconciler struct {
 	Scheme            *runtime.Scheme
 	IsNamespaceScoped bool
 	AuthResolver      *auth.AuthStrategyResolver
-	ResourceCache     *cache.ResourceCache
+	ProjectIDCache     *cache.ResourceCache[string]
 	SourceCh          chan event.TypedGenericEvent[client.Object]
 }
 
@@ -127,7 +127,7 @@ func (r *InfisicalStaticSecretReconciler) Reconcile(ctx context.Context, req ctr
 
 	instantUpdates := staticSecretCRD.Spec.SyncOptions != nil && staticSecretCRD.Spec.SyncOptions.InstantUpdates
 
-	handler := infisicalstaticsecret.NewInfisicalStaticSecretHandler(r.Client, r.Scheme, r.IsNamespaceScoped, r.AuthResolver, r.ResourceCache, logger)
+	handler := infisicalstaticsecret.NewInfisicalStaticSecretHandler(r.Client, r.Scheme, r.IsNamespaceScoped, r.AuthResolver, r.ProjectIDCache, logger)
 	secretsCount, err := handler.SyncSecrets(ctx, &staticSecretCRD)
 	if err != nil {
 		var rateLimitErr *api.TooManyRequestsError

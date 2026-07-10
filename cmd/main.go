@@ -276,12 +276,12 @@ func main() {
 	}
 	defer authCache.Cleanup()
 
-	resourceCache, err := inmemoryCache.NewResourceCache(30 * time.Minute)
+	projectIDCache, err := inmemoryCache.NewResourceCache[string](30 * time.Minute)
 	if err != nil {
 		setupLog.Error(err, "unable to start resource cache")
 		os.Exit(1)
 	}
-	defer resourceCache.Cleanup()
+	defer projectIDCache.Cleanup()
 
 	authStrategyResolver := auth.NewAuthStrategyResolver(mgr.GetClient(), authCache, ctrl.Log, isNamespaceScoped)
 
@@ -339,7 +339,7 @@ func main() {
 		BaseLogger:        ctrl.Log,
 		IsNamespaceScoped: isNamespaceScoped,
 		AuthResolver:      authStrategyResolver,
-		ResourceCache:     resourceCache,
+		ProjectIDCache:    projectIDCache,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InfisicalStaticSecret")
 		os.Exit(1)

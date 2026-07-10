@@ -12,7 +12,7 @@ import (
 )
 
 var _ = Describe("ResourceCache", func() {
-	var resourceCache *cache.ResourceCache
+	var resourceCache *cache.ResourceCache[string]
 
 	AfterEach(func() {
 		if resourceCache != nil {
@@ -23,7 +23,7 @@ var _ = Describe("ResourceCache", func() {
 	Describe("basic operations", func() {
 		BeforeEach(func() {
 			var err error
-			resourceCache, err = cache.NewResourceCache(30 * time.Second)
+			resourceCache, err = cache.NewResourceCache[string](30 * time.Second)
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -69,7 +69,7 @@ var _ = Describe("ResourceCache", func() {
 	Describe("TTL expiration", func() {
 		BeforeEach(func() {
 			var err error
-			resourceCache, err = cache.NewResourceCache(2 * time.Second)
+			resourceCache, err = cache.NewResourceCache[string](2 * time.Second)
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -90,7 +90,7 @@ var _ = Describe("ResourceCache", func() {
 	Describe("parallel access", func() {
 		BeforeEach(func() {
 			var err error
-			resourceCache, err = cache.NewResourceCache(30 * time.Second)
+			resourceCache, err = cache.NewResourceCache[string](30 * time.Second)
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -176,7 +176,7 @@ var _ = Describe("ResourceCache", func() {
 	Describe("cleanup", func() {
 		It("should not panic when calling Cleanup on a valid cache", func() {
 			var err error
-			resourceCache, err = cache.NewResourceCache(10 * time.Second)
+			resourceCache, err = cache.NewResourceCache[string](10 * time.Second)
 			Expect(err).NotTo(HaveOccurred())
 
 			resourceCache.Set("before-cleanup", "value")

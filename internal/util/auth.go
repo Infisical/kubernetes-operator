@@ -95,6 +95,7 @@ var AuthStrategy = struct {
 	GCP_ID_TOKEN_MACHINE_IDENTITY AuthStrategyType
 	GCP_IAM_MACHINE_IDENTITY      AuthStrategyType
 	LDAP_MACHINE_IDENTITY         AuthStrategyType
+	JWT_MACHINE_IDENTITY          AuthStrategyType
 }{
 	SERVICE_TOKEN:                 "SERVICE_TOKEN",
 	SERVICE_ACCOUNT:               "SERVICE_ACCOUNT",
@@ -105,6 +106,7 @@ var AuthStrategy = struct {
 	GCP_ID_TOKEN_MACHINE_IDENTITY: "GCP_ID_TOKEN_MACHINE_IDENTITY",
 	GCP_IAM_MACHINE_IDENTITY:      "GCP_IAM_MACHINE_IDENTITY",
 	LDAP_MACHINE_IDENTITY:         "LDAP_MACHINE_IDENTITY",
+	JWT_MACHINE_IDENTITY:          "JWT_MACHINE_IDENTITY",
 }
 
 type SecretCrdType string
@@ -264,6 +266,79 @@ func HandleLdapAuth(ctx context.Context, reconcilerClient client.Client, secretC
 	return AuthenticationDetails{
 		AuthStrategy:          AuthStrategy.LDAP_MACHINE_IDENTITY,
 		MachineIdentityScope:  ldapAuthSpec.SecretsScope,
+		IsMachineIdentityAuth: true,
+		SecretType:            secretCrd.Type,
+	}, nil
+}
+
+func HandleJwtAuth(ctx context.Context, reconcilerClient client.Client, secretCrd SecretAuthInput, infisicalClient infisicalSdk.InfisicalClientInterface, isNamespaceScoped bool) (AuthenticationDetails, error) {
+
+	var jwtAuthSpec v1alpha1.JwtAuthDetails
+
+	switch secretCrd.Type {
+	case SecretCrd.INFISICAL_SECRET:
+		infisicalSecret, ok := secretCrd.Secret.(v1alpha1.InfisicalSecret)
+
+		if !ok {
+			return AuthenticationDetails{}, errors.New("unable to cast secret to InfisicalSecret")
+		}
+		jwtAuthSpec = infisicalSecret.Spec.Authentication.JwtAuth
+	case SecretCrd.INFISICAL_PUSH_SECRET:
+		infisicalPushSecret, ok := secretCrd.Secret.(v1alpha1.InfisicalPushSecret)
+
+		if !ok {
+			return AuthenticationDetails{}, errors.New("unable to cast secret to InfisicalPushSecret")
+		}
+
+		jwtAuthSpec = v1alpha1.JwtAuthDetails{
+			CredentialsRef: infisicalPushSecret.Spec.Authentication.JwtAuth.CredentialsRef,
+			SecretsScope:   v1alpha1.MachineIdentityScopeInWorkspace{},
+			IdentityID:     infisicalPushSecret.Spec.Authentication.JwtAuth.IdentityID,
+		}
+
+	case SecretCrd.INFISICAL_DYNAMIC_SECRET:
+		infisicalDynamicSecret, ok := secretCrd.Secret.(v1alpha1.InfisicalDynamicSecret)
+
+		if !ok {
+			return AuthenticationDetails{}, errors.New("unable to cast secret to InfisicalDynamicSecret")
+		}
+
+		jwtAuthSpec = v1alpha1.JwtAuthDetails{
+			CredentialsRef: infisicalDynamicSecret.Spec.Authentication.JwtAuth.CredentialsRef,
+			SecretsScope:   v1alpha1.MachineIdentityScopeInWorkspace{},
+			IdentityID:     infisicalDynamicSecret.Spec.Authentication.JwtAuth.IdentityID,
+		}
+	}
+
+	if jwtAuthSpec.CredentialsRef.SecretName == "" || jwtAuthSpec.CredentialsRef.SecretNamespace == "" {
+		return AuthenticationDetails{}, ErrAuthNotApplicable
+	}
+
+	if jwtAuthSpec.IdentityID == "" {
+		return AuthenticationDetails{}, ErrAuthNotApplicable
+	}
+
+	jwtAuthKubeSecret, err := GetInfisicalJwtAuthFromKubeSecret(ctx, reconcilerClient, v1alpha1.KubeSecretReference{
+		SecretNamespace: jwtAuthSpec.CredentialsRef.SecretNamespace,
+		SecretName:      jwtAuthSpec.CredentialsRef.SecretName,
+	}, isNamespaceScoped)
+
+	if err != nil {
+		return AuthenticationDetails{}, fmt.Errorf("ReconcileInfisicalSecret: unable to get machine identity creds from kube secret [err=%s]", err)
+	}
+
+	if jwtAuthKubeSecret.JWT == "" {
+		return AuthenticationDetails{}, ErrAuthNotApplicable
+	}
+
+	_, err = infisicalClient.Auth().JwtAuthLogin(jwtAuthSpec.IdentityID, jwtAuthKubeSecret.JWT)
+	if err != nil {
+		return AuthenticationDetails{}, fmt.Errorf("unable to login with machine identity credentials [err=%s]", err)
+	}
+
+	return AuthenticationDetails{
+		AuthStrategy:          AuthStrategy.JWT_MACHINE_IDENTITY,
+		MachineIdentityScope:  jwtAuthSpec.SecretsScope,
 		IsMachineIdentityAuth: true,
 		SecretType:            secretCrd.Type,
 	}, nil
@@ -621,6 +696,7 @@ func HandleAuthentication(ctx context.Context, secretInput SecretAuthInput, reco
 		AuthStrategy.GCP_ID_TOKEN_MACHINE_IDENTITY: HandleGcpIdTokenAuth,
 		AuthStrategy.GCP_IAM_MACHINE_IDENTITY:      HandleGcpIamAuth,
 		AuthStrategy.LDAP_MACHINE_IDENTITY:         HandleLdapAuth,
+		AuthStrategy.JWT_MACHINE_IDENTITY:          HandleJwtAuth,
 	}
 
 	for authStrategy, authHandler := range authStrategies {

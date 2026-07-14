@@ -15,6 +15,8 @@ type GenericInfisicalAuthentication struct {
 	GcpIamAuth GenericGcpIamAuth `json:"gcpIamAuth,omitempty"`
 	// +kubebuilder:validation:Optional
 	LdapAuth GenericLdapAuth `json:"ldapAuth,omitempty"`
+	// +kubebuilder:validation:Optional
+	JwtAuth GenericJwtAuth `json:"jwtAuth,omitempty"`
 }
 
 type GenericUniversalAuth struct {
@@ -23,6 +25,13 @@ type GenericUniversalAuth struct {
 }
 
 type GenericLdapAuth struct {
+	// +kubebuilder:validation:Required
+	IdentityID string `json:"identityId"`
+	// +kubebuilder:validation:Required
+	CredentialsRef KubeSecretReference `json:"credentialsRef"`
+}
+
+type GenericJwtAuth struct {
 	// +kubebuilder:validation:Required
 	IdentityID string `json:"identityId"`
 	// +kubebuilder:validation:Required

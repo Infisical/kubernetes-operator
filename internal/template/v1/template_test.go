@@ -480,4 +480,24 @@ var _ = Describe("RenderPerKeyTemplates with subdirectories", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(data).To(HaveKeyWithValue("dirs", []byte("[]")))
 	})
+
+	It("includes a folder whose name collides with a secret key at the same path", func() {
+		// A root secret key "db" and a "/db" folder produce a single tree node
+		// carrying both a Secret and Children. It must still be listed as a subdirectory.
+		collisionCtx := v1.NewTemplateContext(
+			[]api.Secret{
+				{SecretKey: "db", SecretValue: "some-value", SecretPath: "/"},
+				{SecretKey: "PASSWORD", SecretValue: "secret", SecretPath: "/db"},
+			},
+			nil,
+		)
+
+		tmpls := map[string]string{
+			"dirs": `{{ range subdirectories "/" }}{{ .Name }}={{ .Path }},{{ end }}`,
+		}
+
+		data, err := v1.RenderPerKeyTemplates(tmpls, collisionCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(data).To(HaveKeyWithValue("dirs", []byte("db=/db,")))
+	})
 })

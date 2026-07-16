@@ -176,7 +176,10 @@ func newTemplate(name, templateString string, ctx TemplateContext) (*tpl.Templat
 
 		result := make([]model.V1Subdirectory, 0)
 		for childName, child := range current.Children {
-			if child.Secret != nil {
+			if len(child.Children) == 0 {
+				// A pure leaf is a secret, not a subdirectory. A node may carry
+				// both a Secret and Children when a secret key name collides with
+				// a folder segment; such a node is still a valid subdirectory.
 				continue
 			}
 			result = append(result, model.V1Subdirectory{

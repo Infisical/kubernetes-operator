@@ -40,6 +40,11 @@ func (o V1TemplateOptions) String() string {
 	return o.Value
 }
 
+type V1Subdirectory struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
 type Project struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`

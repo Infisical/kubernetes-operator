@@ -427,3 +427,57 @@ other_path: "{{ (secretFrom "/folder/other" "API_KEY").SecretPath }}"`
 		Expect(err.Error()).To(ContainSubstring("wrong number of args"))
 	})
 })
+
+var _ = Describe("RenderPerKeyTemplates with subdirectories", func() {
+
+	It("lists immediate subdirectory names under a path", func() {
+		tmpls := map[string]string{
+			"dirs": `{{ range subdirectories "/folder" }}{{ .Name }},{{ end }}`,
+		}
+
+		data, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(data).To(HaveKeyWithValue("dirs", []byte("other,subfolder,")))
+	})
+
+	It("exposes .Name and .Path for each subdirectory", func() {
+		tmpls := map[string]string{
+			"detail": `{{ range subdirectories "/folder" }}{{ .Name }}|{{ .Path }};{{ end }}`,
+		}
+
+		data, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(data).To(HaveKeyWithValue("detail", []byte("other|/folder/other;subfolder|/folder/subfolder;")))
+	})
+
+	It("lists top-level folders when passed the root path", func() {
+		tmpls := map[string]string{
+			"dirs": `{{ range subdirectories "/" }}{{ .Name }}={{ .Path }},{{ end }}`,
+		}
+
+		data, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(data).To(HaveKeyWithValue("dirs", []byte("folder=/folder,")))
+	})
+
+	It("returns an empty list without error for a path not in the tree", func() {
+		tmpls := map[string]string{
+			"dirs": `[{{ range subdirectories "/missing" }}{{ .Name }}{{ end }}]`,
+		}
+
+		data, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(data).To(HaveKeyWithValue("dirs", []byte("[]")))
+	})
+
+	It("does not include secret leaves, only folder nodes", func() {
+		tmpls := map[string]string{
+			// /folder/subfolder holds only secrets (DB_HOST, DB_PORT, API_KEY) and no subdirectories.
+			"dirs": `[{{ range subdirectories "/folder/subfolder" }}{{ .Name }}{{ end }}]`,
+		}
+
+		data, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(data).To(HaveKeyWithValue("dirs", []byte("[]")))
+	})
+})

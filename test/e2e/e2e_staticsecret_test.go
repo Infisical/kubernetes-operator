@@ -594,7 +594,7 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/import-tpl-deep/nested", "deep")
 		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/import-tpl-deep/nested/deep", "DEEP_KEY", "deep-value", nil)
 
-		// Target folder with a local secret and two explicit imports
+		// Target folder with a local secret where imports will be created and two imports
 		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "import-tpl-target")
 		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/import-tpl-target", "LOCAL_KEY", "local-value", nil)
 		api.CreateSecretImport(GinkgoT(), project.ID, project.EnvSlug, "/import-tpl-target", project.EnvSlug, "/import-tpl-source")
@@ -618,8 +618,8 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 					EngineVersion: "v1",
 					Data: secretsv1beta1.SecretTemplateData{
 						Map: map[string]string{
-							"FROM_IMPORT": `{{ secretFrom "/import-tpl-source" "IMPORTED_KEY" }}`,
-							"FROM_DEEP":   `{{ secretFrom "/import-tpl-deep/nested/deep" "DEEP_KEY" }}`,
+							"FROM_IMPORT": `{{ secretFrom "/import-tpl-target" "IMPORTED_KEY" }}`,
+							"FROM_DEEP":   `{{ secretFrom "/import-tpl-target" "DEEP_KEY" }}`,
 							"LOCAL":       `{{ secretFrom "/import-tpl-target" "LOCAL_KEY" }}`,
 						},
 					},

@@ -436,6 +436,46 @@ var _ = Describe("RenderTargetOutput", func() {
 			Expect(data).To(HaveKeyWithValue("dsn", []byte("postgresql://user:pass@prod-db.example.com:5432/mydb")))
 			Expect(data).To(HaveKeyWithValue("api_key", []byte("sk-secret-123")))
 		})
+
+		It("resolves imported secrets via secretFrom and raw secrets take priority", func() {
+			rawSecrets := []api.Secret{
+				{SecretKey: "APP_NAME", SecretValue: "my-app", SecretPath: "/app"},
+			}
+			importedSecrets := []api.Secret{
+				{SecretKey: "REDIS_URL", SecretValue: "redis://cache:6379", SecretPath: "/shared"},
+				{SecretKey: "APP_NAME", SecretValue: "imported-app", SecretPath: "/shared"},
+			}
+			mergedSecrets := []api.Secret{
+				{SecretKey: "APP_NAME", SecretValue: "my-app", SecretPath: "/app"},
+				{SecretKey: "REDIS_URL", SecretValue: "redis://cache:6379", SecretPath: "/shared"},
+			}
+
+			target := v1beta1.SecretTarget{
+				Name:      "import-test",
+				Namespace: "default",
+				Kind:      v1beta1.SecretTargetKindSecret,
+				Template: &v1beta1.SecretTemplate{
+					Data: v1beta1.SecretTemplateData{
+						Map: map[string]string{
+							"redis":    `{{ secretFrom "/shared" "REDIS_URL" }}`,
+							"app_name": `{{ secretFrom "/app" "APP_NAME" }}`,
+							"imported_app_name": `{{ secretFrom "/shared" "APP_NAME" }}`,
+						},
+					},
+				},
+			}
+
+			data, err := reconciler.RenderTargetOutput(svc.RenderContext{
+				RawSecrets:      rawSecrets,
+				ImportedSecrets: importedSecrets,
+				MergedSecrets:   mergedSecrets,
+			}, target)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(data).To(HaveLen(3))
+			Expect(data).To(HaveKeyWithValue("redis", []byte("redis://cache:6379")))
+			Expect(data).To(HaveKeyWithValue("app_name", []byte("my-app")))
+			Expect(data).To(HaveKeyWithValue("imported_app_name", []byte("imported-app")))
+		})
 	})
 
 	Context("with a bulk (string) template", func() {

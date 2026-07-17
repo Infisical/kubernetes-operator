@@ -584,15 +584,21 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 	})
 
 	It("should resolve imported secrets via secretFrom in templates", func() {
+		// Shallow import source
 		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "import-tpl-source")
-		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/import-tpl-source", "nested")
-		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/import-tpl-source/nested", "deep")
 		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/import-tpl-source", "IMPORTED_KEY", "imported-value", nil)
-		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/import-tpl-source/nested/deep", "DEEP_KEY", "deep-value", nil)
 
+		// Deep import source
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "import-tpl-deep")
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/import-tpl-deep", "nested")
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/import-tpl-deep/nested", "deep")
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/import-tpl-deep/nested/deep", "DEEP_KEY", "deep-value", nil)
+
+		// Target folder with a local secret and two explicit imports
 		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "import-tpl-target")
 		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/import-tpl-target", "LOCAL_KEY", "local-value", nil)
 		api.CreateSecretImport(GinkgoT(), project.ID, project.EnvSlug, "/import-tpl-target", project.EnvSlug, "/import-tpl-source")
+		api.CreateSecretImport(GinkgoT(), project.ID, project.EnvSlug, "/import-tpl-target", project.EnvSlug, "/import-tpl-deep/nested/deep")
 
 		createStaticSecret("e2e-import-tpl-sync", secretsv1beta1.InfisicalStaticSecretSpec{
 			InfisicalAuthRef: authRef,
@@ -613,7 +619,7 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 					Data: secretsv1beta1.SecretTemplateData{
 						Map: map[string]string{
 							"FROM_IMPORT": `{{ secretFrom "/import-tpl-source" "IMPORTED_KEY" }}`,
-							"FROM_DEEP":  `{{ secretFrom "/import-tpl-source/nested/deep" "DEEP_KEY" }}`,
+							"FROM_DEEP":   `{{ secretFrom "/import-tpl-deep/nested/deep" "DEEP_KEY" }}`,
 							"LOCAL":       `{{ secretFrom "/import-tpl-target" "LOCAL_KEY" }}`,
 						},
 					},

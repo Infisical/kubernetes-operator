@@ -382,7 +382,12 @@ func (r *InfisicalStaticSecretReconciler) ListSecretsFromSources(ctx context.Con
 
 		secrets = append(secrets, response.Secrets...)
 		for _, imp := range response.Imports {
-			importedSecrets = append(importedSecrets, imp.Secrets...)
+			for _, s := range imp.Secrets {
+				if s.SecretPath == "" {
+					s.SecretPath = imp.SecretPath
+				}
+				importedSecrets = append(importedSecrets, s)
+			}
 		}
 	}
 

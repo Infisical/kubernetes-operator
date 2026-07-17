@@ -457,8 +457,8 @@ var _ = Describe("RenderTargetOutput", func() {
 				Template: &v1beta1.SecretTemplate{
 					Data: v1beta1.SecretTemplateData{
 						Map: map[string]string{
-							"redis":    `{{ secretFrom "/shared" "REDIS_URL" }}`,
-							"app_name": `{{ secretFrom "/app" "APP_NAME" }}`,
+							"redis":             `{{ secretFrom "/shared" "REDIS_URL" }}`,
+							"app_name":          `{{ secretFrom "/app" "APP_NAME" }}`,
 							"imported_app_name": `{{ secretFrom "/shared" "APP_NAME" }}`,
 						},
 					},

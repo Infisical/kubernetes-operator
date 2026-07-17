@@ -270,6 +270,27 @@ var _ = Describe("RenderPerKeyTemplates with secretFrom", func() {
 		Expect(data).To(HaveKeyWithValue("imported", []byte("imported-val")))
 	})
 
+	It("resolves raw secret if conflict with imported secret via secretFrom", func() {
+		ctx := v1.NewTemplateContext(
+			[]api.Secret{
+				{SecretKey: "SECRET", SecretValue: "raw-val", SecretPath: "/app"},
+			},
+			[]api.Secret{
+				{SecretKey: "SECRET", SecretValue: "imported-val", SecretPath: "/app"},
+			},
+			[]api.Secret{
+				{SecretKey: "SECRET", SecretValue: "raw-val", SecretPath: "/app"},
+			},
+		)
+		tmpls := map[string]string{
+			"secret": `{{ secretFrom "/app" "SECRET" }}`,
+		}
+
+		data, err := v1.RenderPerKeyTemplates(tmpls, ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(data).To(HaveKeyWithValue("secret", []byte("raw-val")))
+	})
+
 	It("resolves value via secretFrom with .Value accessor", func() {
 		tmpls := map[string]string{
 			"host": `{{ (secretFrom "/folder/subfolder" "DB_HOST").Value }}`,

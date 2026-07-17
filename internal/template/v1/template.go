@@ -13,14 +13,16 @@ import (
 )
 
 type TemplateContext struct {
-	rawSecrets    []api.Secret
-	mergedSecrets map[string]model.V1TemplateOptions
+	rawSecrets      []api.Secret
+	importedSecrets []api.Secret
+	mergedSecrets   map[string]model.V1TemplateOptions
 }
 
-func NewTemplateContext(rawSecrets []api.Secret, mergedSecrets []api.Secret) TemplateContext {
+func NewTemplateContext(rawSecrets, importedSecrets, mergedSecrets []api.Secret) TemplateContext {
 	ctx := TemplateContext{
-		rawSecrets:    rawSecrets,
-		mergedSecrets: make(map[string]model.V1TemplateOptions, 0),
+		rawSecrets:      rawSecrets,
+		importedSecrets: importedSecrets,
+		mergedSecrets:   make(map[string]model.V1TemplateOptions, 0),
 	}
 
 	for _, s := range mergedSecrets {
@@ -101,22 +103,24 @@ func (n *SecretTreeNode) getOrCreateChild(key string) *SecretTreeNode {
 func BuildSecretTree(ctx TemplateContext) *SecretTreeNode {
 	root := &SecretTreeNode{}
 
-	for _, s := range ctx.rawSecrets {
-		segments := strings.Split(strings.Trim(s.SecretPath, "/"), "/")
+	for _, secrets := range [][]api.Secret{ctx.rawSecrets, ctx.importedSecrets} {
+		for _, s := range secrets {
+			segments := strings.Split(strings.Trim(s.SecretPath, "/"), "/")
 
-		node := root
-		for _, seg := range segments {
-			if seg == "" {
-				continue
+			node := root
+			for _, seg := range segments {
+				if seg == "" {
+					continue
+				}
+				node = node.getOrCreateChild(seg)
 			}
-			node = node.getOrCreateChild(seg)
-		}
 
-		leaf := node.getOrCreateChild(s.SecretKey)
-		if leaf.Secret == nil {
-			leaf.Secret = &model.V1TemplateOptions{
-				Value:      s.SecretValue,
-				SecretPath: s.SecretPath,
+			leaf := node.getOrCreateChild(s.SecretKey)
+			if leaf.Secret == nil {
+				leaf.Secret = &model.V1TemplateOptions{
+					Value:      s.SecretValue,
+					SecretPath: s.SecretPath,
+				}
 			}
 		}
 	}

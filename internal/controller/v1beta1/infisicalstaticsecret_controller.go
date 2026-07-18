@@ -75,7 +75,7 @@ type InfisicalStaticSecretReconciler struct {
 	Scheme            *runtime.Scheme
 	IsNamespaceScoped bool
 	AuthResolver      *auth.AuthStrategyResolver
-	ProjectIDCache     *cache.ResourceCache[string]
+	ProjectIDCache    *cache.ResourceCache[string]
 	SourceCh          chan event.TypedGenericEvent[client.Object]
 }
 

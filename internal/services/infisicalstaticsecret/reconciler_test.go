@@ -12,6 +12,7 @@ import (
 	"github.com/Infisical/infisical/k8-operator/internal/constants"
 	"github.com/Infisical/infisical/k8-operator/internal/crypto"
 	svc "github.com/Infisical/infisical/k8-operator/internal/services/infisicalstaticsecret"
+	templatev1 "github.com/Infisical/infisical/k8-operator/internal/template/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8Errors "k8s.io/apimachinery/pkg/api/errors"
@@ -289,7 +290,10 @@ var _ = Describe("RenderTargetOutput", func() {
 				Kind:      v1beta1.SecretTargetKindSecret,
 			}
 
-			data, err := reconciler.RenderTargetOutput(secrets, secrets, target)
+			data, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
+				MergedSecrets: secrets,
+				RawSecrets:    secrets,
+			}, target)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(data).To(HaveLen(3))
 			Expect(data).To(HaveKeyWithValue("DB_HOST", []byte("localhost")))
@@ -304,7 +308,7 @@ var _ = Describe("RenderTargetOutput", func() {
 				Kind:      v1beta1.SecretTargetKindSecret,
 			}
 
-			data, err := reconciler.RenderTargetOutput([]api.Secret{}, []api.Secret{}, target)
+			data, err := reconciler.RenderTargetOutput(templatev1.RenderContext{}, target)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(data).To(BeEmpty())
 		})
@@ -325,7 +329,10 @@ var _ = Describe("RenderTargetOutput", func() {
 				},
 			}
 
-			data, err := reconciler.RenderTargetOutput(secrets, secrets, target)
+			data, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
+				MergedSecrets: secrets,
+				RawSecrets:    secrets,
+			}, target)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(data).To(HaveLen(1))
 			Expect(data).To(HaveKeyWithValue("dsn", []byte("postgresql://user:pass@localhost:5432/mydb")))
@@ -345,7 +352,10 @@ var _ = Describe("RenderTargetOutput", func() {
 				},
 			}
 
-			data, err := reconciler.RenderTargetOutput(secrets, secrets, target)
+			data, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
+				MergedSecrets: secrets,
+				RawSecrets:    secrets,
+			}, target)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(data).To(HaveKeyWithValue("info", []byte("localhost from /db")))
 		})
@@ -365,7 +375,10 @@ var _ = Describe("RenderTargetOutput", func() {
 				},
 			}
 
-			data, err := reconciler.RenderTargetOutput(secrets, secrets, target)
+			data, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
+				MergedSecrets: secrets,
+				RawSecrets:    secrets,
+			}, target)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(data).To(HaveLen(2))
 			Expect(data).To(HaveKeyWithValue("host", []byte("localhost")))
@@ -386,7 +399,10 @@ var _ = Describe("RenderTargetOutput", func() {
 				},
 			}
 
-			_, err := reconciler.RenderTargetOutput(secrets, secrets, target)
+			_, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
+				MergedSecrets: secrets,
+				RawSecrets:    secrets,
+			}, target)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to parse template"))
 		})
@@ -412,11 +428,54 @@ var _ = Describe("RenderTargetOutput", func() {
 				},
 			}
 
-			data, err := reconciler.RenderTargetOutput(subfolderSecrets, subfolderSecrets, target)
+			data, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
+				MergedSecrets: subfolderSecrets,
+				RawSecrets:    subfolderSecrets,
+			}, target)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(data).To(HaveLen(2))
 			Expect(data).To(HaveKeyWithValue("dsn", []byte("postgresql://user:pass@prod-db.example.com:5432/mydb")))
 			Expect(data).To(HaveKeyWithValue("api_key", []byte("sk-secret-123")))
+		})
+
+		It("resolves imported secrets via secretFrom and raw secrets take priority", func() {
+			rawSecrets := []api.Secret{
+				{SecretKey: "APP_NAME", SecretValue: "my-app", SecretPath: "/app"},
+			}
+			importedSecrets := []api.Secret{
+				{SecretKey: "REDIS_URL", SecretValue: "redis://cache:6379", SecretPath: "/shared"},
+				{SecretKey: "APP_NAME", SecretValue: "imported-app", SecretPath: "/shared"},
+			}
+			mergedSecrets := []api.Secret{
+				{SecretKey: "APP_NAME", SecretValue: "my-app", SecretPath: "/app"},
+				{SecretKey: "REDIS_URL", SecretValue: "redis://cache:6379", SecretPath: "/shared"},
+			}
+
+			target := v1beta1.SecretTarget{
+				Name:      "import-test",
+				Namespace: "default",
+				Kind:      v1beta1.SecretTargetKindSecret,
+				Template: &v1beta1.SecretTemplate{
+					Data: v1beta1.SecretTemplateData{
+						Map: map[string]string{
+							"redis":             `{{ secretFrom "/shared" "REDIS_URL" }}`,
+							"app_name":          `{{ secretFrom "/app" "APP_NAME" }}`,
+							"imported_app_name": `{{ secretFrom "/shared" "APP_NAME" }}`,
+						},
+					},
+				},
+			}
+
+			data, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
+				RawSecrets:      rawSecrets,
+				ImportedSecrets: importedSecrets,
+				MergedSecrets:   mergedSecrets,
+			}, target)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(data).To(HaveLen(3))
+			Expect(data).To(HaveKeyWithValue("redis", []byte("redis://cache:6379")))
+			Expect(data).To(HaveKeyWithValue("app_name", []byte("my-app")))
+			Expect(data).To(HaveKeyWithValue("imported_app_name", []byte("imported-app")))
 		})
 	})
 
@@ -435,7 +494,10 @@ var _ = Describe("RenderTargetOutput", func() {
 				},
 			}
 
-			data, err := reconciler.RenderTargetOutput(secrets, secrets, target)
+			data, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
+				MergedSecrets: secrets,
+				RawSecrets:    secrets,
+			}, target)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(data).To(HaveLen(3))
 			Expect(data).To(HaveKeyWithValue("DB_HOST", []byte("localhost")))
@@ -456,7 +518,10 @@ COUNT: "{{ len . }}"`,
 				},
 			}
 
-			data, err := reconciler.RenderTargetOutput(secrets, secrets, target)
+			data, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
+				MergedSecrets: secrets,
+				RawSecrets:    secrets,
+			}, target)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(data).To(HaveKeyWithValue("DSN", []byte("postgres://localhost:5432/mydb")))
 			Expect(data).To(HaveKeyWithValue("COUNT", []byte("3")))
@@ -472,7 +537,10 @@ COUNT: "{{ len . }}"`,
 				},
 			}
 
-			data, err := reconciler.RenderTargetOutput(secrets, secrets, target)
+			data, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
+				MergedSecrets: secrets,
+				RawSecrets:    secrets,
+			}, target)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(data).To(BeEmpty())
 		})
@@ -487,7 +555,10 @@ COUNT: "{{ len . }}"`,
 				},
 			}
 
-			_, err := reconciler.RenderTargetOutput(secrets, secrets, target)
+			_, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
+				MergedSecrets: secrets,
+				RawSecrets:    secrets,
+			}, target)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to parse bulk template"))
 		})
@@ -504,7 +575,10 @@ COUNT: "{{ len . }}"`,
 				},
 			}
 
-			_, err := reconciler.RenderTargetOutput(secrets, secrets, target)
+			_, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
+				MergedSecrets: secrets,
+				RawSecrets:    secrets,
+			}, target)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("bulk template output is not a valid YAML map"))
 		})

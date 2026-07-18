@@ -583,6 +583,58 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 		})
 	})
 
+	It("should resolve imported secrets via secretFrom in templates", func() {
+		// Shallow import source
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "import-tpl-source")
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/import-tpl-source", "IMPORTED_KEY", "imported-value", nil)
+
+		// Deep import source
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "import-tpl-deep")
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/import-tpl-deep", "nested")
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/import-tpl-deep/nested", "deep")
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/import-tpl-deep/nested/deep", "DEEP_KEY", "deep-value", nil)
+
+		// Target folder with a local secret where imports will be created and two imports
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "import-tpl-target")
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/import-tpl-target", "LOCAL_KEY", "local-value", nil)
+		api.CreateSecretImport(GinkgoT(), project.ID, project.EnvSlug, "/import-tpl-target", project.EnvSlug, "/import-tpl-source")
+		api.CreateSecretImport(GinkgoT(), project.ID, project.EnvSlug, "/import-tpl-target", project.EnvSlug, "/import-tpl-deep/nested/deep")
+
+		createStaticSecret("e2e-import-tpl-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+			InfisicalAuthRef: authRef,
+			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
+			Sources: []secretsv1beta1.SecretSource{{
+				ProjectId:       project.ID,
+				EnvironmentSlug: project.EnvSlug,
+				SecretPath:      "/import-tpl-target",
+			}},
+			Targets: []secretsv1beta1.SecretTarget{{
+				Name:           "e2e-import-tpl-synced",
+				Namespace:      testNamespace,
+				Kind:           secretsv1beta1.SecretTargetKindSecret,
+				SecretType:     corev1.SecretTypeOpaque,
+				CreationPolicy: secretsv1beta1.CreationPolicyOwner,
+				Template: &secretsv1beta1.SecretTemplate{
+					EngineVersion: "v1",
+					Data: secretsv1beta1.SecretTemplateData{
+						Map: map[string]string{
+							"FROM_IMPORT": `{{ secretFrom "/import-tpl-target" "IMPORTED_KEY" }}`,
+							"FROM_DEEP":   `{{ secretFrom "/import-tpl-target" "DEEP_KEY" }}`,
+							"LOCAL":       `{{ secretFrom "/import-tpl-target" "LOCAL_KEY" }}`,
+						},
+					},
+				},
+			}},
+		})
+
+		synced := expectSecret("e2e-import-tpl-synced", "e2e-import-tpl-sync")
+		expectSecretData(synced, map[string]string{
+			"FROM_IMPORT": "imported-value",
+			"FROM_DEEP":   "deep-value",
+			"LOCAL":       "local-value",
+		})
+	})
+
 	It("should sync with secret imports", func() {
 		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "shared-lib")
 		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/shared-lib", "REDIS_URL", "redis://cache:6379", nil)

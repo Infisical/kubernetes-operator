@@ -144,7 +144,7 @@ type InfisicalStaticSecretReconciler struct {
 	Scheme            *runtime.Scheme
 	IsNamespaceScoped bool
 	authResolver      *auth.AuthStrategyResolver
-	projectIDCache     *cache.ResourceCache[string]
+	projectIDCache    *cache.ResourceCache[string]
 	logger            logr.Logger
 }
 
@@ -412,10 +412,10 @@ func (r *InfisicalStaticSecretReconciler) MergeSecretSources(secrets []api.Secre
 	return merged
 }
 
-func (r *InfisicalStaticSecretReconciler) RenderTargetOutput(mergedSecrets, rawSecrets []api.Secret, target v1beta1.SecretTarget) (map[string][]byte, error) {
+func (r *InfisicalStaticSecretReconciler) RenderTargetOutput(renderCtx templatev1.RenderContext, target v1beta1.SecretTarget) (map[string][]byte, error) {
 	data := make(map[string][]byte)
 
-	for _, s := range mergedSecrets {
+	for _, s := range renderCtx.MergedSecrets {
 		data[s.SecretKey] = []byte(s.SecretValue)
 	}
 
@@ -423,7 +423,7 @@ func (r *InfisicalStaticSecretReconciler) RenderTargetOutput(mergedSecrets, rawS
 		return data, nil
 	}
 
-	templateCtx := templatev1.NewTemplateContext(rawSecrets, mergedSecrets)
+	templateCtx := templatev1.NewTemplateContext(renderCtx)
 	if target.Template.Data.IsRaw() {
 		return templatev1.RenderBulkTemplate(target.Template.Data.Raw, templateCtx)
 	}

@@ -10,28 +10,28 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var subfolderCtx = v1.NewTemplateContext(
-	[]api.Secret{
+var subfolderCtx = v1.NewTemplateContext(v1.RenderContext{
+	RawSecrets: []api.Secret{
 		{SecretKey: "DB_HOST", SecretValue: "prod-db.example.com", SecretPath: "/folder/subfolder"},
 		{SecretKey: "DB_PORT", SecretValue: "5432", SecretPath: "/folder/subfolder"},
 		{SecretKey: "API_KEY", SecretValue: "subfolder-secret", SecretPath: "/folder/subfolder"},
 		{SecretKey: "API_KEY", SecretValue: "other-secret", SecretPath: "/folder/other"},
 	},
-	[]api.Secret{
+	MergedSecrets: []api.Secret{
 		{SecretKey: "DB_HOST", SecretValue: "prod-db.example.com", SecretPath: "/folder/subfolder"},
 		{SecretKey: "DB_PORT", SecretValue: "5432", SecretPath: "/folder/subfolder"},
 		{SecretKey: "API_KEY", SecretValue: "other-secret", SecretPath: "/folder/other"},
 	},
-)
+})
 
 var _ = Describe("BuildSecretTree", func() {
 
 	It("places secrets in nested subfolders", func() {
-		ctx := v1.NewTemplateContext([]api.Secret{
+		ctx := v1.NewTemplateContext(v1.RenderContext{RawSecrets: []api.Secret{
 			{SecretKey: "SECRET_1", SecretValue: "val1", SecretPath: "/folder/subfolder"},
 			{SecretKey: "SECRET_2", SecretValue: "val2", SecretPath: "/folder/subfolder"},
 			{SecretKey: "SECRET_3", SecretValue: "val3", SecretPath: "/folder/another"},
-		}, nil)
+		}})
 
 		tree := v1.BuildSecretTree(ctx)
 
@@ -49,24 +49,24 @@ var _ = Describe("BuildSecretTree", func() {
 	})
 
 	It("places secrets at the root path", func() {
-		ctx := v1.NewTemplateContext([]api.Secret{
+		ctx := v1.NewTemplateContext(v1.RenderContext{RawSecrets: []api.Secret{
 			{SecretKey: "ROOT_SECRET", SecretValue: "root-val", SecretPath: "/"},
-		}, nil)
+		}})
 
 		tree := v1.BuildSecretTree(ctx)
 		Expect(tree.Children["ROOT_SECRET"].Secret).To(HaveValue(Equal(model.V1TemplateOptions{Value: "root-val", SecretPath: "/"})))
 	})
 
 	It("returns an empty tree for empty context", func() {
-		ctx := v1.NewTemplateContext(nil, nil)
+		ctx := v1.NewTemplateContext(v1.RenderContext{})
 		tree := v1.BuildSecretTree(ctx)
 		Expect(tree.Children).To(BeNil())
 	})
 
 	It("handles deeply nested paths", func() {
-		ctx := v1.NewTemplateContext([]api.Secret{
+		ctx := v1.NewTemplateContext(v1.RenderContext{RawSecrets: []api.Secret{
 			{SecretKey: "DEEP", SecretValue: "deep-val", SecretPath: "/a/b/c/d"},
-		}, nil)
+		}})
 
 		tree := v1.BuildSecretTree(ctx)
 
@@ -82,13 +82,13 @@ var _ = Describe("BuildSecretTree", func() {
 	})
 
 	It("keeps first occurrence when duplicate keys exist at the same path", func() {
-		ctx := v1.NewTemplateContext([]api.Secret{
+		ctx := v1.NewTemplateContext(v1.RenderContext{RawSecrets: []api.Secret{
 			{SecretKey: "DB_HOST", SecretValue: "project-a-host", SecretPath: "/shared"},
 			{SecretKey: "DB_PORT", SecretValue: "5432", SecretPath: "/shared"},
 			{SecretKey: "DB_HOST", SecretValue: "project-b-host", SecretPath: "/shared"},
 			{SecretKey: "API_KEY", SecretValue: "key-from-b", SecretPath: "/shared"},
 			{SecretKey: "DB_PORT", SecretValue: "1234", SecretPath: "/db"},
-		}, nil)
+		}})
 
 		tree := v1.BuildSecretTree(ctx)
 
@@ -104,10 +104,10 @@ var _ = Describe("BuildSecretTree", func() {
 	})
 
 	It("handles mixed root and nested secrets", func() {
-		ctx := v1.NewTemplateContext([]api.Secret{
+		ctx := v1.NewTemplateContext(v1.RenderContext{RawSecrets: []api.Secret{
 			{SecretKey: "AT_ROOT", SecretValue: "r", SecretPath: "/"},
 			{SecretKey: "IN_FOLDER", SecretValue: "f", SecretPath: "/app"},
-		}, nil)
+		}})
 
 		tree := v1.BuildSecretTree(ctx)
 
@@ -117,11 +117,46 @@ var _ = Describe("BuildSecretTree", func() {
 		Expect(app.Children["IN_FOLDER"].Secret).To(HaveValue(Equal(model.V1TemplateOptions{Value: "f", SecretPath: "/app"})))
 	})
 
+	It("includes imported secrets not present in rawSecrets", func() {
+		ctx := v1.NewTemplateContext(v1.RenderContext{
+			RawSecrets: []api.Secret{
+				{SecretKey: "RAW_ONLY", SecretValue: "raw-val", SecretPath: "/app"},
+			},
+			ImportedSecrets: []api.Secret{
+				{SecretKey: "IMPORTED_ONLY", SecretValue: "imported-val", SecretPath: "/app"},
+			},
+		})
+
+		tree := v1.BuildSecretTree(ctx)
+
+		app := tree.Children["app"]
+		Expect(app).NotTo(BeNil())
+		Expect(app.Children["RAW_ONLY"].Secret).To(HaveValue(Equal(model.V1TemplateOptions{Value: "raw-val", SecretPath: "/app"})))
+		Expect(app.Children["IMPORTED_ONLY"].Secret).To(HaveValue(Equal(model.V1TemplateOptions{Value: "imported-val", SecretPath: "/app"})))
+	})
+
+	It("prefers raw secret over imported secret with the same key and path", func() {
+		ctx := v1.NewTemplateContext(v1.RenderContext{
+			RawSecrets: []api.Secret{
+				{SecretKey: "DB_HOST", SecretValue: "raw-host", SecretPath: "/shared"},
+			},
+			ImportedSecrets: []api.Secret{
+				{SecretKey: "DB_HOST", SecretValue: "imported-host", SecretPath: "/shared"},
+			},
+		})
+
+		tree := v1.BuildSecretTree(ctx)
+
+		shared := tree.Children["shared"]
+		Expect(shared).NotTo(BeNil())
+		Expect(shared.Children["DB_HOST"].Secret).To(HaveValue(Equal(model.V1TemplateOptions{Value: "raw-host", SecretPath: "/shared"})))
+	})
+
 	It("allows a secret key and folder segment with the same name", func() {
-		ctx := v1.NewTemplateContext([]api.Secret{
+		ctx := v1.NewTemplateContext(v1.RenderContext{RawSecrets: []api.Secret{
 			{SecretKey: "db", SecretValue: "some-value", SecretPath: "/"},
 			{SecretKey: "PASSWORD", SecretValue: "secret", SecretPath: "/db"},
-		}, nil)
+		}})
 
 		tree := v1.BuildSecretTree(ctx)
 
@@ -134,11 +169,11 @@ var _ = Describe("BuildSecretTree", func() {
 
 var _ = Describe("RenderPerKeyTemplates without secretFrom", func() {
 
-	rootCtx := v1.NewTemplateContext(nil, []api.Secret{
+	rootCtx := v1.NewTemplateContext(v1.RenderContext{MergedSecrets: []api.Secret{
 		{SecretKey: "DB_HOST", SecretValue: "localhost", SecretPath: "/"},
 		{SecretKey: "DB_PORT", SecretValue: "5432", SecretPath: "/"},
 		{SecretKey: "DB_NAME", SecretValue: "mydb", SecretPath: "/"},
-	})
+	}})
 
 	It("resolves .Value accessor directly", func() {
 		tmpls := map[string]string{
@@ -183,10 +218,10 @@ var _ = Describe("RenderPerKeyTemplates without secretFrom", func() {
 
 var _ = Describe("RenderBulkTemplate without secretFrom", func() {
 
-	rootCtx := v1.NewTemplateContext(nil, []api.Secret{
+	rootCtx := v1.NewTemplateContext(v1.RenderContext{MergedSecrets: []api.Secret{
 		{SecretKey: "DB_HOST", SecretValue: "localhost", SecretPath: "/"},
 		{SecretKey: "DB_PORT", SecretValue: "5432", SecretPath: "/"},
-	})
+	}})
 
 	It("resolves .Value accessor directly", func() {
 		tmpl := `host: "{{ .DB_HOST.Value }}"`
@@ -211,6 +246,48 @@ var _ = Describe("RenderBulkTemplate without secretFrom", func() {
 
 var _ = Describe("RenderPerKeyTemplates with secretFrom", func() {
 
+	It("resolves imported-only secret via secretFrom", func() {
+		ctx := v1.NewTemplateContext(v1.RenderContext{
+			RawSecrets: []api.Secret{
+				{SecretKey: "RAW_SECRET", SecretValue: "raw-val", SecretPath: "/app"},
+			},
+			ImportedSecrets: []api.Secret{
+				{SecretKey: "IMPORTED_SECRET", SecretValue: "imported-val", SecretPath: "/lib"},
+			},
+			MergedSecrets: []api.Secret{
+				{SecretKey: "RAW_SECRET", SecretValue: "raw-val", SecretPath: "/app"},
+			},
+		})
+		tmpls := map[string]string{
+			"imported": `{{ secretFrom "/lib" "IMPORTED_SECRET" }}`,
+		}
+
+		data, err := v1.RenderPerKeyTemplates(tmpls, ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(data).To(HaveKeyWithValue("imported", []byte("imported-val")))
+	})
+
+	It("resolves raw secret if conflict with imported secret via secretFrom", func() {
+		ctx := v1.NewTemplateContext(v1.RenderContext{
+			RawSecrets: []api.Secret{
+				{SecretKey: "SECRET", SecretValue: "raw-val", SecretPath: "/app"},
+			},
+			ImportedSecrets: []api.Secret{
+				{SecretKey: "SECRET", SecretValue: "imported-val", SecretPath: "/app"},
+			},
+			MergedSecrets: []api.Secret{
+				{SecretKey: "SECRET", SecretValue: "raw-val", SecretPath: "/app"},
+			},
+		})
+		tmpls := map[string]string{
+			"secret": `{{ secretFrom "/app" "SECRET" }}`,
+		}
+
+		data, err := v1.RenderPerKeyTemplates(tmpls, ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(data).To(HaveKeyWithValue("secret", []byte("raw-val")))
+	})
+
 	It("resolves value via secretFrom with .Value accessor", func() {
 		tmpls := map[string]string{
 			"host": `{{ (secretFrom "/folder/subfolder" "DB_HOST").Value }}`,
@@ -232,14 +309,14 @@ var _ = Describe("RenderPerKeyTemplates with secretFrom", func() {
 	})
 
 	It("resolves value via secretFrom for root path secrets", func() {
-		rootCtx := v1.NewTemplateContext(
-			[]api.Secret{
+		rootCtx := v1.NewTemplateContext(v1.RenderContext{
+			RawSecrets: []api.Secret{
 				{SecretKey: "MY_SECRET", SecretValue: "root-val", SecretPath: "/"},
 			},
-			[]api.Secret{
+			MergedSecrets: []api.Secret{
 				{SecretKey: "MY_SECRET", SecretValue: "root-val", SecretPath: "/"},
 			},
-		)
+		})
 		tmpls := map[string]string{
 			"secret": `{{ secretFrom "/" "MY_SECRET" }}`,
 		}

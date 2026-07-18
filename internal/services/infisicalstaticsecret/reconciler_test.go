@@ -12,6 +12,7 @@ import (
 	"github.com/Infisical/infisical/k8-operator/internal/constants"
 	"github.com/Infisical/infisical/k8-operator/internal/crypto"
 	svc "github.com/Infisical/infisical/k8-operator/internal/services/infisicalstaticsecret"
+	templatev1 "github.com/Infisical/infisical/k8-operator/internal/template/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8Errors "k8s.io/apimachinery/pkg/api/errors"
@@ -289,7 +290,7 @@ var _ = Describe("RenderTargetOutput", func() {
 				Kind:      v1beta1.SecretTargetKindSecret,
 			}
 
-			data, err := reconciler.RenderTargetOutput(svc.RenderContext{
+			data, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
 				MergedSecrets: secrets,
 				RawSecrets:    secrets,
 			}, target)
@@ -307,7 +308,7 @@ var _ = Describe("RenderTargetOutput", func() {
 				Kind:      v1beta1.SecretTargetKindSecret,
 			}
 
-			data, err := reconciler.RenderTargetOutput(svc.RenderContext{}, target)
+			data, err := reconciler.RenderTargetOutput(templatev1.RenderContext{}, target)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(data).To(BeEmpty())
 		})
@@ -328,7 +329,7 @@ var _ = Describe("RenderTargetOutput", func() {
 				},
 			}
 
-			data, err := reconciler.RenderTargetOutput(svc.RenderContext{
+			data, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
 				MergedSecrets: secrets,
 				RawSecrets:    secrets,
 			}, target)
@@ -351,7 +352,7 @@ var _ = Describe("RenderTargetOutput", func() {
 				},
 			}
 
-			data, err := reconciler.RenderTargetOutput(svc.RenderContext{
+			data, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
 				MergedSecrets: secrets,
 				RawSecrets:    secrets,
 			}, target)
@@ -374,7 +375,7 @@ var _ = Describe("RenderTargetOutput", func() {
 				},
 			}
 
-			data, err := reconciler.RenderTargetOutput(svc.RenderContext{
+			data, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
 				MergedSecrets: secrets,
 				RawSecrets:    secrets,
 			}, target)
@@ -398,7 +399,7 @@ var _ = Describe("RenderTargetOutput", func() {
 				},
 			}
 
-			_, err := reconciler.RenderTargetOutput(svc.RenderContext{
+			_, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
 				MergedSecrets: secrets,
 				RawSecrets:    secrets,
 			}, target)
@@ -427,7 +428,7 @@ var _ = Describe("RenderTargetOutput", func() {
 				},
 			}
 
-			data, err := reconciler.RenderTargetOutput(svc.RenderContext{
+			data, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
 				MergedSecrets: subfolderSecrets,
 				RawSecrets:    subfolderSecrets,
 			}, target)
@@ -465,7 +466,7 @@ var _ = Describe("RenderTargetOutput", func() {
 				},
 			}
 
-			data, err := reconciler.RenderTargetOutput(svc.RenderContext{
+			data, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
 				RawSecrets:      rawSecrets,
 				ImportedSecrets: importedSecrets,
 				MergedSecrets:   mergedSecrets,
@@ -493,7 +494,7 @@ var _ = Describe("RenderTargetOutput", func() {
 				},
 			}
 
-			data, err := reconciler.RenderTargetOutput(svc.RenderContext{
+			data, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
 				MergedSecrets: secrets,
 				RawSecrets:    secrets,
 			}, target)
@@ -517,7 +518,7 @@ COUNT: "{{ len . }}"`,
 				},
 			}
 
-			data, err := reconciler.RenderTargetOutput(svc.RenderContext{
+			data, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
 				MergedSecrets: secrets,
 				RawSecrets:    secrets,
 			}, target)
@@ -536,7 +537,7 @@ COUNT: "{{ len . }}"`,
 				},
 			}
 
-			data, err := reconciler.RenderTargetOutput(svc.RenderContext{
+			data, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
 				MergedSecrets: secrets,
 				RawSecrets:    secrets,
 			}, target)
@@ -554,7 +555,7 @@ COUNT: "{{ len . }}"`,
 				},
 			}
 
-			_, err := reconciler.RenderTargetOutput(svc.RenderContext{
+			_, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
 				MergedSecrets: secrets,
 				RawSecrets:    secrets,
 			}, target)
@@ -574,7 +575,7 @@ COUNT: "{{ len . }}"`,
 				},
 			}
 
-			_, err := reconciler.RenderTargetOutput(svc.RenderContext{
+			_, err := reconciler.RenderTargetOutput(templatev1.RenderContext{
 				MergedSecrets: secrets,
 				RawSecrets:    secrets,
 			}, target)

@@ -138,11 +138,11 @@ func newTemplate(name, templateString string, ctx TemplateContext) (*tpl.Templat
 				continue
 			}
 			if current.Children == nil {
-				return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: segment %q not found", seg)
+				return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: folder path %q not found", seg)
 			}
 			child, exists := current.Children[seg]
 			if !exists {
-				return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: segment %q not found", seg)
+				return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: folder path %q not found", seg)
 			}
 			current = child
 		}

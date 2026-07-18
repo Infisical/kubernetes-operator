@@ -18,14 +18,20 @@ type TemplateContext struct {
 	mergedSecrets   map[string]model.V1TemplateOptions
 }
 
-func NewTemplateContext(rawSecrets, importedSecrets, mergedSecrets []api.Secret) TemplateContext {
+type RenderContext struct {
+	MergedSecrets   []api.Secret
+	RawSecrets      []api.Secret
+	ImportedSecrets []api.Secret
+}
+
+func NewTemplateContext(renderCtx RenderContext) TemplateContext {
 	ctx := TemplateContext{
-		rawSecrets:      rawSecrets,
-		importedSecrets: importedSecrets,
+		rawSecrets:      renderCtx.RawSecrets,
+		importedSecrets: renderCtx.ImportedSecrets,
 		mergedSecrets:   make(map[string]model.V1TemplateOptions, 0),
 	}
 
-	for _, s := range mergedSecrets {
+	for _, s := range renderCtx.MergedSecrets {
 		ctx.mergedSecrets[s.SecretKey] = model.V1TemplateOptions{
 			Value:      s.SecretValue,
 			SecretPath: s.SecretPath,

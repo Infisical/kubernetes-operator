@@ -12,6 +12,7 @@ import (
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
 	"github.com/Infisical/infisical/k8-operator/internal/cache"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
+	templatev1 "github.com/Infisical/infisical/k8-operator/internal/template/v1"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
 	"github.com/Infisical/infisical/k8-operator/internal/util/sse"
 	"github.com/go-logr/logr"
@@ -80,7 +81,7 @@ func (h *InfisicalStaticSecretHandler) SyncSecrets(ctx context.Context, infisica
 
 	var totalAffectedWorkloads = 0
 	for _, target := range infisicalStaticSecret.Spec.Targets {
-		affectedWorkloads, err := h.syncTargetSecrets(ctx, infisicalStaticSecret, RenderContext{
+		affectedWorkloads, err := h.syncTargetSecrets(ctx, infisicalStaticSecret, templatev1.RenderContext{
 			MergedSecrets:   mergedSecrets,
 			RawSecrets:      secrets,
 			ImportedSecrets: importedSecrets,
@@ -235,7 +236,7 @@ func CloseInstantUpdatesStreams(registries map[string]*sse.ConnectionRegistry) {
 	}
 }
 
-func (h *InfisicalStaticSecretHandler) syncTargetSecrets(ctx context.Context, owner *v1beta1.InfisicalStaticSecret, renderCtx RenderContext, target v1beta1.SecretTarget) (int, error) {
+func (h *InfisicalStaticSecretHandler) syncTargetSecrets(ctx context.Context, owner *v1beta1.InfisicalStaticSecret, renderCtx templatev1.RenderContext, target v1beta1.SecretTarget) (int, error) {
 	content, err := h.reconciler.RenderTargetOutput(renderCtx, target)
 	if err != nil {
 		return 0, fmt.Errorf("failed to render target output: %w", err)

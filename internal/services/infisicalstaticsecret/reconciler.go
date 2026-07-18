@@ -412,13 +412,7 @@ func (r *InfisicalStaticSecretReconciler) MergeSecretSources(secrets []api.Secre
 	return merged
 }
 
-type RenderContext struct {
-	MergedSecrets   []api.Secret
-	RawSecrets      []api.Secret
-	ImportedSecrets []api.Secret
-}
-
-func (r *InfisicalStaticSecretReconciler) RenderTargetOutput(renderCtx RenderContext, target v1beta1.SecretTarget) (map[string][]byte, error) {
+func (r *InfisicalStaticSecretReconciler) RenderTargetOutput(renderCtx templatev1.RenderContext, target v1beta1.SecretTarget) (map[string][]byte, error) {
 	data := make(map[string][]byte)
 
 	for _, s := range renderCtx.MergedSecrets {
@@ -429,7 +423,7 @@ func (r *InfisicalStaticSecretReconciler) RenderTargetOutput(renderCtx RenderCon
 		return data, nil
 	}
 
-	templateCtx := templatev1.NewTemplateContext(renderCtx.RawSecrets, renderCtx.ImportedSecrets, renderCtx.MergedSecrets)
+	templateCtx := templatev1.NewTemplateContext(renderCtx)
 	if target.Template.Data.IsRaw() {
 		return templatev1.RenderBulkTemplate(target.Template.Data.Raw, templateCtx)
 	}

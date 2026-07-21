@@ -32,8 +32,9 @@ import (
 )
 
 const (
-	AutoReloadAnnotation       = "secrets.infisical.com/auto-reload"
-	ManagedSecretAnnotationFmt = "secrets.infisical.com/managed-secret.%s"
+	AutoReloadAnnotation          = "secrets.infisical.com/auto-reload"
+	ManagedSecretAnnotationFmt    = "secrets.infisical.com/managed-secret.%s"
+	ManagedSecretAnnotationPrefix = "secrets.infisical.com/managed-secret"
 )
 
 var systemAnnotationPrefixes = []string{"kubectl.kubernetes.io/", "kubernetes.io/", "k8s.io/", "helm.sh/"}
@@ -573,7 +574,7 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeConfigMap(ctx context.Context,
 }
 
 func (r *InfisicalStaticSecretReconciler) PropagateSecretToWorkloads(ctx context.Context, target v1beta1.SecretTarget, etag string) (int, error) {
-	annotationKey := fmt.Sprintf(ManagedSecretAnnotationFmt, target.Name)
+	annotationKey := util.BuildManagedSecretAnnotationKey(ManagedSecretAnnotationPrefix, target.Name)
 
 	workloads, err := r.listWorkloadsConsumingTarget(ctx, target)
 	if err != nil {

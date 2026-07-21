@@ -191,7 +191,7 @@ func IsStatefulSetUsingManagedSecret(statefulSet v1.StatefulSet, managedSecret v
 // This function ensures that a deployment is in sync with a Kubernetes secret by comparing their versions.
 // If the version of the secret is different from the version annotation on the deployment, the annotation is updated to trigger a restart of the deployment.
 func ReconcileDeployment(ctx context.Context, client controllerClient.Client, logger logr.Logger, deployment v1.Deployment, secret corev1.Secret) error {
-	annotationKey := fmt.Sprintf("%s.%s", DEPLOYMENT_SECRET_NAME_ANNOTATION_PREFIX, secret.Name)
+	annotationKey := util.BuildManagedSecretAnnotationKey(DEPLOYMENT_SECRET_NAME_ANNOTATION_PREFIX, secret.Name)
 	annotationValue := secret.Annotations[constants.SECRET_VERSION_ANNOTATION]
 
 	if deployment.Annotations[annotationKey] == annotationValue &&
@@ -216,7 +216,7 @@ func ReconcileDeployment(ctx context.Context, client controllerClient.Client, lo
 }
 
 func ReconcileDaemonSet(ctx context.Context, client controllerClient.Client, logger logr.Logger, daemonSet v1.DaemonSet, secret corev1.Secret) error {
-	annotationKey := fmt.Sprintf("%s.%s", DEPLOYMENT_SECRET_NAME_ANNOTATION_PREFIX, secret.Name)
+	annotationKey := util.BuildManagedSecretAnnotationKey(DEPLOYMENT_SECRET_NAME_ANNOTATION_PREFIX, secret.Name)
 	annotationValue := secret.Annotations[constants.SECRET_VERSION_ANNOTATION]
 
 	if daemonSet.Annotations[annotationKey] == annotationValue &&
@@ -241,7 +241,7 @@ func ReconcileDaemonSet(ctx context.Context, client controllerClient.Client, log
 }
 
 func ReconcileStatefulSet(ctx context.Context, client controllerClient.Client, logger logr.Logger, statefulSet v1.StatefulSet, secret corev1.Secret) error {
-	annotationKey := fmt.Sprintf("%s.%s", DEPLOYMENT_SECRET_NAME_ANNOTATION_PREFIX, secret.Name)
+	annotationKey := util.BuildManagedSecretAnnotationKey(DEPLOYMENT_SECRET_NAME_ANNOTATION_PREFIX, secret.Name)
 	annotationValue := secret.Annotations[constants.SECRET_VERSION_ANNOTATION]
 
 	if statefulSet.Annotations[annotationKey] == annotationValue &&

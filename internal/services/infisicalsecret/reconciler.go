@@ -625,7 +625,7 @@ func (r *InfisicalSecretReconciler) getResourceVariables(infisicalSecret v1alpha
 		client := infisicalSdk.NewInfisicalClient(ctx, infisicalSdk.Config{
 			SiteUrl:       config.API_HOST_URL,
 			CaCertificate: config.API_CA_CERTIFICATE,
-			UserAgent:     constants.USER_AGENT_NAME,
+			UserAgent:     util.UserAgent(),
 			LogWriter:     config.API_LOG_WRITER,
 		})
 

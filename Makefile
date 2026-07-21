@@ -2,6 +2,14 @@
 VERSION ?= latest
 IMG ?= infisical/kubernetes-operator:${VERSION} # ${VERSION} will be replaced by the version in the CI step
 
+# Version embedded in the local `build` binary (util.Version, used in the
+# User-Agent). Docker targets embed the image tag ($(VERSION)) instead.
+OPERATOR_VERSION ?= dev
+# VERSION_LDFLAGS is always applied at build time so the version is never dropped;
+# LDFLAGS is for extra caller-supplied flags and is appended alongside it.
+VERSION_LDFLAGS := -X github.com/Infisical/infisical/k8-operator/internal/util.Version=$(OPERATOR_VERSION)
+LDFLAGS ?=
+
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
@@ -133,7 +141,7 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 
 .PHONY: build
 build: manifests generate fmt vet ## Build manager binary.
-	go build -o bin/manager cmd/main.go
+	go build -ldflags="$(VERSION_LDFLAGS) $(LDFLAGS)" -o bin/manager cmd/main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
@@ -144,7 +152,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG} .
+	$(CONTAINER_TOOL) build --build-arg VERSION=$(VERSION) -t ${IMG} .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
@@ -163,7 +171,7 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
 	- $(CONTAINER_TOOL) buildx create --name infisical-operator-builder
 	$(CONTAINER_TOOL) buildx use infisical-operator-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
+	- $(CONTAINER_TOOL) buildx build --build-arg VERSION=$(VERSION) --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
 	- $(CONTAINER_TOOL) buildx rm infisical-operator-builder
 	rm Dockerfile.cross
 

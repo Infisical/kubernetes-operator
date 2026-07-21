@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/Infisical/infisical/k8-operator/internal/config"
-	"github.com/Infisical/infisical/k8-operator/internal/constants"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
 	"github.com/go-resty/resty/v2"
 )
@@ -78,7 +77,7 @@ func CreateRestyClient(options model.CreateRestyClientOptions) (*resty.Client, e
 	for key, value := range options.Headers {
 		httpClient.SetHeader(key, value)
 	}
-	httpClient.SetHeader("User-Agent", constants.USER_AGENT_NAME)
+	httpClient.SetHeader("User-Agent", UserAgent())
 
 	caCertificate := cmp.Or(config.API_CA_CERTIFICATE, options.CaCertificate)
 	if caCertificate != "" {

@@ -51,6 +51,8 @@ jobs:
                   context: .
                   push: true
                   platforms: linux/amd64,linux/arm64
+                  build-args: |
+                      VERSION=${{ steps.extract_version.outputs.version }}
                   tags: |
                       infisical/kubernetes-operator:latest
                       infisical/kubernetes-operator:${{ steps.extract_version.outputs.version }}

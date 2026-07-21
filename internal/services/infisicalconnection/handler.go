@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
-	"github.com/Infisical/infisical/k8-operator/internal/constants"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
 	"github.com/go-logr/logr"
@@ -98,7 +97,7 @@ func (h *InfisicalConnectionHandler) TestConnection(ctx context.Context, infisic
 
 	httpClient := resty.New().
 		SetBaseURL(hostURL).
-		SetHeader("User-Agent", constants.USER_AGENT_NAME).
+		SetHeader("User-Agent", util.UserAgent()).
 		SetTimeout(30 * time.Second)
 
 	if tlsConfig := infisicalConnection.Spec.TLS; tlsConfig != nil && tlsConfig.CaCertificate != nil {

@@ -1,3 +1,9 @@
 # Values file for chart testing
 # CRDs are installed separately in the CI workflow
 installCRDs: false
+
+# Use latest released image for CI testing (unreleased versions don't exist on Docker Hub)
+controllerManager:
+  manager:
+    image:
+      tag: v0.11.4

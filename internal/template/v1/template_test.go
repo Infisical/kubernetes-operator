@@ -504,3 +504,77 @@ other_path: "{{ (secretFrom "/folder/other" "API_KEY").SecretPath }}"`
 		Expect(err.Error()).To(ContainSubstring("wrong number of args"))
 	})
 })
+
+var _ = Describe("RenderPerKeyTemplates with subdirectories", func() {
+
+	It("lists immediate subdirectory names under a path", func() {
+		tmpls := map[string]string{
+			"dirs": `{{ range foldersIn "/folder" }}{{ .Name }},{{ end }}`,
+		}
+
+		data, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(data).To(HaveKeyWithValue("dirs", []byte("other,subfolder,")))
+	})
+
+	It("exposes .Name and .Path for each subdirectory", func() {
+		tmpls := map[string]string{
+			"detail": `{{ range foldersIn "/folder" }}{{ .Name }}|{{ .Path }};{{ end }}`,
+		}
+
+		data, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(data).To(HaveKeyWithValue("detail", []byte("other|/folder/other;subfolder|/folder/subfolder;")))
+	})
+
+	It("lists top-level folders when passed the root path", func() {
+		tmpls := map[string]string{
+			"dirs": `{{ range foldersIn "/" }}{{ .Name }}={{ .Path }},{{ end }}`,
+		}
+
+		data, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(data).To(HaveKeyWithValue("dirs", []byte("folder=/folder,")))
+	})
+
+	It("returns an empty list without error for a path not in the tree", func() {
+		tmpls := map[string]string{
+			"dirs": `[{{ range foldersIn "/missing" }}{{ .Name }}{{ end }}]`,
+		}
+
+		data, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(data).To(HaveKeyWithValue("dirs", []byte("[]")))
+	})
+
+	It("does not include secret leaves, only folder nodes", func() {
+		tmpls := map[string]string{
+			// /folder/subfolder holds only secrets (DB_HOST, DB_PORT, API_KEY) and no subdirectories.
+			"dirs": `[{{ range foldersIn "/folder/subfolder" }}{{ .Name }}{{ end }}]`,
+		}
+
+		data, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(data).To(HaveKeyWithValue("dirs", []byte("[]")))
+	})
+
+	It("includes a folder whose name collides with a secret key at the same path", func() {
+		// A root secret key "db" and a "/db" folder produce a single tree node
+		// carrying both a Secret and Children. It must still be listed as a subdirectory.
+		collisionCtx := v1.NewTemplateContext(
+			[]api.Secret{
+				{SecretKey: "db", SecretValue: "some-value", SecretPath: "/"},
+				{SecretKey: "PASSWORD", SecretValue: "secret", SecretPath: "/db"},
+			},
+			nil,
+		)
+
+		tmpls := map[string]string{
+			"dirs": `{{ range foldersIn "/" }}{{ .Name }}={{ .Path }},{{ end }}`,
+		}
+
+		data, err := v1.RenderPerKeyTemplates(tmpls, collisionCtx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(data).To(HaveKeyWithValue("dirs", []byte("db=/db,")))
+	})
+})

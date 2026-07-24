@@ -3,6 +3,7 @@ package v1
 import (
 	"bytes"
 	"fmt"
+	"sort"
 	"strings"
 	tpl "text/template"
 
@@ -164,6 +165,41 @@ func newTemplate(name, templateString string, ctx TemplateContext) (*tpl.Templat
 			return model.V1TemplateOptions{}, fmt.Errorf("secretFrom: %q does not resolve to a secret", secretName)
 		}
 		return *child.Secret, nil
+	}
+	funcs["foldersIn"] = func(dir string) []model.V1Folder {
+		current := tree
+		for _, seg := range strings.Split(strings.Trim(dir, "/"), "/") {
+			if seg == "" {
+				continue
+			}
+			if current.Children == nil {
+				return []model.V1Folder{}
+			}
+			child, exists := current.Children[seg]
+			if !exists {
+				return []model.V1Folder{}
+			}
+			current = child
+		}
+
+		basePath := "/" + strings.Trim(dir, "/")
+
+		result := make([]model.V1Folder, 0)
+		for childName, child := range current.Children {
+			if len(child.Children) == 0 {
+				// A pure leaf is a secret, not a subdirectory. A node may carry
+				// both a Secret and Children when a secret key name collides with
+				// a folder segment; such a node is still a valid subdirectory.
+				continue
+			}
+			result = append(result, model.V1Folder{
+				Name: childName,
+				Path: strings.TrimRight(basePath, "/") + "/" + childName,
+			})
+		}
+
+		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+		return result
 	}
 	return tpl.New(name).Funcs(funcs).Parse(templateString)
 }

@@ -509,7 +509,7 @@ var _ = Describe("RenderPerKeyTemplates with subdirectories", func() {
 
 	It("lists immediate subdirectory names under a path", func() {
 		tmpls := map[string]string{
-			"dirs": `{{ range subdirectories "/folder" }}{{ .Name }},{{ end }}`,
+			"dirs": `{{ range foldersIn "/folder" }}{{ .Name }},{{ end }}`,
 		}
 
 		data, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
@@ -519,7 +519,7 @@ var _ = Describe("RenderPerKeyTemplates with subdirectories", func() {
 
 	It("exposes .Name and .Path for each subdirectory", func() {
 		tmpls := map[string]string{
-			"detail": `{{ range subdirectories "/folder" }}{{ .Name }}|{{ .Path }};{{ end }}`,
+			"detail": `{{ range foldersIn "/folder" }}{{ .Name }}|{{ .Path }};{{ end }}`,
 		}
 
 		data, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
@@ -529,7 +529,7 @@ var _ = Describe("RenderPerKeyTemplates with subdirectories", func() {
 
 	It("lists top-level folders when passed the root path", func() {
 		tmpls := map[string]string{
-			"dirs": `{{ range subdirectories "/" }}{{ .Name }}={{ .Path }},{{ end }}`,
+			"dirs": `{{ range foldersIn "/" }}{{ .Name }}={{ .Path }},{{ end }}`,
 		}
 
 		data, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
@@ -539,7 +539,7 @@ var _ = Describe("RenderPerKeyTemplates with subdirectories", func() {
 
 	It("returns an empty list without error for a path not in the tree", func() {
 		tmpls := map[string]string{
-			"dirs": `[{{ range subdirectories "/missing" }}{{ .Name }}{{ end }}]`,
+			"dirs": `[{{ range foldersIn "/missing" }}{{ .Name }}{{ end }}]`,
 		}
 
 		data, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
@@ -550,7 +550,7 @@ var _ = Describe("RenderPerKeyTemplates with subdirectories", func() {
 	It("does not include secret leaves, only folder nodes", func() {
 		tmpls := map[string]string{
 			// /folder/subfolder holds only secrets (DB_HOST, DB_PORT, API_KEY) and no subdirectories.
-			"dirs": `[{{ range subdirectories "/folder/subfolder" }}{{ .Name }}{{ end }}]`,
+			"dirs": `[{{ range foldersIn "/folder/subfolder" }}{{ .Name }}{{ end }}]`,
 		}
 
 		data, err := v1.RenderPerKeyTemplates(tmpls, subfolderCtx)
@@ -570,7 +570,7 @@ var _ = Describe("RenderPerKeyTemplates with subdirectories", func() {
 		)
 
 		tmpls := map[string]string{
-			"dirs": `{{ range subdirectories "/" }}{{ .Name }}={{ .Path }},{{ end }}`,
+			"dirs": `{{ range foldersIn "/" }}{{ .Name }}={{ .Path }},{{ end }}`,
 		}
 
 		data, err := v1.RenderPerKeyTemplates(tmpls, collisionCtx)

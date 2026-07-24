@@ -156,25 +156,25 @@ func newTemplate(name, templateString string, ctx TemplateContext) (*tpl.Templat
 		}
 		return *child.Secret, nil
 	}
-	funcs["subdirectories"] = func(dir string) []model.V1Subdirectory {
+	funcs["foldersIn"] = func(dir string) []model.V1Folder {
 		current := tree
 		for _, seg := range strings.Split(strings.Trim(dir, "/"), "/") {
 			if seg == "" {
 				continue
 			}
 			if current.Children == nil {
-				return []model.V1Subdirectory{}
+				return []model.V1Folder{}
 			}
 			child, exists := current.Children[seg]
 			if !exists {
-				return []model.V1Subdirectory{}
+				return []model.V1Folder{}
 			}
 			current = child
 		}
 
 		basePath := "/" + strings.Trim(dir, "/")
 
-		result := make([]model.V1Subdirectory, 0)
+		result := make([]model.V1Folder, 0)
 		for childName, child := range current.Children {
 			if len(child.Children) == 0 {
 				// A pure leaf is a secret, not a subdirectory. A node may carry
@@ -182,7 +182,7 @@ func newTemplate(name, templateString string, ctx TemplateContext) (*tpl.Templat
 				// a folder segment; such a node is still a valid subdirectory.
 				continue
 			}
-			result = append(result, model.V1Subdirectory{
+			result = append(result, model.V1Folder{
 				Name: childName,
 				Path: strings.TrimRight(basePath, "/") + "/" + childName,
 			})

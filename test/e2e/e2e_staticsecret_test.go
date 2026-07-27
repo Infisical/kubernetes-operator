@@ -581,7 +581,7 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 			},
 		})
 
-		synced := expectSecret("e2e-mt-secret", "e2e-superlong-secret-name-sync")
+		synced := expectSecret(secretName, "e2e-superlong-secret-name-sync")
 		expectSecretData(synced, map[string]string{"SHARED_KEY": "shared-val"})
 	})
 

@@ -1,6 +1,8 @@
 package util_test
 
 import (
+	"strings"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -53,6 +55,36 @@ var _ = Describe("AppendAPIEndpoint", func() {
 			name:   "ends with /api/",
 			input:  "https://app.infisical.com/api/",
 			output: "https://app.infisical.com/api",
+		}),
+	)
+})
+
+var _ = Describe("ComputeManagedSecretAnnotation", func() {
+
+	const template = "secrets.infisical.com/managed-secret.%s"
+
+	type TestCase struct {
+		name       string
+		secretName string
+	}
+
+	DescribeTable("never surpasses 63 characters",
+		func(tc TestCase) {
+			annotation := util.ComputeManagedSecretAnnotation(template, tc.secretName)
+			annotationName := strings.Split(annotation, "/")[1]
+			Expect(len(annotationName)).To(BeNumerically("<", 64))
+		},
+		Entry("input is less than 63 characters long", TestCase{
+			name:       "input is less than 63 characters long",
+			secretName: "short-name",
+		}),
+		Entry("input is 63 characters long", TestCase{
+			name:       "input is 63 characters long",
+			secretName: "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKL",
+		}),
+		Entry("input is longer than 63 characters", TestCase{
+			name:       "input is longer than 63 characters",
+			secretName: "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKL_LONG_STRING",
 		}),
 	)
 })

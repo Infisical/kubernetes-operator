@@ -2,6 +2,9 @@ package util
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"math/rand"
 	"time"
 
@@ -56,4 +59,9 @@ func (e *EnqueueDelayedEventHandler) Generic(_ context.Context, evt event.TypedG
 	} else {
 		q.Add(req)
 	}
+}
+
+func ComputeManagedSecretAnnotation(template, secretName string) string {
+	sum := sha256.Sum256([]byte(secretName))
+	return fmt.Sprintf(template, hex.EncodeToString(sum[:16]))
 }

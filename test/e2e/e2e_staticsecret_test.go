@@ -16,7 +16,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	secretsv1beta1 "github.com/Infisical/infisical/k8-operator/api/v1beta1"
+	"github.com/Infisical/infisical/k8-operator/internal/services/infisicalstaticsecret"
 	"github.com/Infisical/infisical/k8-operator/internal/testutil/infra"
+	"github.com/Infisical/infisical/k8-operator/internal/util"
 )
 
 const testNamespace = "default"
@@ -616,7 +618,7 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 		synced := expectSecret(secretName, "e2e-superlong-secret-name-sync")
 		expectSecretData(synced, map[string]string{"SHARED_KEY": "shared-val"})
 
-		annotationKey := fmt.Sprintf("secrets.infisical.com/managed-secret.%s", secretName)
+		annotationKey := util.ComputeManagedSecretAnnotation(infisicalstaticsecret.ManagedSecretAnnotationFmt, secretName)
 		Eventually(func(g Gomega) {
 			var updated appsv1.Deployment
 			g.Expect(k.Get(ctx, types.NamespacedName{Name: "e2e-superlong-consumer", Namespace: testNamespace}, &updated)).To(Succeed())

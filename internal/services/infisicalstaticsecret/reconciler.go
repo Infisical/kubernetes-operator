@@ -573,7 +573,7 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeConfigMap(ctx context.Context,
 }
 
 func (r *InfisicalStaticSecretReconciler) PropagateSecretToWorkloads(ctx context.Context, target v1beta1.SecretTarget, etag string) (int, error) {
-	annotationKey := fmt.Sprintf(ManagedSecretAnnotationFmt, target.Name)
+	annotationKey := util.ComputeManagedSecretAnnotation(ManagedSecretAnnotationFmt, target.Name)
 
 	workloads, err := r.listWorkloadsConsumingTarget(ctx, target)
 	if err != nil {

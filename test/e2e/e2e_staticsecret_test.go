@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -562,6 +563,37 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 
 		const secretName = "e2e-mt-secret-with-a-super-long-name-that-would-cause-k8s-to-reject-annotation"
 
+		replicas := int32(1)
+		dep := &appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "e2e-superlong-consumer",
+				Namespace: testNamespace,
+				Annotations: map[string]string{
+					"secrets.infisical.com/auto-reload": "true",
+				},
+			},
+			Spec: appsv1.DeploymentSpec{
+				Replicas: &replicas,
+				Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "e2e-superlong-consumer"}},
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "e2e-superlong-consumer"}},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{
+							Name:  "main",
+							Image: "busybox",
+							EnvFrom: []corev1.EnvFromSource{{
+								SecretRef: &corev1.SecretEnvSource{
+									LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+								},
+							}},
+						}},
+					},
+				},
+			},
+		}
+		Expect(k.Create(ctx, dep)).To(Succeed())
+		DeferCleanup(func() { _ = client.IgnoreNotFound(k.Delete(ctx, dep)) })
+
 		createStaticSecret("e2e-superlong-secret-name-sync", secretsv1beta1.InfisicalStaticSecretSpec{
 			InfisicalAuthRef: authRef,
 			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
@@ -583,6 +615,13 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 
 		synced := expectSecret(secretName, "e2e-superlong-secret-name-sync")
 		expectSecretData(synced, map[string]string{"SHARED_KEY": "shared-val"})
+
+		annotationKey := fmt.Sprintf("secrets.infisical.com/managed-secret.%s", secretName)
+		Eventually(func(g Gomega) {
+			var updated appsv1.Deployment
+			g.Expect(k.Get(ctx, types.NamespacedName{Name: "e2e-superlong-consumer", Namespace: testNamespace}, &updated)).To(Succeed())
+			g.Expect(updated.Annotations).To(HaveKey(annotationKey), "auto-reload annotation was not propagated to deployment")
+		}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(Succeed())
 	})
 
 	It("should sync using project slug instead of project ID", func() {

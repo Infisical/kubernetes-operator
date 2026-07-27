@@ -556,6 +556,35 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 		Expect(cm.Data).To(HaveKeyWithValue("SHARED_KEY", "shared-val"))
 	})
 
+	It("should not break if secret name is too long", func() {
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "superlong")
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/superlong", "SHARED_KEY", "shared-val", nil)
+
+		const secretName = "e2e-mt-secret-with-a-super-long-name-that-would-cause-k8s-to-reject-annotation"
+
+		createStaticSecret("e2e-superlong-secret-name-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+			InfisicalAuthRef: authRef,
+			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
+			Sources: []secretsv1beta1.SecretSource{{
+				ProjectId:       project.ID,
+				EnvironmentSlug: project.EnvSlug,
+				SecretPath:      "/superlong",
+			}},
+			Targets: []secretsv1beta1.SecretTarget{
+				{
+					Name:           secretName,
+					Namespace:      testNamespace,
+					Kind:           secretsv1beta1.SecretTargetKindSecret,
+					SecretType:     corev1.SecretTypeOpaque,
+					CreationPolicy: secretsv1beta1.CreationPolicyOwner,
+				},
+			},
+		})
+
+		synced := expectSecret("e2e-mt-secret", "e2e-superlong-secret-name-sync")
+		expectSecretData(synced, map[string]string{"SHARED_KEY": "shared-val"})
+	})
+
 	It("should sync using project slug instead of project ID", func() {
 		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "slug-test")
 		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/slug-test", "SLUG_KEY", "slug-value", nil)

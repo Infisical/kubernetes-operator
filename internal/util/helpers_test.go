@@ -61,8 +61,6 @@ var _ = Describe("AppendAPIEndpoint", func() {
 
 var _ = Describe("ComputeManagedSecretAnnotation", func() {
 
-	const template = "secrets.infisical.com/managed-secret.%s"
-
 	type TestCase struct {
 		name       string
 		secretName string
@@ -70,7 +68,7 @@ var _ = Describe("ComputeManagedSecretAnnotation", func() {
 
 	DescribeTable("never surpasses 63 characters",
 		func(tc TestCase) {
-			annotation := util.ComputeManagedSecretAnnotation(template, tc.secretName)
+			annotation := util.ComputeManagedSecretAnnotation(tc.secretName)
 			annotationName := strings.Split(annotation, "/")[1]
 			Expect(len(annotationName)).To(BeNumerically("<", 64))
 		},

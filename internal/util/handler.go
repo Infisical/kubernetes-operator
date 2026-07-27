@@ -61,7 +61,7 @@ func (e *EnqueueDelayedEventHandler) Generic(_ context.Context, evt event.TypedG
 	}
 }
 
-func ComputeManagedSecretAnnotation(template, secretName string) string {
+func ComputeManagedSecretAnnotation(secretName string) string {
 	sum := sha256.Sum256([]byte(secretName))
-	return fmt.Sprintf(template, hex.EncodeToString(sum[:16]))
+	return fmt.Sprintf(ManagedSecretAnnotationFmt, hex.EncodeToString(sum[:16]))
 }

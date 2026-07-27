@@ -1151,7 +1151,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 	const namespace = "default"
 	const secretName = "app-secret"
 	const etag = "v2-etag"
-	annotationKey := util.ComputeManagedSecretAnnotation(svc.ManagedSecretAnnotationFmt, secretName)
+	annotationKey := util.ComputeManagedSecretAnnotation(secretName)
 
 	target := v1beta1.SecretTarget{
 		Name:      secretName,
@@ -1449,7 +1449,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 
 	Context("with a ConfigMap target", func() {
 		const configMapName = "app-config"
-		configMapAnnotationKey := util.ComputeManagedSecretAnnotation(svc.ManagedSecretAnnotationFmt, configMapName)
+		configMapAnnotationKey := util.ComputeManagedSecretAnnotation(configMapName)
 
 		configMapTarget := v1beta1.SecretTarget{
 			Name:      configMapName,

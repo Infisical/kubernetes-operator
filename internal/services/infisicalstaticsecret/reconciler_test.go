@@ -13,6 +13,7 @@ import (
 	"github.com/Infisical/infisical/k8-operator/internal/crypto"
 	svc "github.com/Infisical/infisical/k8-operator/internal/services/infisicalstaticsecret"
 	templatev1 "github.com/Infisical/infisical/k8-operator/internal/template/v1"
+	"github.com/Infisical/infisical/k8-operator/internal/util"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8Errors "k8s.io/apimachinery/pkg/api/errors"
@@ -1150,7 +1151,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 	const namespace = "default"
 	const secretName = "app-secret"
 	const etag = "v2-etag"
-	annotationKey := fmt.Sprintf(svc.ManagedSecretAnnotationFmt, secretName)
+	annotationKey := util.ComputeManagedSecretAnnotation(secretName)
 
 	target := v1beta1.SecretTarget{
 		Name:      secretName,
@@ -1448,7 +1449,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 
 	Context("with a ConfigMap target", func() {
 		const configMapName = "app-config"
-		configMapAnnotationKey := fmt.Sprintf(svc.ManagedSecretAnnotationFmt, configMapName)
+		configMapAnnotationKey := util.ComputeManagedSecretAnnotation(configMapName)
 
 		configMapTarget := v1beta1.SecretTarget{
 			Name:      configMapName,

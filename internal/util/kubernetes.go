@@ -18,6 +18,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const ManagedSecretAnnotationFmt = "secrets.infisical.com/managed-secret.%s"
+
 const INFISICAL_MACHINE_IDENTITY_CLIENT_ID = "clientId"
 const INFISICAL_MACHINE_IDENTITY_CLIENT_SECRET = "clientSecret"
 

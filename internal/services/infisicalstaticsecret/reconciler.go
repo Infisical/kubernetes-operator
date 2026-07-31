@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	AutoReloadAnnotation       = "secrets.infisical.com/auto-reload"
+	AutoReloadAnnotation = "secrets.infisical.com/auto-reload"
 )
 
 var systemAnnotationPrefixes = []string{"kubectl.kubernetes.io/", "kubernetes.io/", "k8s.io/", "helm.sh/"}

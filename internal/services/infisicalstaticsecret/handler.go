@@ -100,8 +100,8 @@ func (h *InfisicalStaticSecretHandler) SyncSecrets(ctx context.Context, infisica
 	return len(mergedSecrets), nil
 }
 
-func sourceSSEKey(source v1beta1.SecretSource) string {
-	return path.Join(source.ProjectId, source.EnvironmentSlug, source.SecretPath)
+func sourceSSEKey(projectID string, source v1beta1.SecretSource) string {
+	return path.Join(projectID, source.EnvironmentSlug, source.SecretPath)
 }
 
 func (h *InfisicalStaticSecretHandler) OpenInstantUpdatesStreams(
@@ -121,6 +121,14 @@ func (h *InfisicalStaticSecretHandler) OpenInstantUpdatesStreams(
 
 	token := auth.Credentials.MachineIdentity.AccessToken
 	baseURL := util.AppendAPIEndpoint(auth.Connection.Address())
+
+	restClient, err := util.CreateRestyClient(model.CreateRestyClientOptions{
+		AccessToken: token,
+	})
+	if err != nil {
+		return registries, fmt.Errorf("failed to get REST client: %w", err)
+	}
+	restClient = restClient.SetBaseURL(auth.Connection.Address())
 
 	if registries == nil {
 		registries = make(map[string]*sse.ConnectionRegistry)
@@ -145,11 +153,28 @@ func (h *InfisicalStaticSecretHandler) OpenInstantUpdatesStreams(
 			secretsPath = path.Join(secretsPath, "**")
 		}
 
-		key := sourceSSEKey(source)
+		projectID := source.ProjectId
+		if source.ProjectSlug != "" {
+			resolvedID, err := h.reconciler.getProjectIDBySlug(restClient, infisicalStaticSecret.Spec.InfisicalAuthRef, source.ProjectSlug)
+			if err != nil {
+				h.logger.Error(err, "Failed to resolve project slug", "projectSlug", source.ProjectSlug)
+				// A transient resolution failure must not tear down an already-established
+				// stream for this source, so keep its existing registry key active.
+				for existingKey, registry := range registries {
+					if params, ok := registry.GetParams(); ok && params.EnvSlug == source.EnvironmentSlug && params.SecretsPath == secretsPath {
+						activeKeys[existingKey] = struct{}{}
+					}
+				}
+				continue
+			}
+			projectID = resolvedID
+		}
+
+		key := sourceSSEKey(projectID, source)
 		activeKeys[key] = struct{}{}
 
 		currentParams := sse.SubscriptionParams{
-			ProjectID:   source.ProjectId,
+			ProjectID:   projectID,
 			EnvSlug:     source.EnvironmentSlug,
 			SecretsPath: secretsPath,
 		}
@@ -216,7 +241,7 @@ func (h *InfisicalStaticSecretHandler) OpenInstantUpdatesStreams(
 			continue
 		}
 
-		h.logger.Info("SSE connection established", "source", key, "projectID", source.ProjectId, "envSlug", source.EnvironmentSlug, "secretsPath", secretsPath)
+		h.logger.Info("SSE connection established", "source", key, "projectID", projectID, "envSlug", source.EnvironmentSlug, "secretsPath", secretsPath)
 	}
 
 	for key, registry := range registries {

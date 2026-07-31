@@ -158,6 +158,13 @@ func (h *InfisicalStaticSecretHandler) OpenInstantUpdatesStreams(
 			resolvedID, err := h.reconciler.getProjectIDBySlug(restClient, infisicalStaticSecret.Spec.InfisicalAuthRef, source.ProjectSlug)
 			if err != nil {
 				h.logger.Error(err, "Failed to resolve project slug", "projectSlug", source.ProjectSlug)
+				// A transient resolution failure must not tear down an already-established
+				// stream for this source, so keep its existing registry key active.
+				for existingKey, registry := range registries {
+					if params, ok := registry.GetParams(); ok && params.EnvSlug == source.EnvironmentSlug && params.SecretsPath == secretsPath {
+						activeKeys[existingKey] = struct{}{}
+					}
+				}
 				continue
 			}
 			projectID = resolvedID

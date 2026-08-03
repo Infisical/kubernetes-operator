@@ -122,8 +122,18 @@ func (h *InfisicalStaticSecretHandler) OpenInstantUpdatesStreams(
 	token := auth.Credentials.MachineIdentity.AccessToken
 	baseURL := util.AppendAPIEndpoint(auth.Connection.Address())
 
+	var caCertificate string
+	if tls := auth.Connection.Spec.TLS; tls != nil && tls.CaCertificate != nil {
+		certBytes, err := util.ResolveSecretReference(ctx, h.Client, *tls.CaCertificate, ".spec.tls.caCertificate")
+		if err != nil {
+			return registries, fmt.Errorf("failed to resolve TLS CA certificate: %w", err)
+		}
+		caCertificate = string(certBytes)
+	}
+
 	restClient, err := util.CreateRestyClient(model.CreateRestyClientOptions{
-		AccessToken: token,
+		AccessToken:   token,
+		CaCertificate: caCertificate,
 	})
 	if err != nil {
 		return registries, fmt.Errorf("failed to get REST client: %w", err)

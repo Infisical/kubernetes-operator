@@ -339,8 +339,18 @@ func (r *InfisicalStaticSecretReconciler) ListSecretsFromSources(ctx context.Con
 		return nil, nil, model.ErrInvalidStaticSecretObject
 	}
 
+	var caCertificate string
+	if tls := authenticationResult.Connection.Spec.TLS; tls != nil && tls.CaCertificate != nil {
+		certBytes, err := util.ResolveSecretReference(ctx, r.Client, *tls.CaCertificate, ".spec.tls.caCertificate")
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to resolve TLS CA certificate: %w", err)
+		}
+		caCertificate = string(certBytes)
+	}
+
 	restClient, err := util.CreateRestyClient(model.CreateRestyClientOptions{
-		AccessToken: authenticationResult.Credentials.MachineIdentity.AccessToken,
+		AccessToken:   authenticationResult.Credentials.MachineIdentity.AccessToken,
+		CaCertificate: caCertificate,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get REST client: %w", err)

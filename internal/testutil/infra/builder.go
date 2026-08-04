@@ -101,6 +101,9 @@ func (b *Builder) MustStart() *Stack {
 		if err != nil {
 			log.Fatalf("infra: %v", err)
 		}
+		if err := stack.nodejs.connectToKindNetwork(ctx); err != nil {
+			log.Fatalf("infra: connect nodejs to kind network: %v", err)
+		}
 	}
 
 	log.Println("infra: stack ready")

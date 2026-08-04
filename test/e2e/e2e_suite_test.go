@@ -1,8 +1,6 @@
 package e2e
 
 import (
-	"net"
-	"net/url"
 	"os"
 	"testing"
 
@@ -29,25 +27,10 @@ func TestE2E(t *testing.T) {
 var _ = BeforeSuite(func() {
 	testInfra = infra.New().WithNodeJSApi().MustStart()
 
-	gateway, err := operator.KindIPv4Gateway("kind")
-	Expect(err).NotTo(HaveOccurred())
-
-	err = testInfra.StartTLSProxy(infra.TLSBundleOpts{
-		DNSNames:    []string{"tls-proxy"},
-		IPAddresses: []net.IP{net.ParseIP(gateway)},
-	})
-	Expect(err).NotTo(HaveOccurred())
-
-	tlsProxyURL, err := url.Parse(testInfra.Nginx().URL())
-	Expect(err).NotTo(HaveOccurred())
-
+	var err error
 	testManager, err = operator.Install(operator.InstallOpts{
 		HostAPIURL:   testInfra.NodeJS().URL(),
-<<<<<<< Updated upstream
 		InClusterURL: testInfra.NodeJS().InClusterURL(),
-=======
-		TLSProxyPort: tlsProxyURL.Port(),
->>>>>>> Stashed changes
 	})
 	Expect(err).NotTo(HaveOccurred())
 })

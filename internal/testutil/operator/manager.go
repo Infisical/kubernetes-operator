@@ -53,14 +53,12 @@ func getRESTConfig() (*rest.Config, error) {
 }
 
 type Manager struct {
-	client             client.Client
-	inClusterAPIURL    string
-	inClusterTLSAPIURL string
+	client          client.Client
+	inClusterAPIURL string
 }
 
-func (m *Manager) Client() client.Client      { return m.client }
-func (m *Manager) InClusterAPIURL() string    { return m.inClusterAPIURL }
-func (m *Manager) InClusterTLSAPIURL() string { return m.inClusterTLSAPIURL }
+func (m *Manager) Client() client.Client   { return m.client }
+func (m *Manager) InClusterAPIURL() string { return m.inClusterAPIURL }
 
 func (m *Manager) Stop() {
 	args := []string{"uninstall", helmReleaseName, "--namespace", helmNamespace, "--wait"}
@@ -75,11 +73,7 @@ func (m *Manager) Stop() {
 
 type InstallOpts struct {
 	HostAPIURL   string
-<<<<<<< Updated upstream
 	InClusterURL string
-=======
-	TLSProxyPort string
->>>>>>> Stashed changes
 }
 
 func Install(opts InstallOpts) (*Manager, error) {
@@ -93,27 +87,7 @@ func Install(opts InstallOpts) (*Manager, error) {
 	// Remove any pre-existing CRDs so Helm can manage them cleanly.
 	_ = runDir(root, "make", "uninstall", "ignore-not-found=true")
 
-<<<<<<< Updated upstream
 	inClusterURL := opts.InClusterURL
-=======
-	// The Kind network gateway is the host IP from within Kind pods.
-	// This lets the operator pod reach the testcontainer API via the host's port mapping.
-	gateway, err := KindIPv4Gateway(kindNetwork)
-	if err != nil {
-		return nil, fmt.Errorf("get kind network gateway: %w", err)
-	}
-
-	hostURL, err := url.Parse(opts.HostAPIURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse host URL: %w", err)
-	}
-	inClusterURL := fmt.Sprintf("http://%s:%s", gateway, hostURL.Port())
->>>>>>> Stashed changes
-
-	var inClusterTLSURL string
-	if opts.TLSProxyPort != "" {
-		inClusterTLSURL = fmt.Sprintf("https://%s:%s", gateway, opts.TLSProxyPort)
-	}
 
 	if err := waitForAPI(opts.HostAPIURL, 60*time.Second); err != nil {
 		return nil, fmt.Errorf("API not ready: %w", err)
@@ -179,9 +153,8 @@ controllerManager:
 	}
 
 	return &Manager{
-		client:             k8sClient,
-		inClusterAPIURL:    inClusterURL,
-		inClusterTLSAPIURL: inClusterTLSURL,
+		client:          k8sClient,
+		inClusterAPIURL: inClusterURL,
 	}, nil
 }
 
@@ -270,43 +243,3 @@ func runDir(dir, name string, args ...string) error {
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
-<<<<<<< Updated upstream
-=======
-
-func cmdOutput(name string, args ...string) (string, error) {
-	out, err := exec.Command(name, args...).CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("%s: %w", strings.TrimSpace(string(out)), err)
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
-func KindIPv4Gateway(networkName string) (string, error) {
-	out, err := cmdOutput("docker", "network", "inspect", networkName, "--format", "{{json .IPAM.Config}}")
-	if err != nil {
-		return "", err
-	}
-
-	type ipamConfig struct {
-		Gateway string `json:"Gateway"`
-	}
-
-	var cfgs []ipamConfig
-	if err := json.Unmarshal([]byte(out), &cfgs); err != nil {
-		return "", fmt.Errorf("parse network IPAM config: %w", err)
-	}
-
-	for _, cfg := range cfgs {
-		if cfg.Gateway == "" {
-			continue
-		}
-		ip := net.ParseIP(cfg.Gateway)
-		if ip == nil || ip.To4() == nil {
-			continue
-		}
-		return cfg.Gateway, nil
-	}
-
-	return "", fmt.Errorf("no IPv4 gateway found in docker network %q IPAM config", networkName)
-}
->>>>>>> Stashed changes

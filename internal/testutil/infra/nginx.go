@@ -3,8 +3,6 @@ package infra
 import (
 	"context"
 	"fmt"
-	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/testcontainers/testcontainers-go"
@@ -33,15 +31,11 @@ http {
 `
 
 type NginxService struct {
-	container    testcontainers.Container
-	url          string
-	inClusterURL string
-	kindIP       string
+	container testcontainers.Container
+	url       string
 }
 
-func (n *NginxService) URL() string          { return n.url }
-func (n *NginxService) InClusterURL() string { return n.inClusterURL }
-func (n *NginxService) KindIP() string       { return n.kindIP }
+func (n *NginxService) URL() string { return n.url }
 
 func startNginx(ctx context.Context, networkName string, tls *TLSBundle) (*NginxService, error) {
 	req := testcontainers.ContainerRequest{
@@ -95,58 +89,4 @@ func startNginx(ctx context.Context, networkName string, tls *TLSBundle) (*Nginx
 		container: container,
 		url:       url,
 	}, nil
-}
-
-func (n *NginxService) connectToKindNetwork() (string, error) {
-	kindNetwork := "kind"
-	containerID := n.container.GetContainerID()
-
-	out, err := exec.Command("docker", "network", "connect", kindNetwork, containerID).CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("docker network connect: %s: %w", string(out), err)
-	}
-
-	inspectOut, err := exec.Command("docker", "inspect",
-		"--format", fmt.Sprintf("{{(index .NetworkSettings.Networks %q).IPAddress}}", kindNetwork),
-		containerID,
-	).CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("docker inspect: %s: %w", string(inspectOut), err)
-	}
-
-	ip := strings.TrimSpace(string(inspectOut))
-	if ip == "" {
-		return "", fmt.Errorf("no IP found for container on network %q", kindNetwork)
-	}
-
-	n.kindIP = ip
-	n.inClusterURL = fmt.Sprintf("https://%s:443", ip)
-	return ip, nil
-}
-
-func (n *NginxService) replaceCerts(tls *TLSBundle) error {
-	containerID := n.container.GetContainerID()
-
-	if err := dockerWrite(tls.ServerCert, containerID, "/etc/nginx/certs/server.crt"); err != nil {
-		return fmt.Errorf("copy server cert: %w", err)
-	}
-	if err := dockerWrite(tls.ServerKey, containerID, "/etc/nginx/certs/server.key"); err != nil {
-		return fmt.Errorf("copy server key: %w", err)
-	}
-
-	out, err := exec.Command("docker", "exec", containerID, "nginx", "-s", "reload").CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("nginx reload: %s: %w", string(out), err)
-	}
-	return nil
-}
-
-func dockerWrite(data []byte, containerID, destPath string) error {
-	cmd := exec.Command("docker", "exec", "-i", containerID, "sh", "-c", fmt.Sprintf("cat > %s", destPath))
-	cmd.Stdin = bytesReader(data)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s: %w", string(out), err)
-	}
-	return nil
 }

@@ -1,11 +1,8 @@
 package operator
 
 import (
-	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,7 +25,6 @@ const (
 	helmReleaseName = "infisical-e2e"
 	helmNamespace   = "infisical-operator-system"
 	testImage       = "infisical/kubernetes-operator:e2e-test"
-	kindNetwork     = "kind"
 )
 
 func kubeContext() string {
@@ -78,8 +74,12 @@ func (m *Manager) Stop() {
 }
 
 type InstallOpts struct {
-	HostAPIURL      string
-	InClusterTLSURL string
+	HostAPIURL   string
+<<<<<<< Updated upstream
+	InClusterURL string
+=======
+	TLSProxyPort string
+>>>>>>> Stashed changes
 }
 
 func Install(opts InstallOpts) (*Manager, error) {
@@ -93,6 +93,11 @@ func Install(opts InstallOpts) (*Manager, error) {
 	// Remove any pre-existing CRDs so Helm can manage them cleanly.
 	_ = runDir(root, "make", "uninstall", "ignore-not-found=true")
 
+<<<<<<< Updated upstream
+	inClusterURL := opts.InClusterURL
+=======
+	// The Kind network gateway is the host IP from within Kind pods.
+	// This lets the operator pod reach the testcontainer API via the host's port mapping.
 	gateway, err := KindIPv4Gateway(kindNetwork)
 	if err != nil {
 		return nil, fmt.Errorf("get kind network gateway: %w", err)
@@ -103,8 +108,12 @@ func Install(opts InstallOpts) (*Manager, error) {
 		return nil, fmt.Errorf("parse host URL: %w", err)
 	}
 	inClusterURL := fmt.Sprintf("http://%s:%s", gateway, hostURL.Port())
+>>>>>>> Stashed changes
 
-	inClusterTLSURL := opts.InClusterTLSURL
+	var inClusterTLSURL string
+	if opts.TLSProxyPort != "" {
+		inClusterTLSURL = fmt.Sprintf("https://%s:%s", gateway, opts.TLSProxyPort)
+	}
 
 	if err := waitForAPI(opts.HostAPIURL, 60*time.Second); err != nil {
 		return nil, fmt.Errorf("API not ready: %w", err)
@@ -261,6 +270,8 @@ func runDir(dir, name string, args ...string) error {
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
+<<<<<<< Updated upstream
+=======
 
 func cmdOutput(name string, args ...string) (string, error) {
 	out, err := exec.Command(name, args...).CombinedOutput()
@@ -298,3 +309,4 @@ func KindIPv4Gateway(networkName string) (string, error) {
 
 	return "", fmt.Errorf("no IPv4 gateway found in docker network %q IPAM config", networkName)
 }
+>>>>>>> Stashed changes

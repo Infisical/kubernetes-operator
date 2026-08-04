@@ -103,6 +103,7 @@ func startNodeJS(ctx context.Context, networkName string, files []testcontainers
 			"SITE_URL":          "http://localhost:8080",
 			"TELEMETRY_ENABLED": "false",
 			"SMTP_HOST":         "",
+			"MAX_MACHINE_IDENTITY_TOKEN_AGE": "3650d",
 		},
 		Files:      files,
 		Cmd:        cmd,

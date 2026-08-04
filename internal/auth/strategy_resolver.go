@@ -48,9 +48,10 @@ func NewAuthStrategyResolver(client client.Client, cache *cache.AuthCache, logge
 
 // NewAuthStrategyResolverForTesting should not be used outside its testing file
 // I didn't find a better approach for injecting mocked auth strategies.
-func NewAuthStrategyResolverForTesting(cache *cache.AuthCache, providers map[v1beta1.InfisicalAuthMethod]InfisicalAuthStrategy) *AuthStrategyResolver {
+func NewAuthStrategyResolverForTesting(k8sClient client.Client, cache *cache.AuthCache, providers map[v1beta1.InfisicalAuthMethod]InfisicalAuthStrategy) *AuthStrategyResolver {
 	return &AuthStrategyResolver{
 		entries: providers,
+		client:  k8sClient,
 		cache:   cache,
 		logger:  logr.New(nil),
 	}

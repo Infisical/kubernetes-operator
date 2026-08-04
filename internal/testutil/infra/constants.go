@@ -1,9 +1,12 @@
 package infra
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io"
+	"strings"
 )
 
 const NodeEnv = "test"
@@ -40,3 +43,6 @@ func randomHex(n int) string {
 	}
 	return hex.EncodeToString(b)
 }
+
+func stringReader(s string) io.Reader { return strings.NewReader(s) }
+func bytesReader(b []byte) io.Reader  { return bytes.NewReader(b) }

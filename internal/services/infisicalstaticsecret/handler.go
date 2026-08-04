@@ -122,13 +122,9 @@ func (h *InfisicalStaticSecretHandler) OpenInstantUpdatesStreams(
 	token := auth.Credentials.MachineIdentity.AccessToken
 	baseURL := util.AppendAPIEndpoint(auth.Connection.Address())
 
-	var caCertificate string
-	if tls := auth.Connection.Spec.TLS; tls != nil && tls.CaCertificate != nil {
-		certBytes, err := util.ResolveSecretReference(ctx, h.Client, *tls.CaCertificate, ".spec.tls.caCertificate")
-		if err != nil {
-			return registries, fmt.Errorf("failed to resolve TLS CA certificate: %w", err)
-		}
-		caCertificate = string(certBytes)
+	caCertificate, err := util.ResolveTLSCaCertificate(ctx, h.Client, auth.Connection.Spec.TLS, h.IsNamespaceScoped)
+	if err != nil {
+		return registries, err
 	}
 
 	restClient, err := util.CreateRestyClient(model.CreateRestyClientOptions{
@@ -220,15 +216,13 @@ func (h *InfisicalStaticSecretHandler) OpenInstantUpdatesStreams(
 		}
 
 		err := registry.SubscribeWithParams(currentParams, func() (*http.Response, error) {
-			caCertificate := ""
-			if auth.Connection != nil && auth.Connection.Spec.TLS != nil && auth.Connection.Spec.TLS.CaCertificate != nil {
-				certificateRef := auth.Connection.Spec.TLS.CaCertificate
-				caContent, err := util.ResolveSecretReference(ctx, h.Client, *certificateRef, certificateRef.Key)
-				if err != nil {
-					return nil, fmt.Errorf("could not resolve InfisicalConnection TLS Certificate: %w", err)
-				}
-
-				caCertificate = string(caContent)
+			var tlsConfig *v1beta1.TLSConfig
+			if auth.Connection != nil {
+				tlsConfig = auth.Connection.Spec.TLS
+			}
+			caCertificate, err := util.ResolveTLSCaCertificate(ctx, h.Client, tlsConfig, h.IsNamespaceScoped)
+			if err != nil {
+				return nil, err
 			}
 			httpClient, err := util.CreateRestyClient(model.CreateRestyClientOptions{
 				AccessToken: token,

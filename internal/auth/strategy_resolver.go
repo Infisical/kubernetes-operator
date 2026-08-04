@@ -19,18 +19,20 @@ type InfisicalAuthStrategy interface {
 }
 
 type AuthStrategyResolver struct {
-	entries map[v1beta1.InfisicalAuthMethod]InfisicalAuthStrategy
-	client  client.Client
-	cache   *cache.AuthCache
-	logger  logr.Logger
+	entries           map[v1beta1.InfisicalAuthMethod]InfisicalAuthStrategy
+	client            client.Client
+	cache             *cache.AuthCache
+	logger            logr.Logger
+	isNamespaceScoped bool
 }
 
 func NewAuthStrategyResolver(client client.Client, cache *cache.AuthCache, logger logr.Logger, isNamespaceScoped bool) *AuthStrategyResolver {
 	r := &AuthStrategyResolver{
-		entries: make(map[v1beta1.InfisicalAuthMethod]InfisicalAuthStrategy),
-		client:  client,
-		cache:   cache,
-		logger:  logger.WithName("AuthStrategyResolver"),
+		entries:           make(map[v1beta1.InfisicalAuthMethod]InfisicalAuthStrategy),
+		client:            client,
+		cache:             cache,
+		logger:            logger.WithName("AuthStrategyResolver"),
+		isNamespaceScoped: isNamespaceScoped,
 	}
 
 	r.add(v1beta1.UniversalAuth, NewUniversalAuth(client))
@@ -105,14 +107,9 @@ func (r *AuthStrategyResolver) Authenticate(
 
 	r.logger.Info("Auth not found in cache, running authentication process")
 
-	var caCertificate string
-	if tls := connection.Spec.TLS; tls != nil && tls.CaCertificate != nil {
-		certificateContent, err := util.ResolveSecretReference(ctx, r.client, *connection.Spec.TLS.CaCertificate, ".spec.tls.caCertificate")
-		if err != nil {
-			return nil, fmt.Errorf("Unable to authenticate: %w", err)
-		}
-
-		caCertificate = string(certificateContent)
+	caCertificate, err := util.ResolveTLSCaCertificate(ctx, r.client, connection.Spec.TLS, r.isNamespaceScoped)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to authenticate: %w", err)
 	}
 
 	conn := model.InfisicalConnection{

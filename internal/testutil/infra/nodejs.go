@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -61,6 +63,7 @@ type TagSeed struct {
 type NodeJSService struct {
 	container     testcontainers.Container
 	url           string
+	inClusterURL  string
 	client        *resty.Client
 	orgID         string
 	userID        string
@@ -70,6 +73,7 @@ type NodeJSService struct {
 }
 
 func (n *NodeJSService) URL() string           { return n.url }
+func (n *NodeJSService) InClusterURL() string  { return n.inClusterURL }
 func (n *NodeJSService) ContainerID() string   { return n.container.GetContainerID() }
 func (n *NodeJSService) OrgID() string         { return n.orgID }
 func (n *NodeJSService) UserID() string        { return n.userID }
@@ -134,6 +138,32 @@ func startNodeJS(ctx context.Context, networkName string, files []testcontainers
 	}, nil
 }
 
+func (n *NodeJSService) connectToKindNetwork(ctx context.Context) error {
+	kindNetwork := "kind"
+
+	containerID := n.container.GetContainerID()
+	out, err := exec.Command("docker", "network", "connect", kindNetwork, containerID).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("docker network connect: %s: %w", string(out), err)
+	}
+
+	inspectOut, err := exec.Command("docker", "inspect",
+		"--format", fmt.Sprintf("{{(index .NetworkSettings.Networks %q).IPAddress}}", kindNetwork),
+		containerID,
+	).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("docker inspect: %s: %w", string(inspectOut), err)
+	}
+
+	ip := strings.TrimSpace(string(inspectOut))
+	if ip == "" {
+		return fmt.Errorf("no IP found for container on network %q", kindNetwork)
+	}
+
+	n.inClusterURL = fmt.Sprintf("http://%s:8080", ip)
+	return nil
+}
+
 func (n *NodeJSService) bootstrap() {
 	var bootstrapResp BootstrapResponse
 	resp, err := n.client.R().
@@ -152,7 +182,6 @@ func (n *NodeJSService) bootstrap() {
 	}
 
 	n.orgID = bootstrapResp.Organization.ID
-	n.identityToken = bootstrapResp.Identity.Credentials.Token
 	n.userEmail = bootstrapResp.User.Email
 	n.userID = bootstrapResp.User.ID
 
@@ -186,6 +215,7 @@ func (n *NodeJSService) bootstrap() {
 		log.Fatalf("infra.bootstrap: select-org returned %d: %s", resp.StatusCode(), resp.String())
 	}
 	n.userToken = selectOrgResp.Token
+	n.identityToken = selectOrgResp.Token
 }
 
 func (n *NodeJSService) MustCreateProject(name string) *ProjectSeed {

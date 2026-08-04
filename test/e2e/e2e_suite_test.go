@@ -29,7 +29,8 @@ var _ = BeforeSuite(func() {
 
 	var err error
 	testManager, err = operator.Install(operator.InstallOpts{
-		HostAPIURL: testInfra.NodeJS().URL(),
+		HostAPIURL:   testInfra.NodeJS().URL(),
+		InClusterURL: testInfra.NodeJS().InClusterURL(),
 	})
 	Expect(err).NotTo(HaveOccurred())
 })

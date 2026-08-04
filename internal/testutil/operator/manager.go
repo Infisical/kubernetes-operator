@@ -1,11 +1,8 @@
 package operator
 
 import (
-	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,7 +13,8 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	ctrl "sigs.k8s.io/controller-runtime"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	secretsv1alpha1 "github.com/Infisical/infisical/k8-operator/api/v1alpha1"
@@ -27,8 +25,32 @@ const (
 	helmReleaseName = "infisical-e2e"
 	helmNamespace   = "infisical-operator-system"
 	testImage       = "infisical/kubernetes-operator:e2e-test"
-	kindNetwork     = "kind"
 )
+
+func kubeContext() string {
+	if c := os.Getenv("KIND_CLUSTER"); c != "" {
+		return "kind-" + c
+	}
+	return ""
+}
+
+func restConfig() (*clientcmd.ClientConfig, error) {
+	rules := clientcmd.NewDefaultClientConfigLoadingRules()
+	overrides := &clientcmd.ConfigOverrides{}
+	if ctx := kubeContext(); ctx != "" {
+		overrides.CurrentContext = ctx
+	}
+	cc := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules, overrides)
+	return &cc, nil
+}
+
+func getRESTConfig() (*rest.Config, error) {
+	cc, err := restConfig()
+	if err != nil {
+		return nil, err
+	}
+	return (*cc).ClientConfig()
+}
 
 type Manager struct {
 	client          client.Client
@@ -39,35 +61,33 @@ func (m *Manager) Client() client.Client   { return m.client }
 func (m *Manager) InClusterAPIURL() string { return m.inClusterAPIURL }
 
 func (m *Manager) Stop() {
-	cmd := exec.Command("helm", "uninstall", helmReleaseName, "--namespace", helmNamespace, "--wait")
+	args := []string{"uninstall", helmReleaseName, "--namespace", helmNamespace, "--wait"}
+	if ctx := kubeContext(); ctx != "" {
+		args = append(args, "--kube-context", ctx)
+	}
+	cmd := exec.Command("helm", args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "helm uninstall (cleanup): %s: %v\n", out, err)
 	}
 }
 
 type InstallOpts struct {
-	HostAPIURL string
+	HostAPIURL   string
+	InClusterURL string
 }
 
 func Install(opts InstallOpts) (*Manager, error) {
 	root := projectRoot()
 	chartPath := filepath.Join(root, "helm-charts", "secrets-operator")
 
+	if ctx := kubeContext(); ctx != "" {
+		_ = run("kubectl", "config", "use-context", ctx)
+	}
+
 	// Remove any pre-existing CRDs so Helm can manage them cleanly.
 	_ = runDir(root, "make", "uninstall", "ignore-not-found=true")
 
-	// The Kind network gateway is the host IP from within Kind pods.
-	// This lets the operator pod reach the testcontainer API via the host's port mapping.
-	gateway, err := kindIPv4Gateway(kindNetwork)
-	if err != nil {
-		return nil, fmt.Errorf("get kind network gateway: %w", err)
-	}
-
-	hostURL, err := url.Parse(opts.HostAPIURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse host URL: %w", err)
-	}
-	inClusterURL := fmt.Sprintf("http://%s:%s", gateway, hostURL.Port())
+	inClusterURL := opts.InClusterURL
 
 	if err := waitForAPI(opts.HostAPIURL, 60*time.Second); err != nil {
 		return nil, fmt.Errorf("API not ready: %w", err)
@@ -95,13 +115,17 @@ controllerManager:
 	}
 	valuesFile.Close()
 
-	if err := run("helm", "upgrade", "--install", helmReleaseName, chartPath,
+	helmArgs := []string{"upgrade", "--install", helmReleaseName, chartPath,
 		"--namespace", helmNamespace,
 		"--create-namespace",
 		"--values", valuesFile.Name(),
 		"--wait",
 		"--timeout", "120s",
-	); err != nil {
+	}
+	if ctx := kubeContext(); ctx != "" {
+		helmArgs = append(helmArgs, "--kube-context", ctx)
+	}
+	if err := run("helm", helmArgs...); err != nil {
 		return nil, fmt.Errorf("helm install: %w", err)
 	}
 
@@ -118,7 +142,12 @@ controllerManager:
 	utilruntime.Must(secretsv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(secretsv1beta1.AddToScheme(scheme))
 
-	k8sClient, err := client.New(ctrl.GetConfigOrDie(), client.Options{Scheme: scheme})
+	restCfg, err := getRESTConfig()
+	if err != nil {
+		return nil, fmt.Errorf("build kubeconfig: %w", err)
+	}
+
+	k8sClient, err := client.New(restCfg, client.Options{Scheme: scheme})
 	if err != nil {
 		return nil, fmt.Errorf("create k8s client: %w", err)
 	}
@@ -164,7 +193,10 @@ func projectRoot() string {
 }
 
 func waitForCRDs(timeout time.Duration, crds []string) error {
-	cfg := ctrl.GetConfigOrDie()
+	cfg, err := getRESTConfig()
+	if err != nil {
+		return fmt.Errorf("build kubeconfig: %w", err)
+	}
 	disc, err := discovery.NewDiscoveryClientForConfig(cfg)
 	if err != nil {
 		return fmt.Errorf("create discovery client: %w", err)
@@ -197,9 +229,11 @@ func waitForCRDs(timeout time.Duration, crds []string) error {
 
 func run(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s\n%s", err, string(out))
+	}
+	return nil
 }
 
 func runDir(dir, name string, args ...string) error {
@@ -208,41 +242,4 @@ func runDir(dir, name string, args ...string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
-}
-
-func cmdOutput(name string, args ...string) (string, error) {
-	out, err := exec.Command(name, args...).CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("%s: %w", strings.TrimSpace(string(out)), err)
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
-func kindIPv4Gateway(networkName string) (string, error) {
-	out, err := cmdOutput("docker", "network", "inspect", networkName, "--format", "{{json .IPAM.Config}}")
-	if err != nil {
-		return "", err
-	}
-
-	type ipamConfig struct {
-		Gateway string `json:"Gateway"`
-	}
-
-	var cfgs []ipamConfig
-	if err := json.Unmarshal([]byte(out), &cfgs); err != nil {
-		return "", fmt.Errorf("parse network IPAM config: %w", err)
-	}
-
-	for _, cfg := range cfgs {
-		if cfg.Gateway == "" {
-			continue
-		}
-		ip := net.ParseIP(cfg.Gateway)
-		if ip == nil || ip.To4() == nil {
-			continue
-		}
-		return cfg.Gateway, nil
-	}
-
-	return "", fmt.Errorf("no IPv4 gateway found in docker network %q IPAM config", networkName)
 }

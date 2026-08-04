@@ -108,7 +108,7 @@ func startNodeJS(ctx context.Context, networkName string, files []testcontainers
 		},
 		Files:      files,
 		Cmd:        cmd,
-		WaitingFor: wait.ForHTTP("/api/status").WithPort("8080/tcp").WithStartupTimeout(300 * time.Second),
+		WaitingFor: wait.ForHTTP("/api/status").WithPort("8080/tcp").WithStartupTimeout(120 * time.Second),
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{

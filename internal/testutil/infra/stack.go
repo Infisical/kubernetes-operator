@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 
 	"github.com/testcontainers/testcontainers-go"
 )
@@ -26,17 +27,33 @@ func (s *Stack) TLS() *TLSBundle            { return s.tls }
 func (s *Stack) NetworkName() string { return s.network.Name }
 
 func (s *Stack) StartTLSProxy(opts TLSBundleOpts) error {
-	tlsBundle, err := GenerateTLSBundle(opts)
+	tmpBundle, err := GenerateTLSBundle(opts)
 	if err != nil {
-		return fmt.Errorf("generate TLS bundle: %w", err)
+		return fmt.Errorf("generate initial TLS bundle: %w", err)
 	}
-	s.tls = tlsBundle
 
 	ctx := context.Background()
-	nginx, err := startNginx(ctx, s.network.Name, tlsBundle)
+	nginx, err := startNginx(ctx, s.network.Name, tmpBundle)
 	if err != nil {
 		return fmt.Errorf("start nginx: %w", err)
 	}
+
+	kindIP, err := nginx.connectToKindNetwork()
+	if err != nil {
+		return fmt.Errorf("connect nginx to kind network: %w", err)
+	}
+
+	opts.IPAddresses = append(opts.IPAddresses, net.ParseIP(kindIP))
+	finalBundle, err := GenerateTLSBundle(opts)
+	if err != nil {
+		return fmt.Errorf("regenerate TLS bundle with kind IP: %w", err)
+	}
+
+	if err := nginx.replaceCerts(finalBundle); err != nil {
+		return fmt.Errorf("replace nginx certs: %w", err)
+	}
+
+	s.tls = finalBundle
 	s.nginx = nginx
 	return nil
 }

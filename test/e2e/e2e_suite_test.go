@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"net"
-	"net/url"
 	"os"
 	"testing"
 
@@ -38,16 +37,9 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).NotTo(HaveOccurred())
 
-	tlsProxyURL, err := url.Parse(testInfra.Nginx().URL())
-	Expect(err).NotTo(HaveOccurred())
-
 	testManager, err = operator.Install(operator.InstallOpts{
-		HostAPIURL:   testInfra.NodeJS().URL(),
-<<<<<<< Updated upstream
-		InClusterURL: testInfra.NodeJS().InClusterURL(),
-=======
-		TLSProxyPort: tlsProxyURL.Port(),
->>>>>>> Stashed changes
+		HostAPIURL:      testInfra.NodeJS().URL(),
+		InClusterTLSURL: testInfra.Nginx().InClusterURL(),
 	})
 	Expect(err).NotTo(HaveOccurred())
 })

@@ -103,6 +103,10 @@ func (b *Builder) MustStart() *Stack {
 		}
 	}
 
+	if b.wantNodeJS {
+		stack.nodejs.bootstrap()
+	}
+
 	log.Println("infra: stack ready")
 	return stack
 }

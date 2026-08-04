@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"sync"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -63,7 +62,6 @@ type NodeJSService struct {
 	container     testcontainers.Container
 	url           string
 	client        *resty.Client
-	bootstrapOnce sync.Once
 	orgID         string
 	userID        string
 	userEmail     string
@@ -73,11 +71,11 @@ type NodeJSService struct {
 
 func (n *NodeJSService) URL() string           { return n.url }
 func (n *NodeJSService) ContainerID() string   { return n.container.GetContainerID() }
-func (n *NodeJSService) OrgID() string         { n.ensureBootstrapped(); return n.orgID }
-func (n *NodeJSService) UserID() string        { n.ensureBootstrapped(); return n.userID }
-func (n *NodeJSService) UserEmail() string     { n.ensureBootstrapped(); return n.userEmail }
-func (n *NodeJSService) IdentityToken() string { n.ensureBootstrapped(); return n.identityToken }
-func (n *NodeJSService) UserToken() string     { n.ensureBootstrapped(); return n.userToken }
+func (n *NodeJSService) OrgID() string         { return n.orgID }
+func (n *NodeJSService) UserID() string        { return n.userID }
+func (n *NodeJSService) UserEmail() string     { return n.userEmail }
+func (n *NodeJSService) IdentityToken() string { return n.identityToken }
+func (n *NodeJSService) UserToken() string     { return n.userToken }
 func (n *NodeJSService) Client() *resty.Client { return n.client }
 
 func startNodeJS(ctx context.Context, networkName string, files []testcontainers.ContainerFile, cmd []string) (*NodeJSService, error) {
@@ -137,10 +135,6 @@ func startNodeJS(ctx context.Context, networkName string, files []testcontainers
 	}, nil
 }
 
-func (n *NodeJSService) ensureBootstrapped() {
-	n.bootstrapOnce.Do(n.bootstrap)
-}
-
 func (n *NodeJSService) bootstrap() {
 	var bootstrapResp BootstrapResponse
 	resp, err := n.client.R().
@@ -196,7 +190,6 @@ func (n *NodeJSService) bootstrap() {
 }
 
 func (n *NodeJSService) MustCreateProject(name string) *ProjectSeed {
-	n.ensureBootstrapped()
 	var projectResp CreateProjectResponse
 	resp, err := n.client.R().
 		SetAuthToken(n.identityToken).
@@ -223,7 +216,6 @@ func (n *NodeJSService) MustCreateProject(name string) *ProjectSeed {
 
 func (n *NodeJSService) CreateProject(t TestingT, name string) *ProjectSeed {
 	t.Helper()
-	n.ensureBootstrapped()
 
 	slug := RandomID(fmt.Sprintf("t-%s-", name))
 	if len(slug) > 36 {
@@ -272,7 +264,6 @@ func (n *NodeJSService) CreateProject(t TestingT, name string) *ProjectSeed {
 
 func (n *NodeJSService) DeleteProject(t TestingT, projectID string) {
 	t.Helper()
-	n.ensureBootstrapped()
 
 	resp, err := n.client.R().
 		SetAuthToken(n.identityToken).
@@ -287,7 +278,6 @@ func (n *NodeJSService) DeleteProject(t TestingT, projectID string) {
 
 func (n *NodeJSService) CreateIdentity(t TestingT, name string) *IdentitySeed {
 	t.Helper()
-	n.ensureBootstrapped()
 
 	var resp CreateIdentityResponse
 	r, err := n.client.R().
@@ -314,7 +304,6 @@ func (n *NodeJSService) CreateIdentity(t TestingT, name string) *IdentitySeed {
 
 func (n *NodeJSService) DeleteIdentity(t TestingT, identityID string) {
 	t.Helper()
-	n.ensureBootstrapped()
 
 	r, err := n.client.R().
 		SetAuthToken(n.identityToken).
@@ -329,7 +318,6 @@ func (n *NodeJSService) DeleteIdentity(t TestingT, identityID string) {
 
 func (n *NodeJSService) AddIdentityToProject(t TestingT, projectID, identityID string, roles []RoleAssignment) {
 	t.Helper()
-	n.ensureBootstrapped()
 
 	r, err := n.client.R().
 		SetAuthToken(n.identityToken).
@@ -351,7 +339,6 @@ func Role(slug string) []RoleAssignment {
 
 func (n *NodeJSService) CreateSecret(t TestingT, projectID, environment, secretPath, key, value string, opts *CreateSecretOpts) *SecretSeed {
 	t.Helper()
-	n.ensureBootstrapped()
 
 	var comment string
 	var metadata []SecretMetadataEntry
@@ -411,7 +398,6 @@ type CreateSecretOpts struct {
 
 func (n *NodeJSService) CreateFolder(t TestingT, projectID, environment, path, name string) *FolderSeed {
 	t.Helper()
-	n.ensureBootstrapped()
 
 	var resp CreateFolderResponse
 	r, err := n.client.R().
@@ -439,7 +425,6 @@ func (n *NodeJSService) CreateFolder(t TestingT, projectID, environment, path, n
 
 func (n *NodeJSService) CreateSecretImport(t TestingT, projectID, environment, path, importEnv, importPath string) *SecretImportSeed {
 	t.Helper()
-	n.ensureBootstrapped()
 
 	var resp CreateSecretImportResponse
 	r, err := n.client.R().
@@ -469,7 +454,6 @@ func (n *NodeJSService) CreateSecretImport(t TestingT, projectID, environment, p
 
 func (n *NodeJSService) CreateEnvironment(t TestingT, projectID, slug, name string) *EnvironmentSeed {
 	t.Helper()
-	n.ensureBootstrapped()
 
 	var resp CreateEnvironmentResponse
 	r, err := n.client.R().
@@ -496,7 +480,6 @@ func (n *NodeJSService) CreateEnvironment(t TestingT, projectID, slug, name stri
 
 func (n *NodeJSService) CreateTag(t TestingT, projectID, slug, name, color string) *TagSeed {
 	t.Helper()
-	n.ensureBootstrapped()
 
 	var resp CreateTagResponse
 	r, err := n.client.R().
@@ -524,7 +507,6 @@ func (n *NodeJSService) CreateTag(t TestingT, projectID, slug, name, color strin
 
 func (n *NodeJSService) SetupUniversalAuth(t TestingT, identityID string) *UniversalAuthCredentials {
 	t.Helper()
-	n.ensureBootstrapped()
 
 	var universalAuthResp CreateUniversalAuthResponse
 	r, err := n.client.R().
@@ -573,7 +555,6 @@ func (n *NodeJSService) SetupUniversalAuth(t TestingT, identityID string) *Unive
 
 func (n *NodeJSService) GetIdentityAccessToken(t TestingT, identityID string) string {
 	t.Helper()
-	n.ensureBootstrapped()
 
 	var universalAuthResp CreateUniversalAuthResponse
 	r, err := n.client.R().

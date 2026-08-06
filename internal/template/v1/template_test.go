@@ -562,11 +562,12 @@ var _ = Describe("RenderPerKeyTemplates with subdirectories", func() {
 		// A root secret key "db" and a "/db" folder produce a single tree node
 		// carrying both a Secret and Children. It must still be listed as a subdirectory.
 		collisionCtx := v1.NewTemplateContext(
-			[]api.Secret{
-				{SecretKey: "db", SecretValue: "some-value", SecretPath: "/"},
-				{SecretKey: "PASSWORD", SecretValue: "secret", SecretPath: "/db"},
+			v1.RenderContext{
+				RawSecrets: []api.Secret{
+					{SecretKey: "db", SecretValue: "some-value", SecretPath: "/"},
+					{SecretKey: "PASSWORD", SecretValue: "secret", SecretPath: "/db"},
+				},
 			},
-			nil,
 		)
 
 		tmpls := map[string]string{

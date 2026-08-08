@@ -1,3 +1,6 @@
+# -- Annotations that would be applied to all objects created by this chart.
+commonAnnotations: {}
+
 # -- The Infisical API host URL. This is the default host used when no hostAPI is set on the CRD or global ConfigMap.
 hostAPI: "https://app.infisical.com/api"
 

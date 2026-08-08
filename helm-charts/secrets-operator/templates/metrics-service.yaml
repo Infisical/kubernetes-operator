@@ -5,6 +5,10 @@ metadata:
   labels:
     control-plane: controller-manager
   {{- include "secrets-operator.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   type: {{ .Values.metricsService.type }}
   selector:

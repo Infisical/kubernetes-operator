@@ -858,8 +858,6 @@ func (r *InfisicalSecretReconciler) OpenInstantUpdatesStream(ctx context.Context
 
 	infisicalClient := variables.InfisicalClient
 
-	token := infisicalClient.Auth().GetAccessToken()
-
 	// Resolve project ID from slug if needed
 	resolvedProjectID := identityScope.ProjectID
 	if identityScope.ProjectSlug != "" {
@@ -938,8 +936,11 @@ func (r *InfisicalSecretReconciler) OpenInstantUpdatesStream(ctx context.Context
 
 	// Subscribe with the new params (will close old connection if needed)
 	err := sseRegistry.SubscribeWithParams(currentParams, func() (*http.Response, error) {
+		// Fetch a fresh token on each connection/reconnection attempt.
+		// The Go SDK auto-refreshes tokens, so this returns a valid token
+		// even when reconnecting long after the original token expired.
 		httpClient, err := util.CreateRestyClient(model.CreateRestyClientOptions{
-			AccessToken: token,
+			AccessToken: infisicalClient.Auth().GetAccessToken(),
 			Headers: map[string]string{
 				"Content-Type": "application/json",
 				"Accept":       "text/event-stream",

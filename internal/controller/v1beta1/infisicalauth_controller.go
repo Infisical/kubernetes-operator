@@ -21,6 +21,7 @@ import (
 
 	secretsv1beta1 "github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
+	"github.com/Infisical/infisical/k8-operator/internal/constants"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
 	"github.com/Infisical/infisical/k8-operator/internal/services/infisicalauth"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
@@ -133,10 +134,20 @@ func (r *InfisicalAuthReconciler) findAuthCRDsReferencingConnection(ctx context.
 		return nil
 	}
 
+	isDefaultConnection := conn.Name == constants.DEFAULT_INFISICAL_CONNECTION_NAME
+
 	var requests []reconcile.Request
 	for _, auth := range authList.Items {
 		ref := auth.Spec.InfisicalConnectionRef
-		if ref.Name == conn.Name && ref.Namespace == conn.Namespace {
+
+		matches := ref.Name == conn.Name && ref.Namespace == conn.Namespace
+		// If the connection is named "default" and the auth has no explicit ref,
+		// it is using the default connection and should be re-reconciled.
+		if !matches && isDefaultConnection && ref.Name == "" {
+			matches = true
+		}
+
+		if matches {
 			// Connection changed, we should invalidate the cache
 			r.AuthResolver.DeleteCacheEntry(&auth)
 

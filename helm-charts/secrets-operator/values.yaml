@@ -66,6 +66,33 @@ scopedRBAC: false
 installCRDs: true
 imagePullSecrets: []
 
+# Configures the default InfisicalConnection CR which will be used by resources
+# if they do not specify a connection reference. The name is 'default' and will
+# always be installed in the same namespace as the operator.
+defaultInfisicalConnection:
+  # -- Toggles the deployment of the default InfisicalConnection CR
+  # @type: boolean
+  enabled: false
+
+  # -- Address of the Infisical instance API
+  # @type: string
+  # Example: https://app.infisical.com/api
+  address: ""
+
+  # -- TLS configuration for the connection
+  tls:
+    # -- Reference to a Kubernetes secret containing the CA certificate
+    caCertificate:
+      # -- Name of the Kubernetes secret
+      # @type: string
+      name: ""
+      # -- Namespace of the Kubernetes secret
+      # @type: string
+      namespace: ""
+      # -- Key in the secret that contains the certificate
+      # @type: string
+      key: ""
+
 metricsService:
   ports:
     - name: https

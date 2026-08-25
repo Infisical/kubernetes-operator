@@ -46,7 +46,8 @@ func (m *Manager) Stop() {
 }
 
 type InstallOpts struct {
-	HostAPIURL string
+	HostAPIURL        string
+	DefaultConnection bool // If true, install a default InfisicalConnection in the operator namespace
 }
 
 func Install(opts InstallOpts) (*Manager, error) {
@@ -88,7 +89,10 @@ controllerManager:
     args:
     - --metrics-bind-address=:8443
     - --health-probe-bind-address=:8081
-`, inClusterURL)
+defaultInfisicalConnection:
+  enabled: %t
+  address: %q
+`, inClusterURL, opts.DefaultConnection, inClusterURL)
 
 	if _, err := valuesFile.WriteString(valuesContent); err != nil {
 		return nil, fmt.Errorf("write values file: %w", err)

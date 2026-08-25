@@ -3,9 +3,11 @@ package infisicalauth
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
+	"github.com/Infisical/infisical/k8-operator/internal/constants"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
 	"github.com/go-logr/logr"
@@ -28,12 +30,25 @@ type InfisicalAuthReconciler struct {
 	authResolver      *auth.AuthStrategyResolver
 }
 
+func (r *InfisicalAuthReconciler) resolveConnectionRef(connectionRef v1beta1.NamespacedName) v1beta1.NamespacedName {
+	if connectionRef.Name != "" {
+		return connectionRef
+	}
+
+	return v1beta1.NamespacedName{
+		Name:      constants.DEFAULT_INFISICAL_CONNECTION_NAME,
+		Namespace: os.Getenv("OPERATOR_NAMESPACE"),
+	}
+}
+
 func (r *InfisicalAuthReconciler) getInfisicalConnection(ctx context.Context, connectionRef v1beta1.NamespacedName) (*v1beta1.InfisicalConnection, error) {
+	resolved := r.resolveConnectionRef(connectionRef)
+
 	conn := v1beta1.InfisicalConnection{}
 
 	err := r.Client.Get(ctx, types.NamespacedName{
-		Name:      connectionRef.Name,
-		Namespace: connectionRef.Namespace,
+		Name:      resolved.Name,
+		Namespace: resolved.Namespace,
 	}, &conn)
 	if err != nil {
 		if util.IsNamespaceScopedError(err, r.IsNamespaceScoped) {

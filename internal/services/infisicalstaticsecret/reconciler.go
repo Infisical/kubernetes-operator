@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"sort"
 	"strings"
 
@@ -261,12 +262,25 @@ func (r *InfisicalStaticSecretReconciler) getInfisicalAuth(ctx context.Context, 
 	return &auth, nil
 }
 
+func resolveConnectionRef(connectionRef v1beta1.NamespacedName) v1beta1.NamespacedName {
+	if connectionRef.Name != "" {
+		return connectionRef
+	}
+
+	return v1beta1.NamespacedName{
+		Name:      constants.DEFAULT_INFISICAL_CONNECTION_NAME,
+		Namespace: os.Getenv("OPERATOR_NAMESPACE"),
+	}
+}
+
 func (r *InfisicalStaticSecretReconciler) getInfisicalConnection(ctx context.Context, connectionRef v1beta1.NamespacedName) (*v1beta1.InfisicalConnection, error) {
+	resolved := resolveConnectionRef(connectionRef)
+
 	conn := v1beta1.InfisicalConnection{}
 
 	err := r.Client.Get(ctx, types.NamespacedName{
-		Name:      connectionRef.Name,
-		Namespace: connectionRef.Namespace,
+		Name:      resolved.Name,
+		Namespace: resolved.Namespace,
 	}, &conn)
 	if err != nil {
 		if util.IsNamespaceScopedError(err, r.IsNamespaceScoped) {

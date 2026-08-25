@@ -1,0 +1,26 @@
+{{- if .Values.defaultInfisicalConnection.enabled }}
+apiVersion: secrets.infisical.com/v1beta1
+kind: InfisicalConnection
+metadata:
+  name: default
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "secrets-operator.labels" . | nindent 4 }}
+spec:
+  {{- with .Values.defaultInfisicalConnection.address }}
+  address: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.defaultInfisicalConnection.tls }}
+  {{- if and .caCertificate .caCertificate.name }}
+  tls:
+    caCertificate:
+      name: {{ .caCertificate.name | quote }}
+      {{- with .caCertificate.namespace }}
+      namespace: {{ . | quote }}
+      {{- end }}
+      {{- with .caCertificate.key }}
+      key: {{ . | quote }}
+      {{- end }}
+  {{- end }}
+  {{- end }}
+{{- end }}

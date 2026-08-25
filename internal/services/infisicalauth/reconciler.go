@@ -3,7 +3,6 @@ package infisicalauth
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
@@ -37,7 +36,7 @@ func (r *InfisicalAuthReconciler) resolveConnectionRef(connectionRef v1beta1.Nam
 
 	return v1beta1.NamespacedName{
 		Name:      constants.DEFAULT_INFISICAL_CONNECTION_NAME,
-		Namespace: os.Getenv("OPERATOR_NAMESPACE"),
+		Namespace: constants.GetOperatorNamespace(),
 	}
 }
 

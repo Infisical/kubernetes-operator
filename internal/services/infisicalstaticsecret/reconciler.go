@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os"
 	"sort"
 	"strings"
 
@@ -269,7 +268,7 @@ func resolveConnectionRef(connectionRef v1beta1.NamespacedName) v1beta1.Namespac
 
 	return v1beta1.NamespacedName{
 		Name:      constants.DEFAULT_INFISICAL_CONNECTION_NAME,
-		Namespace: os.Getenv("OPERATOR_NAMESPACE"),
+		Namespace: constants.GetOperatorNamespace(),
 	}
 }
 

@@ -108,7 +108,7 @@ func (r *AuthStrategyResolver) Authenticate(
 
 	r.logger.Info("Auth not found in cache, running authentication process")
 
-	caCertificate, err := util.ResolveTLSCaCertificate(ctx, r.client, connection.Spec.TLS, r.isNamespaceScoped)
+	caCertificate, err := util.ResolveTLSCaCertificate(ctx, r.client, connection.Spec.TLS)
 	if err != nil {
 		return nil, fmt.Errorf("Unable to authenticate: %w", err)
 	}

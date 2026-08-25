@@ -30,7 +30,7 @@ var _ = Describe("ResolveTLSCaCertificate", func() {
 	Context("connection-level TLS", func() {
 		It("returns empty string when TLS config is nil and no global config exists", func() {
 			k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-			cert, err := util.ResolveTLSCaCertificate(ctx, k8sClient, nil, false)
+			cert, err := util.ResolveTLSCaCertificate(ctx, k8sClient, nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cert).To(BeEmpty())
 		})
@@ -38,7 +38,7 @@ var _ = Describe("ResolveTLSCaCertificate", func() {
 		It("returns empty string when CaCertificate is nil and no global config exists", func() {
 			k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 			tlsConfig := &v1beta1.TLSConfig{CaCertificate: nil}
-			cert, err := util.ResolveTLSCaCertificate(ctx, k8sClient, tlsConfig, false)
+			cert, err := util.ResolveTLSCaCertificate(ctx, k8sClient, tlsConfig)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cert).To(BeEmpty())
 		})
@@ -68,7 +68,7 @@ var _ = Describe("ResolveTLSCaCertificate", func() {
 				},
 			}
 
-			cert, err := util.ResolveTLSCaCertificate(ctx, k8sClient, tlsConfig, false)
+			cert, err := util.ResolveTLSCaCertificate(ctx, k8sClient, tlsConfig)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cert).To(Equal(expectedCert))
 		})
@@ -84,7 +84,7 @@ var _ = Describe("ResolveTLSCaCertificate", func() {
 				},
 			}
 
-			_, err := util.ResolveTLSCaCertificate(ctx, k8sClient, tlsConfig, false)
+			_, err := util.ResolveTLSCaCertificate(ctx, k8sClient, tlsConfig)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to resolve TLS CA certificate"))
 		})
@@ -113,7 +113,7 @@ var _ = Describe("ResolveTLSCaCertificate", func() {
 				},
 			}
 
-			_, err := util.ResolveTLSCaCertificate(ctx, k8sClient, tlsConfig, false)
+			_, err := util.ResolveTLSCaCertificate(ctx, k8sClient, tlsConfig)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to resolve TLS CA certificate"))
 		})
@@ -167,134 +167,9 @@ var _ = Describe("ResolveTLSCaCertificate", func() {
 				},
 			}
 
-			cert, err := util.ResolveTLSCaCertificate(ctx, k8sClient, tlsConfig, false)
+			cert, err := util.ResolveTLSCaCertificate(ctx, k8sClient, tlsConfig)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cert).To(Equal(connectionCert))
-		})
-	})
-
-	Context("global TLS fallback", func() {
-		It("falls back to global configmap TLS when connection TLS is nil", func() {
-			expectedCert := "global-ca-cert"
-
-			globalSecret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "global-tls-secret",
-					Namespace: "infisical",
-				},
-				Data: map[string][]byte{
-					"ca.crt": []byte(expectedCert),
-				},
-			}
-
-			globalConfigMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      constants.OPERATOR_SETTINGS_CONFIGMAP_NAME,
-					Namespace: constants.OPERATOR_SETTINGS_CONFIGMAP_NAMESPACE,
-				},
-				Data: map[string]string{
-					"tls.caRef.secretName":      "global-tls-secret",
-					"tls.caRef.secretNamespace": "infisical",
-					"tls.caRef.key":             "ca.crt",
-				},
-			}
-
-			k8sClient := fake.NewClientBuilder().
-				WithScheme(scheme).
-				WithObjects(globalSecret, globalConfigMap).
-				Build()
-
-			cert, err := util.ResolveTLSCaCertificate(ctx, k8sClient, nil, false)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cert).To(Equal(expectedCert))
-		})
-
-		It("skips global configmap when namespace scoped", func() {
-			globalConfigMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      constants.OPERATOR_SETTINGS_CONFIGMAP_NAME,
-					Namespace: constants.OPERATOR_SETTINGS_CONFIGMAP_NAMESPACE,
-				},
-				Data: map[string]string{
-					"tls.caRef.secretName":      "global-tls-secret",
-					"tls.caRef.secretNamespace": "infisical",
-					"tls.caRef.key":             "ca.crt",
-				},
-			}
-
-			k8sClient := fake.NewClientBuilder().
-				WithScheme(scheme).
-				WithObjects(globalConfigMap).
-				Build()
-
-			cert, err := util.ResolveTLSCaCertificate(ctx, k8sClient, nil, true)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cert).To(BeEmpty())
-		})
-
-		It("returns empty string when global configmap has no TLS fields", func() {
-			globalConfigMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      constants.OPERATOR_SETTINGS_CONFIGMAP_NAME,
-					Namespace: constants.OPERATOR_SETTINGS_CONFIGMAP_NAMESPACE,
-				},
-				Data: map[string]string{
-					"hostAPI": "https://app.infisical.com/api",
-				},
-			}
-
-			k8sClient := fake.NewClientBuilder().
-				WithScheme(scheme).
-				WithObjects(globalConfigMap).
-				Build()
-
-			cert, err := util.ResolveTLSCaCertificate(ctx, k8sClient, nil, false)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cert).To(BeEmpty())
-		})
-
-		It("returns an error when global TLS fields are partially set", func() {
-			globalConfigMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      constants.OPERATOR_SETTINGS_CONFIGMAP_NAME,
-					Namespace: constants.OPERATOR_SETTINGS_CONFIGMAP_NAMESPACE,
-				},
-				Data: map[string]string{
-					"tls.caRef.secretName": "some-secret",
-				},
-			}
-
-			k8sClient := fake.NewClientBuilder().
-				WithScheme(scheme).
-				WithObjects(globalConfigMap).
-				Build()
-
-			_, err := util.ResolveTLSCaCertificate(ctx, k8sClient, nil, false)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("all fields must be set"))
-		})
-
-		It("returns an error when global TLS secret does not exist", func() {
-			globalConfigMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      constants.OPERATOR_SETTINGS_CONFIGMAP_NAME,
-					Namespace: constants.OPERATOR_SETTINGS_CONFIGMAP_NAMESPACE,
-				},
-				Data: map[string]string{
-					"tls.caRef.secretName":      "nonexistent",
-					"tls.caRef.secretNamespace": "infisical",
-					"tls.caRef.key":             "ca.crt",
-				},
-			}
-
-			k8sClient := fake.NewClientBuilder().
-				WithScheme(scheme).
-				WithObjects(globalConfigMap).
-				Build()
-
-			_, err := util.ResolveTLSCaCertificate(ctx, k8sClient, nil, false)
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("failed to resolve global TLS CA certificate"))
 		})
 	})
 })

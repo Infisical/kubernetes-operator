@@ -31,11 +31,10 @@ func NewInfisicalStaticSecretHandler(
 	logger logr.Logger,
 ) *InfisicalStaticSecretHandler {
 	return &InfisicalStaticSecretHandler{
-		Client:            client,
-		Scheme:            scheme,
-		IsNamespaceScoped: isNamespaceScoped,
-		authResolver:      authResolver,
-		logger:            logger,
+		Client:       client,
+		Scheme:       scheme,
+		authResolver: authResolver,
+		logger:       logger,
 		reconciler: &InfisicalStaticSecretReconciler{
 			Client:            client,
 			Scheme:            scheme,
@@ -49,12 +48,11 @@ func NewInfisicalStaticSecretHandler(
 
 type InfisicalStaticSecretHandler struct {
 	client.Client
-	Scheme            *runtime.Scheme
-	Random            *rand.Rand
-	IsNamespaceScoped bool
-	authResolver      *auth.AuthStrategyResolver
-	reconciler        *InfisicalStaticSecretReconciler
-	logger            logr.Logger
+	Scheme       *runtime.Scheme
+	Random       *rand.Rand
+	authResolver *auth.AuthStrategyResolver
+	reconciler   *InfisicalStaticSecretReconciler
+	logger       logr.Logger
 }
 
 func (h *InfisicalStaticSecretHandler) SyncSecrets(ctx context.Context, infisicalStaticSecret *v1beta1.InfisicalStaticSecret) (int, error) {
@@ -122,7 +120,7 @@ func (h *InfisicalStaticSecretHandler) OpenInstantUpdatesStreams(
 	token := auth.Credentials.MachineIdentity.AccessToken
 	baseURL := util.AppendAPIEndpoint(auth.Connection.Address())
 
-	caCertificate, err := util.ResolveTLSCaCertificate(ctx, h.Client, auth.Connection.Spec.TLS, h.IsNamespaceScoped)
+	caCertificate, err := util.ResolveTLSCaCertificate(ctx, h.Client, auth.Connection.Spec.TLS)
 	if err != nil {
 		return registries, err
 	}
@@ -220,7 +218,7 @@ func (h *InfisicalStaticSecretHandler) OpenInstantUpdatesStreams(
 			if auth.Connection != nil {
 				tlsConfig = auth.Connection.Spec.TLS
 			}
-			caCertificate, err := util.ResolveTLSCaCertificate(ctx, h.Client, tlsConfig, h.IsNamespaceScoped)
+			caCertificate, err := util.ResolveTLSCaCertificate(ctx, h.Client, tlsConfig)
 			if err != nil {
 				return nil, err
 			}

@@ -339,7 +339,7 @@ func (r *InfisicalStaticSecretReconciler) ListSecretsFromSources(ctx context.Con
 		return nil, nil, model.ErrInvalidStaticSecretObject
 	}
 
-	caCertificate, err := util.ResolveTLSCaCertificate(ctx, r.Client, authenticationResult.Connection.Spec.TLS, r.IsNamespaceScoped)
+	caCertificate, err := util.ResolveTLSCaCertificate(ctx, r.Client, authenticationResult.Connection.Spec.TLS)
 	if err != nil {
 		return nil, nil, err
 	}

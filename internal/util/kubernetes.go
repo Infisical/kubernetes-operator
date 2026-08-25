@@ -185,7 +185,7 @@ func GetInfisicalServiceAccountCredentialsFromKubeSecret(ctx context.Context, re
 	return model.ServiceAccountDetails{AccessKey: string(accessKeyFromSecret), PrivateKey: string(privateKeyFromSecret), PublicKey: string(publicKeyFromSecret)}, nil
 }
 
-func ResolveTLSCaCertificate(ctx context.Context, k8sClient client.Client, tls *v1beta1.TLSConfig, isNamespaceScoped bool) (string, error) {
+func ResolveTLSCaCertificate(ctx context.Context, k8sClient client.Client, tls *v1beta1.TLSConfig) (string, error) {
 	if tls != nil && tls.CaCertificate != nil {
 		certBytes, err := ResolveSecretReference(ctx, k8sClient, *tls.CaCertificate, ".spec.tls.caCertificate")
 		if err != nil {
@@ -194,49 +194,7 @@ func ResolveTLSCaCertificate(ctx context.Context, k8sClient client.Client, tls *
 		return string(certBytes), nil
 	}
 
-	return resolveGlobalTLSCaCertificate(ctx, k8sClient, isNamespaceScoped)
-}
-
-func resolveGlobalTLSCaCertificate(ctx context.Context, k8sClient client.Client, isNamespaceScoped bool) (string, error) {
-	if isNamespaceScoped {
-		return "", nil
-	}
-
-	kubeConfigMap := &corev1.ConfigMap{}
-	err := k8sClient.Get(ctx, types.NamespacedName{
-		Namespace: constants.OPERATOR_SETTINGS_CONFIGMAP_NAMESPACE,
-		Name:      constants.OPERATOR_SETTINGS_CONFIGMAP_NAME,
-	}, kubeConfigMap)
-
-	if err != nil {
-		if k8Errors.IsNotFound(err) {
-			return "", nil
-		}
-		return "", fmt.Errorf("failed to fetch global configmap: %w", err)
-	}
-
-	secretName := kubeConfigMap.Data["tls.caRef.secretName"]
-	secretNamespace := kubeConfigMap.Data["tls.caRef.secretNamespace"]
-	secretKey := kubeConfigMap.Data["tls.caRef.key"]
-
-	if secretName == "" && secretNamespace == "" && secretKey == "" {
-		return "", nil
-	}
-
-	if secretName == "" || secretNamespace == "" || secretKey == "" {
-		return "", fmt.Errorf("when tls.caRef is configured in the infisical-config, all fields must be set (secretName, secretNamespace, key)")
-	}
-
-	certBytes, err := ResolveSecretReference(ctx, k8sClient, v1beta1.SecretReference{
-		Name:      secretName,
-		Namespace: secretNamespace,
-		Key:       secretKey,
-	}, "configmap.tls.caRef")
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve global TLS CA certificate: %w", err)
-	}
-
-	return string(certBytes), nil
+	return "", nil
 }
 
 func ResolveSecretReference(ctx context.Context, client client.Client, ref v1beta1.SecretReference, fieldPath string) ([]byte, error) {

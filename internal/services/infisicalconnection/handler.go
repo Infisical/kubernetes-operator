@@ -93,8 +93,6 @@ func (h *InfisicalConnectionHandler) TestConnection(ctx context.Context, infisic
 		return err
 	}
 
-	hostURL = util.AppendAPIEndpoint(hostURL)
-
 	httpClient := resty.New().
 		SetBaseURL(hostURL).
 		SetHeader("User-Agent", util.UserAgent()).

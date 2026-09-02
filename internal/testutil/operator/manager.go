@@ -46,8 +46,9 @@ func (m *Manager) Stop() {
 }
 
 type InstallOpts struct {
-	HostAPIURL        string
-	DefaultConnection bool // If true, install a default InfisicalConnection in the operator namespace
+	HostAPIURL               string
+	DefaultConnection        bool   // If true, install a default InfisicalConnection in the operator namespace
+	DefaultConnectionAddress string // the address for the default InfisicalConnection.
 }
 
 func Install(opts InstallOpts) (*Manager, error) {
@@ -80,6 +81,11 @@ func Install(opts InstallOpts) (*Manager, error) {
 	}
 	defer os.Remove(valuesFile.Name())
 
+	connAddress := inClusterURL
+	if opts.DefaultConnectionAddress != "" {
+		connAddress = opts.DefaultConnectionAddress
+	}
+
 	valuesContent := fmt.Sprintf(`hostAPI: %q
 controllerManager:
   manager:
@@ -92,7 +98,7 @@ controllerManager:
 defaultInfisicalConnection:
   enabled: %t
   address: %q
-`, inClusterURL, opts.DefaultConnection, inClusterURL)
+`, inClusterURL, opts.DefaultConnection, connAddress)
 
 	if _, err := valuesFile.WriteString(valuesContent); err != nil {
 		return nil, fmt.Errorf("write values file: %w", err)

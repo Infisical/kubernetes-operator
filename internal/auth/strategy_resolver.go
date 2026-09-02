@@ -19,18 +19,20 @@ type InfisicalAuthStrategy interface {
 }
 
 type AuthStrategyResolver struct {
-	entries map[v1beta1.InfisicalAuthMethod]InfisicalAuthStrategy
-	client  client.Client
-	cache   *cache.AuthCache
-	logger  logr.Logger
+	entries           map[v1beta1.InfisicalAuthMethod]InfisicalAuthStrategy
+	client            client.Client
+	cache             *cache.AuthCache
+	logger            logr.Logger
+	isNamespaceScoped bool
 }
 
 func NewAuthStrategyResolver(client client.Client, cache *cache.AuthCache, logger logr.Logger, isNamespaceScoped bool) *AuthStrategyResolver {
 	r := &AuthStrategyResolver{
-		entries: make(map[v1beta1.InfisicalAuthMethod]InfisicalAuthStrategy),
-		client:  client,
-		cache:   cache,
-		logger:  logger.WithName("AuthStrategyResolver"),
+		entries:           make(map[v1beta1.InfisicalAuthMethod]InfisicalAuthStrategy),
+		client:            client,
+		cache:             cache,
+		logger:            logger.WithName("AuthStrategyResolver"),
+		isNamespaceScoped: isNamespaceScoped,
 	}
 
 	r.add(v1beta1.UniversalAuth, NewUniversalAuth(client))
@@ -46,9 +48,10 @@ func NewAuthStrategyResolver(client client.Client, cache *cache.AuthCache, logge
 
 // NewAuthStrategyResolverForTesting should not be used outside its testing file
 // I didn't find a better approach for injecting mocked auth strategies.
-func NewAuthStrategyResolverForTesting(cache *cache.AuthCache, providers map[v1beta1.InfisicalAuthMethod]InfisicalAuthStrategy) *AuthStrategyResolver {
+func NewAuthStrategyResolverForTesting(k8sClient client.Client, cache *cache.AuthCache, providers map[v1beta1.InfisicalAuthMethod]InfisicalAuthStrategy) *AuthStrategyResolver {
 	return &AuthStrategyResolver{
 		entries: providers,
+		client:  k8sClient,
 		cache:   cache,
 		logger:  logr.New(nil),
 	}
@@ -105,14 +108,9 @@ func (r *AuthStrategyResolver) Authenticate(
 
 	r.logger.Info("Auth not found in cache, running authentication process")
 
-	var caCertificate string
-	if tls := connection.Spec.TLS; tls != nil && tls.CaCertificate != nil {
-		certificateContent, err := util.ResolveSecretReference(ctx, r.client, *connection.Spec.TLS.CaCertificate, ".spec.tls.caCertificate")
-		if err != nil {
-			return nil, fmt.Errorf("Unable to authenticate: %w", err)
-		}
-
-		caCertificate = string(certificateContent)
+	caCertificate, err := util.ResolveTLSCaCertificate(ctx, r.client, connection.Spec.TLS)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to authenticate: %w", err)
 	}
 
 	conn := model.InfisicalConnection{

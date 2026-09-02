@@ -42,6 +42,10 @@ spec:
           value: {{ quote .Values.hostAPI }}
         - name: INFISICAL_LOG_WRITER
           value: {{ quote .Values.logger.writer }}
+        - name: OPERATOR_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
         {{- with .Values.controllerManager.manager.extraEnv }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

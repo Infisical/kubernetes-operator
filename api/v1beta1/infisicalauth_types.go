@@ -44,8 +44,8 @@ type InfisicalAuth struct {
 }
 
 type InfisicalAuthSpec struct {
-	// +kubebuilder:validation:Required
-	InfisicalConnectionRef NamespacedName `json:"infisicalConnectionRef"`
+	// +kubebuilder:validation:Optional
+	InfisicalConnectionRef NamespacedName `json:"infisicalConnectionRef,omitempty"`
 
 	// +kubebuilder:validation:Required
 	Method InfisicalAuthMethod `json:"method"`

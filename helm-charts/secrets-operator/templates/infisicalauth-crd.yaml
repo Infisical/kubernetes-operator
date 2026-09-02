@@ -294,7 +294,6 @@ spec:
                 - clientSecretRef
                 type: object
             required:
-            - infisicalConnectionRef
             - method
             type: object
           status:

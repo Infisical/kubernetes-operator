@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"fmt"
 	"os"
 	"testing"
 
@@ -32,7 +31,7 @@ var _ = BeforeSuite(func() {
 	testManager, err = operator.Install(operator.InstallOpts{
 		HostAPIURL:               testInfra.NodeJS().URL(),
 		DefaultConnection:        true,
-		DefaultConnectionAddress: fmt.Sprintf("%s/api", testInfra.NodeJS().URL()),
+		DefaultConnectionAddress: testInfra.NodeJS().URL() + "/api",
 	})
 	Expect(err).NotTo(HaveOccurred())
 })

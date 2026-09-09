@@ -185,6 +185,18 @@ func GetInfisicalServiceAccountCredentialsFromKubeSecret(ctx context.Context, re
 	return model.ServiceAccountDetails{AccessKey: string(accessKeyFromSecret), PrivateKey: string(privateKeyFromSecret), PublicKey: string(publicKeyFromSecret)}, nil
 }
 
+func ResolveTLSCaCertificate(ctx context.Context, k8sClient client.Client, tls *v1beta1.TLSConfig) (string, error) {
+	if tls != nil && tls.CaCertificate != nil {
+		certBytes, err := ResolveSecretReference(ctx, k8sClient, *tls.CaCertificate, ".spec.tls.caCertificate")
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve TLS CA certificate: %w", err)
+		}
+		return string(certBytes), nil
+	}
+
+	return "", nil
+}
+
 func ResolveSecretReference(ctx context.Context, client client.Client, ref v1beta1.SecretReference, fieldPath string) ([]byte, error) {
 	secret := &corev1.Secret{}
 	err := client.Get(ctx, types.NamespacedName{

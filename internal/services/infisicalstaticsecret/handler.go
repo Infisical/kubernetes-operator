@@ -31,11 +31,10 @@ func NewInfisicalStaticSecretHandler(
 	logger logr.Logger,
 ) *InfisicalStaticSecretHandler {
 	return &InfisicalStaticSecretHandler{
-		Client:            client,
-		Scheme:            scheme,
-		IsNamespaceScoped: isNamespaceScoped,
-		authResolver:      authResolver,
-		logger:            logger,
+		Client:       client,
+		Scheme:       scheme,
+		authResolver: authResolver,
+		logger:       logger,
 		reconciler: &InfisicalStaticSecretReconciler{
 			Client:            client,
 			Scheme:            scheme,
@@ -49,12 +48,11 @@ func NewInfisicalStaticSecretHandler(
 
 type InfisicalStaticSecretHandler struct {
 	client.Client
-	Scheme            *runtime.Scheme
-	Random            *rand.Rand
-	IsNamespaceScoped bool
-	authResolver      *auth.AuthStrategyResolver
-	reconciler        *InfisicalStaticSecretReconciler
-	logger            logr.Logger
+	Scheme       *runtime.Scheme
+	Random       *rand.Rand
+	authResolver *auth.AuthStrategyResolver
+	reconciler   *InfisicalStaticSecretReconciler
+	logger       logr.Logger
 }
 
 func (h *InfisicalStaticSecretHandler) SyncSecrets(ctx context.Context, infisicalStaticSecret *v1beta1.InfisicalStaticSecret) (int, error) {
@@ -122,8 +120,14 @@ func (h *InfisicalStaticSecretHandler) OpenInstantUpdatesStreams(
 	token := auth.Credentials.MachineIdentity.AccessToken
 	baseURL := util.AppendAPIEndpoint(auth.Connection.Address())
 
+	caCertificate, err := util.ResolveTLSCaCertificate(ctx, h.Client, auth.Connection.Spec.TLS)
+	if err != nil {
+		return registries, err
+	}
+
 	restClient, err := util.CreateRestyClient(model.CreateRestyClientOptions{
-		AccessToken: token,
+		AccessToken:   token,
+		CaCertificate: caCertificate,
 	})
 	if err != nil {
 		return registries, fmt.Errorf("failed to get REST client: %w", err)
@@ -210,15 +214,13 @@ func (h *InfisicalStaticSecretHandler) OpenInstantUpdatesStreams(
 		}
 
 		err := registry.SubscribeWithParams(currentParams, func() (*http.Response, error) {
-			caCertificate := ""
-			if auth.Connection != nil && auth.Connection.Spec.TLS != nil && auth.Connection.Spec.TLS.CaCertificate != nil {
-				certificateRef := auth.Connection.Spec.TLS.CaCertificate
-				caContent, err := util.ResolveSecretReference(ctx, h.Client, *certificateRef, certificateRef.Key)
-				if err != nil {
-					return nil, fmt.Errorf("could not resolve InfisicalConnection TLS Certificate: %w", err)
-				}
-
-				caCertificate = string(caContent)
+			var tlsConfig *v1beta1.TLSConfig
+			if auth.Connection != nil {
+				tlsConfig = auth.Connection.Spec.TLS
+			}
+			caCertificate, err := util.ResolveTLSCaCertificate(ctx, h.Client, tlsConfig)
+			if err != nil {
+				return nil, err
 			}
 			httpClient, err := util.CreateRestyClient(model.CreateRestyClientOptions{
 				AccessToken: token,

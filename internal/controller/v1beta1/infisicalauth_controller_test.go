@@ -200,11 +200,11 @@ var _ = Describe("InfisicalAuth Controller", func() {
 
 				var resolver *auth.AuthStrategyResolver
 				if tc.strategy != nil {
-					resolver = auth.NewAuthStrategyResolverForTesting(authCache, map[secretsv1beta1.InfisicalAuthMethod]auth.InfisicalAuthStrategy{
+					resolver = auth.NewAuthStrategyResolverForTesting(k8sClient, authCache, map[secretsv1beta1.InfisicalAuthMethod]auth.InfisicalAuthStrategy{
 						tc.method: tc.strategy,
 					})
 				} else {
-					resolver = auth.NewAuthStrategyResolverForTesting(authCache, map[secretsv1beta1.InfisicalAuthMethod]auth.InfisicalAuthStrategy{})
+					resolver = auth.NewAuthStrategyResolverForTesting(k8sClient, authCache, map[secretsv1beta1.InfisicalAuthMethod]auth.InfisicalAuthStrategy{})
 				}
 
 				reconciler := &controllerv1beta1.InfisicalAuthReconciler{
@@ -319,7 +319,7 @@ var _ = Describe("SpecChangedPredicate", func() {
 		Expect(err).ToNot(HaveOccurred())
 		seedCache(authCache, authName, authNamespace)
 
-		resolver := auth.NewAuthStrategyResolverForTesting(authCache, nil)
+		resolver := auth.NewAuthStrategyResolverForTesting(k8sClient, authCache, nil)
 		predicate = &controllerv1beta1.SpecChangedPredicate{
 			AuthResolver: resolver,
 		}

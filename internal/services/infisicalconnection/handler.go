@@ -93,8 +93,6 @@ func (h *InfisicalConnectionHandler) TestConnection(ctx context.Context, infisic
 		return err
 	}
 
-	hostURL = util.AppendAPIEndpoint(hostURL)
-
 	httpClient := resty.New().
 		SetBaseURL(hostURL).
 		SetHeader("User-Agent", util.UserAgent()).
@@ -120,7 +118,7 @@ func (h *InfisicalConnectionHandler) TestConnection(ctx context.Context, infisic
 		})
 	}
 
-	resp, err := httpClient.R().SetContext(ctx).Get("/status")
+	resp, err := httpClient.R().SetContext(ctx).Get("/api/status")
 	if err != nil {
 		return fmt.Errorf("unable to reach Infisical at %s: %w", hostURL, err)
 	}

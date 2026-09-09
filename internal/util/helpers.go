@@ -79,7 +79,7 @@ func CreateRestyClient(options model.CreateRestyClientOptions) (*resty.Client, e
 	}
 	httpClient.SetHeader("User-Agent", UserAgent())
 
-	caCertificate := cmp.Or(config.API_CA_CERTIFICATE, options.CaCertificate)
+	caCertificate := cmp.Or(options.CaCertificate, config.API_CA_CERTIFICATE)
 	if caCertificate != "" {
 		caCertPool, err := x509.SystemCertPool()
 		if err != nil {

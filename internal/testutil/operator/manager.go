@@ -46,7 +46,9 @@ func (m *Manager) Stop() {
 }
 
 type InstallOpts struct {
-	HostAPIURL string
+	HostAPIURL               string
+	DefaultConnection        bool   // If true, install a default InfisicalConnection in the operator namespace
+	DefaultConnectionAddress string // Address for the default InfisicalConnection. The host is replaced with the in-cluster gateway; the path is preserved. If empty, defaults to the in-cluster API URL.
 }
 
 func Install(opts InstallOpts) (*Manager, error) {
@@ -79,6 +81,16 @@ func Install(opts InstallOpts) (*Manager, error) {
 	}
 	defer os.Remove(valuesFile.Name())
 
+	connAddress := inClusterURL
+	if opts.DefaultConnectionAddress != "" {
+		connURL, err := url.Parse(opts.DefaultConnectionAddress)
+		if err != nil {
+			return nil, fmt.Errorf("parse default connection address: %w", err)
+		}
+		connURL.Host = net.JoinHostPort(gateway, connURL.Port())
+		connAddress = connURL.String()
+	}
+
 	valuesContent := fmt.Sprintf(`hostAPI: %q
 controllerManager:
   manager:
@@ -88,7 +100,10 @@ controllerManager:
     args:
     - --metrics-bind-address=:8443
     - --health-probe-bind-address=:8081
-`, inClusterURL)
+defaultInfisicalConnection:
+  enabled: %t
+  address: %q
+`, inClusterURL, opts.DefaultConnection, connAddress)
 
 	if _, err := valuesFile.WriteString(valuesContent); err != nil {
 		return nil, fmt.Errorf("write values file: %w", err)

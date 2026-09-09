@@ -1,6 +1,11 @@
 package constants
 
-import "errors"
+import (
+	"errors"
+	"os"
+	"strings"
+	"sync"
+)
 
 const USER_AGENT_NAME = "k8-operator"
 
@@ -20,6 +25,8 @@ const MANAGED_ANNOTATIONS_ANNOTATION = "secrets.infisical.com/managed-annotation
 const OPERATOR_SETTINGS_CONFIGMAP_NAME = "infisical-config"
 const OPERATOR_SETTINGS_CONFIGMAP_NAMESPACE = "infisical-operator-system"
 const INFISICAL_DOMAIN = "https://app.infisical.com/api"
+
+const DEFAULT_INFISICAL_CONNECTION_NAME = "default"
 
 const INFISICAL_PUSH_SECRET_FINALIZER_NAME = "pushsecret.secrets.infisical.com/finalizer"
 const INFISICAL_DYNAMIC_SECRET_FINALIZER_NAME = "dynamicsecret.secrets.infisical.com/finalizer"
@@ -46,3 +53,28 @@ const (
 )
 
 var ErrInvalidLease = errors.New("invalid dynamic secret lease")
+
+const serviceAccountNamespaceFile = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+
+var (
+	operatorNamespace     string
+	operatorNamespaceOnce sync.Once
+)
+
+// GetOperatorNamespace returns the namespace the operator is running in.
+// It first checks the OPERATOR_NAMESPACE env var (set by the Helm chart via
+// the downward API), then falls back to reading the namespace from the
+// mounted service account token.
+func GetOperatorNamespace() string {
+	operatorNamespaceOnce.Do(func() {
+		if ns := os.Getenv("OPERATOR_NAMESPACE"); ns != "" {
+			operatorNamespace = ns
+			return
+		}
+
+		if data, err := os.ReadFile(serviceAccountNamespaceFile); err == nil {
+			operatorNamespace = strings.TrimSpace(string(data))
+		}
+	})
+	return operatorNamespace
+}

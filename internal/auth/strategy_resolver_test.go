@@ -134,7 +134,7 @@ var _ = Describe("Cache behavior", func() {
 			},
 		}
 
-		resolver = auth.NewAuthStrategyResolverForTesting(authCache, map[secretsv1beta1.InfisicalAuthMethod]auth.InfisicalAuthStrategy{
+		resolver = auth.NewAuthStrategyResolverForTesting(k8sClient, authCache, map[secretsv1beta1.InfisicalAuthMethod]auth.InfisicalAuthStrategy{
 			secretsv1beta1.UniversalAuth: fake,
 		})
 

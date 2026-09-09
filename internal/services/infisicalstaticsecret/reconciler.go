@@ -261,12 +261,25 @@ func (r *InfisicalStaticSecretReconciler) getInfisicalAuth(ctx context.Context, 
 	return &auth, nil
 }
 
+func resolveConnectionRef(connectionRef v1beta1.NamespacedName) v1beta1.NamespacedName {
+	if connectionRef.Name != "" {
+		return connectionRef
+	}
+
+	return v1beta1.NamespacedName{
+		Name:      constants.DEFAULT_INFISICAL_CONNECTION_NAME,
+		Namespace: constants.GetOperatorNamespace(),
+	}
+}
+
 func (r *InfisicalStaticSecretReconciler) getInfisicalConnection(ctx context.Context, connectionRef v1beta1.NamespacedName) (*v1beta1.InfisicalConnection, error) {
+	resolved := resolveConnectionRef(connectionRef)
+
 	conn := v1beta1.InfisicalConnection{}
 
 	err := r.Client.Get(ctx, types.NamespacedName{
-		Name:      connectionRef.Name,
-		Namespace: connectionRef.Namespace,
+		Name:      resolved.Name,
+		Namespace: resolved.Namespace,
 	}, &conn)
 	if err != nil {
 		if util.IsNamespaceScopedError(err, r.IsNamespaceScoped) {
@@ -339,8 +352,14 @@ func (r *InfisicalStaticSecretReconciler) ListSecretsFromSources(ctx context.Con
 		return nil, nil, model.ErrInvalidStaticSecretObject
 	}
 
+	caCertificate, err := util.ResolveTLSCaCertificate(ctx, r.Client, authenticationResult.Connection.Spec.TLS)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	restClient, err := util.CreateRestyClient(model.CreateRestyClientOptions{
-		AccessToken: authenticationResult.Credentials.MachineIdentity.AccessToken,
+		AccessToken:   authenticationResult.Credentials.MachineIdentity.AccessToken,
+		CaCertificate: caCertificate,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get REST client: %w", err)

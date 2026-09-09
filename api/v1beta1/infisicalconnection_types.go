@@ -27,6 +27,7 @@ package v1beta1
 import (
 	"cmp"
 	"os"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -46,7 +47,9 @@ type InfisicalConnection struct {
 }
 
 func (c InfisicalConnection) Address() string {
-	return cmp.Or(c.Spec.Address, os.Getenv("INFISICAL_HOST_API"))
+	address := cmp.Or(c.Spec.Address, os.Getenv("INFISICAL_HOST_API"))
+	address = strings.TrimRight(address, "/")
+	return strings.TrimSuffix(address, "/api")
 }
 
 // InfisicalConnectionSpec defines how the operator connects to a Infisical instance

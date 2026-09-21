@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"sort"
 	"strings"
 
@@ -13,10 +12,11 @@ import (
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
 	"github.com/Infisical/infisical/k8-operator/internal/cache"
 	"github.com/Infisical/infisical/k8-operator/internal/constants"
-	"github.com/Infisical/infisical/k8-operator/internal/crypto"
+	"github.com/Infisical/infisical/k8-operator/internal/metrics"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
 	templatev1 "github.com/Infisical/infisical/k8-operator/internal/template/v1"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
+	"github.com/Infisical/infisical/k8-operator/internal/util/drift"
 
 	"github.com/go-logr/logr"
 	"github.com/go-resty/resty/v2"
@@ -449,11 +449,17 @@ func (r *InfisicalStaticSecretReconciler) RenderTargetOutput(renderCtx templatev
 	return templatev1.RenderPerKeyTemplates(target.Template.Data.Map, templateCtx)
 }
 
+// reportManualDrift records that a managed target was edited outside the
+// operator. The reconcile goes on to overwrite it with the value from Infisical.
+func (r *InfisicalStaticSecretReconciler) reportManualDrift(target v1beta1.SecretTarget) {
+	metrics.RecordManualDrift(string(target.Kind), target.Namespace, target.Name)
+	r.logger.Info("Managed target was edited outside the operator, restoring value from Infisical",
+		"kind", target.Kind, "namespace", target.Namespace, "name", target.Name)
+}
+
 // SyncKubeSecret creates or updates a Kubernetes Secret with the secrets content.
 // Returns (changed, etag, error). The etag is the version written to the annotation.
 func (r *InfisicalStaticSecretReconciler) SyncKubeSecret(ctx context.Context, owner metav1.Object, data map[string][]byte, target v1beta1.SecretTarget) (bool, string, error) {
-	newEtag := crypto.ComputeEtag([]byte(fmt.Sprintf("%v", data)))
-
 	namespacedName := types.NamespacedName{
 		Name:      target.Name,
 		Namespace: target.Namespace,
@@ -461,20 +467,27 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeSecret(ctx context.Context, ow
 
 	existingSecret := &corev1.Secret{}
 	err := r.Client.Get(ctx, namespacedName, existingSecret)
+	if err != nil && !k8Errors.IsNotFound(err) {
+		return false, "", fmt.Errorf("failed to get existing secret: %w", err)
+	}
+
+	// On a not-found the fetched object is still zero-valued, so this merges
+	// against nil metadata exactly as a freshly created target should.
+	labels, annotations := computeTargetMetadata(owner, target, existingSecret.Annotations, existingSecret.Labels)
+	desired := drift.DesiredState{Data: data, Labels: labels, Annotations: annotations}
+	newEtag := desired.Etag()
+	desired.Annotations[constants.SECRET_VERSION_ANNOTATION] = newEtag
 
 	if k8Errors.IsNotFound(err) {
-		labels, annotations := computeTargetMetadata(owner, target, nil, nil)
-		annotations[constants.SECRET_VERSION_ANNOTATION] = newEtag
-
 		newSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:        target.Name,
 				Namespace:   target.Namespace,
-				Labels:      labels,
-				Annotations: annotations,
+				Labels:      desired.Labels,
+				Annotations: desired.Annotations,
 			},
 			Type: target.SecretType,
-			Data: data,
+			Data: desired.Data,
 		}
 
 		if target.CreationPolicy == v1beta1.CreationPolicyOwner {
@@ -490,36 +503,27 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeSecret(ctx context.Context, ow
 		return true, newEtag, nil
 	}
 
-	if err != nil {
-		return false, "", fmt.Errorf("failed to get existing secret: %w", err)
+	changed, reason := drift.SecretChanged(existingSecret, desired)
+	if reason == drift.ReasonManualEdit {
+		r.reportManualDrift(target)
 	}
-
-	dataChanged := existingSecret.Annotations[constants.SECRET_VERSION_ANNOTATION] != newEtag
-
-	labels, annotations := computeTargetMetadata(owner, target, existingSecret.Annotations, existingSecret.Labels)
-	annotations[constants.SECRET_VERSION_ANNOTATION] = newEtag
-
-	metadataChanged := !maps.Equal(existingSecret.Labels, labels) || !maps.Equal(existingSecret.Annotations, annotations)
-
-	if !dataChanged && !metadataChanged {
+	if !changed {
 		return false, newEtag, nil
 	}
 
-	existingSecret.Labels = labels
-	existingSecret.Annotations = annotations
-	existingSecret.Data = data
+	existingSecret.Labels = desired.Labels
+	existingSecret.Annotations = desired.Annotations
+	existingSecret.Data = desired.Data
 	if err := r.Client.Update(ctx, existingSecret); err != nil {
 		return false, "", fmt.Errorf("failed to update secret: %w", err)
 	}
 
-	return dataChanged, newEtag, nil
+	return changed, newEtag, nil
 }
 
 // SyncKubeConfigMap creates or updates a Kubernetes ConfigMap with the secrets content.
 // Returns (changed, etag, error). The etag is the version written to the annotation.
 func (r *InfisicalStaticSecretReconciler) SyncKubeConfigMap(ctx context.Context, owner metav1.Object, data map[string][]byte, target v1beta1.SecretTarget) (bool, string, error) {
-	newEtag := crypto.ComputeEtag([]byte(fmt.Sprintf("%v", data)))
-
 	namespacedName := types.NamespacedName{
 		Name:      target.Name,
 		Namespace: target.Namespace,
@@ -527,22 +531,29 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeConfigMap(ctx context.Context,
 
 	existingConfigMap := &corev1.ConfigMap{}
 	err := r.Client.Get(ctx, namespacedName, existingConfigMap)
+	if err != nil && !k8Errors.IsNotFound(err) {
+		return false, "", fmt.Errorf("failed to get existing config map: %w", err)
+	}
+
+	// On a not-found the fetched object is still zero-valued, so this merges
+	// against nil metadata exactly as a freshly created target should.
+	labels, annotations := computeTargetMetadata(owner, target, existingConfigMap.Annotations, existingConfigMap.Labels)
+	desired := drift.DesiredState{Data: data, Labels: labels, Annotations: annotations}
+	newEtag := desired.Etag()
+	desired.Annotations[constants.SECRET_VERSION_ANNOTATION] = newEtag
+
+	stringData := make(map[string]string, len(desired.Data))
+	for k, v := range desired.Data {
+		stringData[k] = string(v)
+	}
 
 	if k8Errors.IsNotFound(err) {
-		stringData := make(map[string]string, len(data))
-		for k, v := range data {
-			stringData[k] = string(v)
-		}
-
-		labels, annotations := computeTargetMetadata(owner, target, nil, nil)
-		annotations[constants.SECRET_VERSION_ANNOTATION] = newEtag
-
 		newConfigMap := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:        target.Name,
 				Namespace:   target.Namespace,
-				Labels:      labels,
-				Annotations: annotations,
+				Labels:      desired.Labels,
+				Annotations: desired.Annotations,
 			},
 			Data: stringData,
 		}
@@ -560,34 +571,22 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeConfigMap(ctx context.Context,
 		return true, newEtag, nil
 	}
 
-	if err != nil {
-		return false, "", fmt.Errorf("failed to get existing config map: %w", err)
+	changed, reason := drift.ConfigMapChanged(existingConfigMap, desired)
+	if reason == drift.ReasonManualEdit {
+		r.reportManualDrift(target)
 	}
-
-	dataChanged := existingConfigMap.Annotations[constants.SECRET_VERSION_ANNOTATION] != newEtag
-
-	labels, annotations := computeTargetMetadata(owner, target, existingConfigMap.Annotations, existingConfigMap.Labels)
-	annotations[constants.SECRET_VERSION_ANNOTATION] = newEtag
-
-	metadataChanged := !maps.Equal(existingConfigMap.Labels, labels) || !maps.Equal(existingConfigMap.Annotations, annotations)
-
-	if !dataChanged && !metadataChanged {
+	if !changed {
 		return false, newEtag, nil
 	}
 
-	stringData := make(map[string]string, len(data))
-	for k, v := range data {
-		stringData[k] = string(v)
-	}
-
-	existingConfigMap.Labels = labels
-	existingConfigMap.Annotations = annotations
+	existingConfigMap.Labels = desired.Labels
+	existingConfigMap.Annotations = desired.Annotations
 	existingConfigMap.Data = stringData
 	if err := r.Client.Update(ctx, existingConfigMap); err != nil {
 		return false, "", fmt.Errorf("failed to update config map: %w", err)
 	}
 
-	return dataChanged, newEtag, nil
+	return changed, newEtag, nil
 }
 
 func (r *InfisicalStaticSecretReconciler) PropagateSecretToWorkloads(ctx context.Context, target v1beta1.SecretTarget, etag string) (int, error) {

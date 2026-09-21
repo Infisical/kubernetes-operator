@@ -12,7 +12,6 @@ import (
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
 	"github.com/Infisical/infisical/k8-operator/internal/cache"
 	"github.com/Infisical/infisical/k8-operator/internal/constants"
-	"github.com/Infisical/infisical/k8-operator/internal/metrics"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
 	templatev1 "github.com/Infisical/infisical/k8-operator/internal/template/v1"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
@@ -449,14 +448,6 @@ func (r *InfisicalStaticSecretReconciler) RenderTargetOutput(renderCtx templatev
 	return templatev1.RenderPerKeyTemplates(target.Template.Data.Map, templateCtx)
 }
 
-// reportManualDrift records that a managed target was edited outside the
-// operator. The reconcile goes on to overwrite it with the value from Infisical.
-func (r *InfisicalStaticSecretReconciler) reportManualDrift(target v1beta1.SecretTarget) {
-	metrics.RecordManualDrift(string(target.Kind), target.Namespace, target.Name)
-	r.logger.Info("Managed target was edited outside the operator, restoring value from Infisical",
-		"kind", target.Kind, "namespace", target.Namespace, "name", target.Name)
-}
-
 // SyncKubeSecret creates or updates a Kubernetes Secret with the secrets content.
 // Returns (changed, etag, error). The etag is the version written to the annotation.
 func (r *InfisicalStaticSecretReconciler) SyncKubeSecret(ctx context.Context, owner metav1.Object, data map[string][]byte, target v1beta1.SecretTarget) (bool, string, error) {
@@ -505,7 +496,8 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeSecret(ctx context.Context, ow
 
 	changed, reason := drift.SecretChanged(existingSecret, desired)
 	if reason == drift.ReasonManualEdit {
-		r.reportManualDrift(target)
+		r.logger.Info("Managed target was edited outside the operator, restoring value from Infisical",
+			"kind", target.Kind, "namespace", target.Namespace, "name", target.Name)
 	}
 	if !changed {
 		return false, newEtag, nil
@@ -573,7 +565,8 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeConfigMap(ctx context.Context,
 
 	changed, reason := drift.ConfigMapChanged(existingConfigMap, desired)
 	if reason == drift.ReasonManualEdit {
-		r.reportManualDrift(target)
+		r.logger.Info("Managed target was edited outside the operator, restoring value from Infisical",
+			"kind", target.Kind, "namespace", target.Namespace, "name", target.Name)
 	}
 	if !changed {
 		return false, newEtag, nil

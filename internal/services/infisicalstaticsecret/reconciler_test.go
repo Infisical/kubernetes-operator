@@ -23,7 +23,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
-	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
 func secret(key, env, path string) api.Secret {
@@ -1646,29 +1645,6 @@ var _ = Describe("Cache lag bug: SyncKubeSecret then PropagateSecretToWorkloads"
 	})
 })
 
-// manualDriftCount reads the manual-drift counter for one target off the
-// controller-runtime registry the operator actually registers against.
-func manualDriftCount(kind, namespace, name string) float64 {
-	families, err := ctrlmetrics.Registry.Gather()
-	Expect(err).NotTo(HaveOccurred())
-
-	for _, family := range families {
-		if family.GetName() != "infisical_managed_target_manual_drift_total" {
-			continue
-		}
-		for _, metric := range family.GetMetric() {
-			labels := map[string]string{}
-			for _, pair := range metric.GetLabel() {
-				labels[pair.GetName()] = pair.GetValue()
-			}
-			if labels["kind"] == kind && labels["namespace"] == namespace && labels["name"] == name {
-				return metric.GetCounter().GetValue()
-			}
-		}
-	}
-	return 0
-}
-
 var _ = Describe("Drift detection and replacement", func() {
 	ctx := context.Background()
 
@@ -1786,59 +1762,6 @@ var _ = Describe("Drift detection and replacement", func() {
 			Expect(reconciled.Annotations[constants.SECRET_VERSION_ANNOTATION]).To(Equal(etag))
 		})
 
-		It("counts a manual edit in the drift metric", func() {
-			reconciler := newReconciler()
-			owner := newStaticSecret()
-
-			_, _, err := reconciler.SyncKubeSecret(ctx, owner, data, secretTarget)
-			Expect(err).NotTo(HaveOccurred())
-
-			before := manualDriftCount(string(secretTarget.Kind), secretTarget.Namespace, secretTarget.Name)
-
-			tampered := &corev1.Secret{}
-			Expect(reconciler.Client.Get(ctx, secretNN, tampered)).To(Succeed())
-			tampered.Data["DB_HOST"] = []byte("tampered-host")
-			Expect(reconciler.Client.Update(ctx, tampered)).To(Succeed())
-
-			_, _, err = reconciler.SyncKubeSecret(ctx, owner, data, secretTarget)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(manualDriftCount(string(secretTarget.Kind), secretTarget.Namespace, secretTarget.Name)).To(Equal(before + 1))
-		})
-
-		It("does not count an ordinary Infisical update in the drift metric", func() {
-			reconciler := newReconciler()
-			owner := newStaticSecret()
-
-			_, _, err := reconciler.SyncKubeSecret(ctx, owner, data, secretTarget)
-			Expect(err).NotTo(HaveOccurred())
-
-			before := manualDriftCount(string(secretTarget.Kind), secretTarget.Namespace, secretTarget.Name)
-
-			// The value moved in Infisical, not in the cluster.
-			updated := map[string][]byte{"DB_HOST": []byte("new-host"), "DB_PORT": []byte("5432")}
-			changed, _, err := reconciler.SyncKubeSecret(ctx, owner, updated, secretTarget)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(changed).To(BeTrue())
-
-			Expect(manualDriftCount(string(secretTarget.Kind), secretTarget.Namespace, secretTarget.Name)).To(Equal(before))
-		})
-
-		It("does not count an untouched target in the drift metric", func() {
-			reconciler := newReconciler()
-			owner := newStaticSecret()
-
-			_, _, err := reconciler.SyncKubeSecret(ctx, owner, data, secretTarget)
-			Expect(err).NotTo(HaveOccurred())
-
-			before := manualDriftCount(string(secretTarget.Kind), secretTarget.Namespace, secretTarget.Name)
-
-			_, _, err = reconciler.SyncKubeSecret(ctx, owner, data, secretTarget)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(manualDriftCount(string(secretTarget.Kind), secretTarget.Namespace, secretTarget.Name)).To(Equal(before))
-		})
-
 		It("is a no-op when nothing drifted", func() {
 			reconciler := newReconciler()
 			owner := newStaticSecret()
@@ -1873,26 +1796,6 @@ var _ = Describe("Drift detection and replacement", func() {
 			Expect(reconciled.Data).To(HaveKeyWithValue("DB_HOST", "localhost"))
 			Expect(reconciled.Data).To(HaveKeyWithValue("DB_PORT", "5432"))
 			Expect(reconciled.Annotations[constants.SECRET_VERSION_ANNOTATION]).To(Equal(etag))
-		})
-
-		It("counts a manual edit in the drift metric", func() {
-			reconciler := newReconciler()
-			owner := newStaticSecret()
-
-			_, _, err := reconciler.SyncKubeConfigMap(ctx, owner, data, configMapTarget)
-			Expect(err).NotTo(HaveOccurred())
-
-			before := manualDriftCount(string(configMapTarget.Kind), configMapTarget.Namespace, configMapTarget.Name)
-
-			tampered := &corev1.ConfigMap{}
-			Expect(reconciler.Client.Get(ctx, configMapNN, tampered)).To(Succeed())
-			tampered.Data["DB_HOST"] = "tampered-host"
-			Expect(reconciler.Client.Update(ctx, tampered)).To(Succeed())
-
-			_, _, err = reconciler.SyncKubeConfigMap(ctx, owner, data, configMapTarget)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(manualDriftCount(string(configMapTarget.Kind), configMapTarget.Namespace, configMapTarget.Name)).To(Equal(before + 1))
 		})
 
 		It("removes a manually added key on the next reconcile", func() {

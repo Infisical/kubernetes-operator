@@ -2,7 +2,6 @@ package infisicalstaticsecret_test
 
 import (
 	"context"
-	"fmt"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -10,10 +9,10 @@ import (
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/api"
 	"github.com/Infisical/infisical/k8-operator/internal/constants"
-	"github.com/Infisical/infisical/k8-operator/internal/crypto"
 	svc "github.com/Infisical/infisical/k8-operator/internal/services/infisicalstaticsecret"
 	templatev1 "github.com/Infisical/infisical/k8-operator/internal/template/v1"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
+	"github.com/Infisical/infisical/k8-operator/internal/util/drift"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8Errors "k8s.io/apimachinery/pkg/api/errors"
@@ -679,7 +678,7 @@ var _ = Describe("SyncKubeSecret", func() {
 		Expect(created.Data).To(HaveKeyWithValue("DB_PORT", []byte("5432")))
 		Expect(created.Type).To(Equal(corev1.SecretTypeOpaque))
 
-		expectedEtag := crypto.ComputeEtag([]byte(fmt.Sprintf("%v", data)))
+		expectedEtag := drift.DesiredState{Data: data}.Etag()
 		Expect(created.Annotations[constants.SECRET_VERSION_ANNOTATION]).To(Equal(expectedEtag))
 	})
 
@@ -740,18 +739,20 @@ var _ = Describe("SyncKubeSecret", func() {
 		Expect(updated.Data).To(HaveKeyWithValue("DB_PORT", []byte("5432")))
 		Expect(updated.Data).NotTo(HaveKey("OLD_KEY"))
 
-		expectedEtag := crypto.ComputeEtag([]byte(fmt.Sprintf("%v", data)))
+		expectedEtag := drift.DesiredState{Data: data}.Etag()
 		Expect(updated.Annotations[constants.SECRET_VERSION_ANNOTATION]).To(Equal(expectedEtag))
 	})
 
-	It("skips update when etag matches", func() {
-		expectedEtag := crypto.ComputeEtag([]byte(fmt.Sprintf("%v", data)))
+	It("skips update when nothing drifted", func() {
+		expectedEtag := drift.DesiredState{Data: data}.Etag()
 		existing := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "my-secret",
 				Namespace: "default",
 				Annotations: map[string]string{
-					constants.SECRET_VERSION_ANNOTATION: expectedEtag,
+					constants.SECRET_VERSION_ANNOTATION:      expectedEtag,
+					constants.MANAGED_LABELS_ANNOTATION:      "",
+					constants.MANAGED_ANNOTATIONS_ANNOTATION: "",
 				},
 			},
 			Data: data,
@@ -799,7 +800,7 @@ var _ = Describe("SyncKubeConfigMap", func() {
 		Expect(created.Data).To(HaveKeyWithValue("DB_HOST", "localhost"))
 		Expect(created.Data).To(HaveKeyWithValue("DB_PORT", "5432"))
 
-		expectedEtag := crypto.ComputeEtag([]byte(fmt.Sprintf("%v", data)))
+		expectedEtag := drift.DesiredState{Data: data}.Etag()
 		Expect(created.Annotations[constants.SECRET_VERSION_ANNOTATION]).To(Equal(expectedEtag))
 	})
 
@@ -860,18 +861,20 @@ var _ = Describe("SyncKubeConfigMap", func() {
 		Expect(updated.Data).To(HaveKeyWithValue("DB_PORT", "5432"))
 		Expect(updated.Data).NotTo(HaveKey("OLD_KEY"))
 
-		expectedEtag := crypto.ComputeEtag([]byte(fmt.Sprintf("%v", data)))
+		expectedEtag := drift.DesiredState{Data: data}.Etag()
 		Expect(updated.Annotations[constants.SECRET_VERSION_ANNOTATION]).To(Equal(expectedEtag))
 	})
 
-	It("skips update when etag matches", func() {
-		expectedEtag := crypto.ComputeEtag([]byte(fmt.Sprintf("%v", data)))
+	It("skips update when nothing drifted", func() {
+		expectedEtag := drift.DesiredState{Data: data}.Etag()
 		existing := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "my-configmap",
 				Namespace: "default",
 				Annotations: map[string]string{
-					constants.SECRET_VERSION_ANNOTATION: expectedEtag,
+					constants.SECRET_VERSION_ANNOTATION:      expectedEtag,
+					constants.MANAGED_LABELS_ANNOTATION:      "",
+					constants.MANAGED_ANNOTATIONS_ANNOTATION: "",
 				},
 			},
 			Data: map[string]string{"DB_HOST": "localhost", "DB_PORT": "5432"},
@@ -1042,7 +1045,7 @@ var _ = Describe("SyncKubeSecret metadata", func() {
 		})
 
 		It("preserves non-managed annotations added directly to the resource", func() {
-			etag := crypto.ComputeEtag([]byte(fmt.Sprintf("%v", data)))
+			etag := drift.DesiredState{Data: data}.Etag()
 			existing := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "meta-secret",
@@ -1120,8 +1123,8 @@ var _ = Describe("SyncKubeConfigMap metadata", func() {
 		Expect(created.Annotations).To(HaveKey(constants.MANAGED_LABELS_ANNOTATION))
 	})
 
-	It("returns dataChanged=false for metadata-only update", func() {
-		etag := crypto.ComputeEtag([]byte(fmt.Sprintf("%v", data)))
+	It("reports changed for a metadata-only update", func() {
+		etag := drift.DesiredState{Data: data}.Etag()
 		existing := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "meta-configmap",
@@ -1138,7 +1141,7 @@ var _ = Describe("SyncKubeConfigMap metadata", func() {
 
 		changed, _, err := reconciler.SyncKubeConfigMap(ctx, owner, data, baseTarget)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(changed).To(BeFalse())
+		Expect(changed).To(BeTrue())
 
 		updated := &corev1.ConfigMap{}
 		Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "meta-configmap", Namespace: "default"}, updated)).To(Succeed())
@@ -1639,5 +1642,181 @@ var _ = Describe("Cache lag bug: SyncKubeSecret then PropagateSecretToWorkloads"
 		affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, newEtag)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(affected).To(Equal(1))
+	})
+})
+
+var _ = Describe("Drift detection and replacement", func() {
+	ctx := context.Background()
+
+	data := map[string][]byte{
+		"DB_HOST": []byte("localhost"),
+		"DB_PORT": []byte("5432"),
+	}
+
+	secretTarget := v1beta1.SecretTarget{
+		Name:           "my-secret",
+		Namespace:      "default",
+		Kind:           v1beta1.SecretTargetKindSecret,
+		SecretType:     corev1.SecretTypeOpaque,
+		CreationPolicy: v1beta1.CreationPolicyOrphan,
+	}
+
+	configMapTarget := v1beta1.SecretTarget{
+		Name:           "my-configmap",
+		Namespace:      "default",
+		Kind:           v1beta1.SecretTargetKindConfigMap,
+		CreationPolicy: v1beta1.CreationPolicyOrphan,
+	}
+
+	secretNN := types.NamespacedName{Name: secretTarget.Name, Namespace: secretTarget.Namespace}
+	configMapNN := types.NamespacedName{Name: configMapTarget.Name, Namespace: configMapTarget.Namespace}
+
+	Context("with a Secret target", func() {
+		It("restores a manually edited value on the next reconcile", func() {
+			reconciler := newReconciler()
+			owner := newStaticSecret()
+
+			// 1. Create the secret from Infisical data.
+			changed, etag, err := reconciler.SyncKubeSecret(ctx, owner, data, secretTarget)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(changed).To(BeTrue())
+
+			// 2. Someone edits the secret out-of-band, leaving the version annotation untouched.
+			tampered := &corev1.Secret{}
+			Expect(reconciler.Client.Get(ctx, secretNN, tampered)).To(Succeed())
+			tampered.Data["DB_HOST"] = []byte("tampered-host")
+			Expect(reconciler.Client.Update(ctx, tampered)).To(Succeed())
+
+			// 3. Next reconcile must put the Infisical value back.
+			_, _, err = reconciler.SyncKubeSecret(ctx, owner, data, secretTarget)
+			Expect(err).NotTo(HaveOccurred())
+
+			reconciled := &corev1.Secret{}
+			Expect(reconciler.Client.Get(ctx, secretNN, reconciled)).To(Succeed())
+			Expect(reconciled.Data).To(HaveKeyWithValue("DB_HOST", []byte("localhost")))
+			Expect(reconciled.Data).To(HaveKeyWithValue("DB_PORT", []byte("5432")))
+			Expect(reconciled.Annotations[constants.SECRET_VERSION_ANNOTATION]).To(Equal(etag))
+		})
+
+		It("removes a manually added key on the next reconcile", func() {
+			reconciler := newReconciler()
+			owner := newStaticSecret()
+
+			_, _, err := reconciler.SyncKubeSecret(ctx, owner, data, secretTarget)
+			Expect(err).NotTo(HaveOccurred())
+
+			tampered := &corev1.Secret{}
+			Expect(reconciler.Client.Get(ctx, secretNN, tampered)).To(Succeed())
+			tampered.Data["INJECTED"] = []byte("not-from-infisical")
+			Expect(reconciler.Client.Update(ctx, tampered)).To(Succeed())
+
+			_, _, err = reconciler.SyncKubeSecret(ctx, owner, data, secretTarget)
+			Expect(err).NotTo(HaveOccurred())
+
+			reconciled := &corev1.Secret{}
+			Expect(reconciler.Client.Get(ctx, secretNN, reconciled)).To(Succeed())
+			Expect(reconciled.Data).NotTo(HaveKey("INJECTED"))
+			Expect(reconciled.Data).To(HaveLen(len(data)))
+		})
+
+		It("restores a manually deleted key on the next reconcile", func() {
+			reconciler := newReconciler()
+			owner := newStaticSecret()
+
+			_, _, err := reconciler.SyncKubeSecret(ctx, owner, data, secretTarget)
+			Expect(err).NotTo(HaveOccurred())
+
+			tampered := &corev1.Secret{}
+			Expect(reconciler.Client.Get(ctx, secretNN, tampered)).To(Succeed())
+			delete(tampered.Data, "DB_PORT")
+			Expect(reconciler.Client.Update(ctx, tampered)).To(Succeed())
+
+			_, _, err = reconciler.SyncKubeSecret(ctx, owner, data, secretTarget)
+			Expect(err).NotTo(HaveOccurred())
+
+			reconciled := &corev1.Secret{}
+			Expect(reconciler.Client.Get(ctx, secretNN, reconciled)).To(Succeed())
+			Expect(reconciled.Data).To(HaveKeyWithValue("DB_PORT", []byte("5432")))
+		})
+
+		It("restores the value when the version annotation is stripped too", func() {
+			reconciler := newReconciler()
+			owner := newStaticSecret()
+
+			_, etag, err := reconciler.SyncKubeSecret(ctx, owner, data, secretTarget)
+			Expect(err).NotTo(HaveOccurred())
+
+			tampered := &corev1.Secret{}
+			Expect(reconciler.Client.Get(ctx, secretNN, tampered)).To(Succeed())
+			tampered.Data["DB_HOST"] = []byte("tampered-host")
+			delete(tampered.Annotations, constants.SECRET_VERSION_ANNOTATION)
+			Expect(reconciler.Client.Update(ctx, tampered)).To(Succeed())
+
+			changed, _, err := reconciler.SyncKubeSecret(ctx, owner, data, secretTarget)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(changed).To(BeTrue())
+
+			reconciled := &corev1.Secret{}
+			Expect(reconciler.Client.Get(ctx, secretNN, reconciled)).To(Succeed())
+			Expect(reconciled.Data).To(HaveKeyWithValue("DB_HOST", []byte("localhost")))
+			Expect(reconciled.Annotations[constants.SECRET_VERSION_ANNOTATION]).To(Equal(etag))
+		})
+
+		It("is a no-op when nothing drifted", func() {
+			reconciler := newReconciler()
+			owner := newStaticSecret()
+
+			_, _, err := reconciler.SyncKubeSecret(ctx, owner, data, secretTarget)
+			Expect(err).NotTo(HaveOccurred())
+
+			changed, _, err := reconciler.SyncKubeSecret(ctx, owner, data, secretTarget)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(changed).To(BeFalse())
+		})
+	})
+
+	Context("with a ConfigMap target", func() {
+		It("restores a manually edited value on the next reconcile", func() {
+			reconciler := newReconciler()
+			owner := newStaticSecret()
+
+			_, etag, err := reconciler.SyncKubeConfigMap(ctx, owner, data, configMapTarget)
+			Expect(err).NotTo(HaveOccurred())
+
+			tampered := &corev1.ConfigMap{}
+			Expect(reconciler.Client.Get(ctx, configMapNN, tampered)).To(Succeed())
+			tampered.Data["DB_HOST"] = "tampered-host"
+			Expect(reconciler.Client.Update(ctx, tampered)).To(Succeed())
+
+			_, _, err = reconciler.SyncKubeConfigMap(ctx, owner, data, configMapTarget)
+			Expect(err).NotTo(HaveOccurred())
+
+			reconciled := &corev1.ConfigMap{}
+			Expect(reconciler.Client.Get(ctx, configMapNN, reconciled)).To(Succeed())
+			Expect(reconciled.Data).To(HaveKeyWithValue("DB_HOST", "localhost"))
+			Expect(reconciled.Data).To(HaveKeyWithValue("DB_PORT", "5432"))
+			Expect(reconciled.Annotations[constants.SECRET_VERSION_ANNOTATION]).To(Equal(etag))
+		})
+
+		It("removes a manually added key on the next reconcile", func() {
+			reconciler := newReconciler()
+			owner := newStaticSecret()
+
+			_, _, err := reconciler.SyncKubeConfigMap(ctx, owner, data, configMapTarget)
+			Expect(err).NotTo(HaveOccurred())
+
+			tampered := &corev1.ConfigMap{}
+			Expect(reconciler.Client.Get(ctx, configMapNN, tampered)).To(Succeed())
+			tampered.Data["INJECTED"] = "not-from-infisical"
+			Expect(reconciler.Client.Update(ctx, tampered)).To(Succeed())
+
+			_, _, err = reconciler.SyncKubeConfigMap(ctx, owner, data, configMapTarget)
+			Expect(err).NotTo(HaveOccurred())
+
+			reconciled := &corev1.ConfigMap{}
+			Expect(reconciler.Client.Get(ctx, configMapNN, reconciled)).To(Succeed())
+			Expect(reconciled.Data).NotTo(HaveKey("INJECTED"))
+			Expect(reconciled.Data).To(HaveLen(len(data)))
+		})
 	})
 })

@@ -14,6 +14,8 @@ controllerManager:
   tolerations: []
   affinity: {}
   topologySpreadConstraints: []
+  # -- PriorityClass name for the operator pod
+  priorityClassName: ""
   # -- Extra volumes to add to the pod
   extraVolumes: []
   # -- Extra init containers to add to the pod
@@ -31,7 +33,7 @@ controllerManager:
       readOnlyRootFilesystem: true
     image:
       repository: infisical/kubernetes-operator
-      tag: v0.11.10
+      tag: v0.11.11
     resources:
       limits:
         cpu: 500m

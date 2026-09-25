@@ -8,6 +8,10 @@ metadata:
     {{- include "secrets-operator.labels" . | nindent 4 }}
     rbac.authorization.k8s.io/aggregate-to-admin: "true"
     rbac.authorization.k8s.io/aggregate-to-edit: "true"
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 rules:
 - apiGroups: ["secrets.infisical.com"]
   resources: ["infisicalsecrets", "infisicalpushsecrets", "infisicaldynamicsecrets", "infisicalstaticsecrets", "clustergenerators"]
@@ -25,6 +29,10 @@ metadata:
     {{- include "secrets-operator.labels" . | nindent 4 }}
     rbac.authorization.k8s.io/aggregate-to-view: "true"
     rbac.authorization.k8s.io/aggregate-to-cluster-reader: "true"
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 rules:
 - apiGroups: ["secrets.infisical.com"]
   resources: ["infisicalsecrets", "infisicalpushsecrets", "infisicaldynamicsecrets", "infisicalstaticsecrets", "clustergenerators"]

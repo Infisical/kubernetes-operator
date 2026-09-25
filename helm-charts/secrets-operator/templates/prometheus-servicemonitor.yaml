@@ -13,6 +13,10 @@ metadata:
     {{ end }}
     control-plane: controller-manager
     release: prometheus
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   selector:
     matchLabels:

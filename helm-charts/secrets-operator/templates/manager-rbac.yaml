@@ -107,6 +107,10 @@ metadata:
   namespace: {{ $ns | quote }}
   labels:
   {{- include "secrets-operator.labels" $ | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 {{- include "secrets-operator.managerRules" $ }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -116,6 +120,10 @@ metadata:
   namespace: {{ $ns | quote }}
   labels:
   {{- include "secrets-operator.labels" $ | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -133,6 +141,10 @@ metadata:
   name: {{ include "secrets-operator.fullname" . }}-manager-role
   labels:
   {{- include "secrets-operator.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 {{- include "secrets-operator.managerRules" . }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -141,6 +153,10 @@ metadata:
   name: {{ include "secrets-operator.fullname" . }}-manager-rolebinding
   labels:
   {{- include "secrets-operator.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole

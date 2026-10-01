@@ -31,7 +31,7 @@ controllerManager:
       readOnlyRootFilesystem: true
     image:
       repository: infisical/kubernetes-operator
-      tag: v0.11.10
+      tag: v0.11.11
     resources:
       limits:
         cpu: 500m
@@ -106,6 +106,7 @@ telemetry:
     enabled: false
 
     selectors: {}
+    releaseLabel: prometheus
     scheme: https
     port: https
     path: /metrics

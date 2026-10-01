@@ -12,7 +12,7 @@ metadata:
     {{- toYaml $selectors | nindent 4 }}
     {{ end }}
     control-plane: controller-manager
-    release: prometheus
+    release: {{ .Values.telemetry.serviceMonitor.releaseLabel | default "prometheus" | quote }}
 spec:
   selector:
     matchLabels:

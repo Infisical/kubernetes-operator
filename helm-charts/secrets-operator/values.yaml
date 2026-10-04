@@ -14,6 +14,8 @@ controllerManager:
   tolerations: []
   affinity: {}
   topologySpreadConstraints: []
+  # -- PriorityClass name for the operator pod
+  priorityClassName: ""
   # -- Extra volumes to add to the pod
   extraVolumes: []
   # -- Extra init containers to add to the pod

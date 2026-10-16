@@ -901,6 +901,102 @@ var _ = Describe("SyncKubeConfigMap", func() {
 	})
 })
 
+func infisicalSecretOwnerRef() metav1.OwnerReference {
+	controller := true
+	return metav1.OwnerReference{
+		APIVersion: "secrets.infisical.com/v1alpha1",
+		Kind:       constants.INFISICAL_SECRET_KIND,
+		Name:       "legacy",
+		UID:        "legacy-uid",
+		Controller: &controller,
+	}
+}
+
+var _ = Describe("Adopting targets owned by an InfisicalSecret", func() {
+	ctx := context.Background()
+	data := map[string][]byte{"DB_HOST": []byte("localhost")}
+	unrelatedRef := metav1.OwnerReference{APIVersion: "v1", Kind: "ConfigMap", Name: "other", UID: "other-uid"}
+	otherGroupRef := metav1.OwnerReference{APIVersion: "example.com/v1", Kind: constants.INFISICAL_SECRET_KIND, Name: "other", UID: "other-group-uid"}
+	legacyRemoved := Not(ContainElement(HaveField("UID", infisicalSecretOwnerRef().UID)))
+
+	upToDateMeta := func(name string) metav1.ObjectMeta {
+		return metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "default",
+			Annotations: map[string]string{
+				constants.SECRET_VERSION_ANNOTATION:      drift.DesiredState{Data: data}.Etag(),
+				constants.MANAGED_LABELS_ANNOTATION:      "",
+				constants.MANAGED_ANNOTATIONS_ANNOTATION: "",
+			},
+			OwnerReferences: []metav1.OwnerReference{infisicalSecretOwnerRef(), unrelatedRef, otherGroupRef},
+		}
+	}
+
+	DescribeTable("Secret targets",
+		func(policy v1beta1.CreationPolicy, expectStaticOwner bool) {
+			reconciler := newReconciler(&corev1.Secret{ObjectMeta: upToDateMeta("my-secret"), Data: data})
+			owner := newStaticSecret()
+			target := v1beta1.SecretTarget{Name: "my-secret", Namespace: "default", Kind: v1beta1.SecretTargetKindSecret, CreationPolicy: policy}
+
+			changed, _, err := reconciler.SyncKubeSecret(ctx, owner, data, target)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(changed).To(BeFalse())
+
+			fetched := &corev1.Secret{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "my-secret", Namespace: "default"}, fetched)).To(Succeed())
+			Expect(fetched.OwnerReferences).To(legacyRemoved)
+			Expect(fetched.OwnerReferences).To(ContainElements(unrelatedRef, otherGroupRef))
+			if expectStaticOwner {
+				Expect(metav1.IsControlledBy(fetched, owner)).To(BeTrue())
+			} else {
+				Expect(fetched.OwnerReferences).To(HaveLen(2))
+			}
+
+			changed, _, err = reconciler.SyncKubeSecret(ctx, owner, data, target)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(changed).To(BeFalse())
+			again := &corev1.Secret{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "my-secret", Namespace: "default"}, again)).To(Succeed())
+			Expect(again.ResourceVersion).To(Equal(fetched.ResourceVersion))
+		},
+		Entry("takes ownership with Owner policy", v1beta1.CreationPolicyOwner, true),
+		Entry("only releases the InfisicalSecret with Orphan policy", v1beta1.CreationPolicyOrphan, false),
+	)
+
+	It("takes ownership of a ConfigMap target", func() {
+		reconciler := newReconciler(&corev1.ConfigMap{ObjectMeta: upToDateMeta("my-configmap"), Data: map[string]string{"DB_HOST": "localhost"}})
+		owner := newStaticSecret()
+		target := v1beta1.SecretTarget{Name: "my-configmap", Namespace: "default", Kind: v1beta1.SecretTargetKindConfigMap, CreationPolicy: v1beta1.CreationPolicyOwner}
+
+		changed, _, err := reconciler.SyncKubeConfigMap(ctx, owner, data, target)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(changed).To(BeFalse())
+
+		fetched := &corev1.ConfigMap{}
+		Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "my-configmap", Namespace: "default"}, fetched)).To(Succeed())
+		Expect(fetched.OwnerReferences).To(legacyRemoved)
+		Expect(metav1.IsControlledBy(fetched, owner)).To(BeTrue())
+	})
+
+	It("fails without mutating the target when another controller owns it", func() {
+		controller := true
+		meta := upToDateMeta("my-secret")
+		meta.OwnerReferences = []metav1.OwnerReference{
+			{APIVersion: "secrets.infisical.com/v1alpha1", Kind: constants.INFISICAL_SECRET_KIND, Name: "legacy", UID: "legacy-uid"},
+			{APIVersion: "apps/v1", Kind: "Deployment", Name: "other", UID: "controller-uid", Controller: &controller},
+		}
+		reconciler := newReconciler(&corev1.Secret{ObjectMeta: meta, Data: data})
+		target := v1beta1.SecretTarget{Name: "my-secret", Namespace: "default", Kind: v1beta1.SecretTargetKindSecret, CreationPolicy: v1beta1.CreationPolicyOwner}
+
+		_, _, err := reconciler.SyncKubeSecret(ctx, newStaticSecret(), data, target)
+		Expect(err).To(HaveOccurred())
+
+		fetched := &corev1.Secret{}
+		Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "my-secret", Namespace: "default"}, fetched)).To(Succeed())
+		Expect(fetched.OwnerReferences).To(Equal(meta.OwnerReferences))
+	})
+})
+
 var _ = Describe("SyncKubeSecret metadata", func() {
 	ctx := context.Background()
 

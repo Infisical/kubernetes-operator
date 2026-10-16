@@ -2,6 +2,7 @@ package infisicalstaticsecret_test
 
 import (
 	"context"
+	"reflect"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -20,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -978,23 +980,30 @@ var _ = Describe("Adopting targets owned by an InfisicalSecret", func() {
 		Expect(metav1.IsControlledBy(fetched, owner)).To(BeTrue())
 	})
 
-	It("fails without mutating the target when another controller owns it", func() {
-		controller := true
-		meta := upToDateMeta("my-secret")
-		meta.OwnerReferences = []metav1.OwnerReference{
-			{APIVersion: "secrets.infisical.com/v1alpha1", Kind: constants.INFISICAL_SECRET_KIND, Name: "legacy", UID: "legacy-uid"},
-			{APIVersion: "apps/v1", Kind: "Deployment", Name: "other", UID: "controller-uid", Controller: &controller},
-		}
-		reconciler := newReconciler(&corev1.Secret{ObjectMeta: meta, Data: data})
-		target := v1beta1.SecretTarget{Name: "my-secret", Namespace: "default", Kind: v1beta1.SecretTargetKindSecret, CreationPolicy: v1beta1.CreationPolicyOwner}
+	DescribeTable("releases the target and still syncs data when it cannot take ownership",
+		func(namespace string, liveData map[string][]byte, extraRefs ...metav1.OwnerReference) {
+			meta := upToDateMeta("my-secret")
+			meta.Namespace = namespace
+			legacyRef := infisicalSecretOwnerRef()
+			legacyRef.Controller = nil
+			meta.OwnerReferences = append([]metav1.OwnerReference{legacyRef}, extraRefs...)
+			reconciler := newReconciler(&corev1.Secret{ObjectMeta: meta, Data: liveData})
+			target := v1beta1.SecretTarget{Name: "my-secret", Namespace: namespace, Kind: v1beta1.SecretTargetKindSecret, CreationPolicy: v1beta1.CreationPolicyOwner}
 
-		_, _, err := reconciler.SyncKubeSecret(ctx, newStaticSecret(), data, target)
-		Expect(err).To(HaveOccurred())
+			changed, _, err := reconciler.SyncKubeSecret(ctx, newStaticSecret(), data, target)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(changed).To(Equal(!reflect.DeepEqual(liveData, data)))
 
-		fetched := &corev1.Secret{}
-		Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "my-secret", Namespace: "default"}, fetched)).To(Succeed())
-		Expect(fetched.OwnerReferences).To(Equal(meta.OwnerReferences))
-	})
+			fetched := &corev1.Secret{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "my-secret", Namespace: namespace}, fetched)).To(Succeed())
+			Expect(fetched.Data).To(Equal(data))
+			Expect(fetched.OwnerReferences).To(ConsistOf(extraRefs))
+		},
+		Entry("when another controller owns it", "default", map[string][]byte{"DB_HOST": []byte("stale")},
+			metav1.OwnerReference{APIVersion: "apps/v1", Kind: "Deployment", Name: "other", UID: "controller-uid", Controller: ptr.To(true)}),
+		Entry("when it is in another namespace", "other-namespace", map[string][]byte{"DB_HOST": []byte("stale")}),
+		Entry("when the data is already up to date", "other-namespace", data),
+	)
 })
 
 var _ = Describe("SyncKubeSecret metadata", func() {

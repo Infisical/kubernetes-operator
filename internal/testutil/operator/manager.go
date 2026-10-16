@@ -1,7 +1,6 @@
 package operator
 
 import (
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -47,8 +46,10 @@ func (m *Manager) Stop() {
 
 type InstallOpts struct {
 	HostAPIURL               string
+	APIContainerID           string // Container running the Infisical API. It is attached to the Kind network so pods can reach it directly.
+	APIContainerPort         string // Port the API listens on inside its container.
 	DefaultConnection        bool   // If true, install a default InfisicalConnection in the operator namespace
-	DefaultConnectionAddress string // Address for the default InfisicalConnection. The host is replaced with the in-cluster gateway; the path is preserved. If empty, defaults to the in-cluster API URL.
+	DefaultConnectionAddress string // Address for the default InfisicalConnection. The host is replaced with the in-cluster API address; the path is preserved. If empty, defaults to the in-cluster API URL.
 }
 
 func Install(opts InstallOpts) (*Manager, error) {
@@ -58,18 +59,15 @@ func Install(opts InstallOpts) (*Manager, error) {
 	// Remove any pre-existing CRDs so Helm can manage them cleanly.
 	_ = runDir(root, "make", "uninstall", "ignore-not-found=true")
 
-	// The Kind network gateway is the host IP from within Kind pods.
-	// This lets the operator pod reach the testcontainer API via the host's port mapping.
-	gateway, err := kindIPv4Gateway(kindNetwork)
+	// Attach the API container to the Kind network so pods reach it by container IP.
+	// Going through the host's port mapping via the network gateway only works when
+	// Docker runs natively on Linux, not with Docker Desktop, Colima or OrbStack.
+	apiIP, err := attachToNetwork(kindNetwork, opts.APIContainerID)
 	if err != nil {
-		return nil, fmt.Errorf("get kind network gateway: %w", err)
+		return nil, fmt.Errorf("attach API container to kind network: %w", err)
 	}
-
-	hostURL, err := url.Parse(opts.HostAPIURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse host URL: %w", err)
-	}
-	inClusterURL := fmt.Sprintf("http://%s:%s", gateway, hostURL.Port())
+	apiHost := net.JoinHostPort(apiIP, opts.APIContainerPort)
+	inClusterURL := "http://" + apiHost
 
 	if err := waitForAPI(opts.HostAPIURL, 60*time.Second); err != nil {
 		return nil, fmt.Errorf("API not ready: %w", err)
@@ -87,7 +85,7 @@ func Install(opts InstallOpts) (*Manager, error) {
 		if err != nil {
 			return nil, fmt.Errorf("parse default connection address: %w", err)
 		}
-		connURL.Host = net.JoinHostPort(gateway, connURL.Port())
+		connURL.Host = apiHost
 		connAddress = connURL.String()
 	}
 
@@ -233,31 +231,24 @@ func cmdOutput(name string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func kindIPv4Gateway(networkName string) (string, error) {
-	out, err := cmdOutput("docker", "network", "inspect", networkName, "--format", "{{json .IPAM.Config}}")
+// attachToNetwork connects the container to the Docker network (if not already
+// connected) and returns its IPv4 address on that network.
+func attachToNetwork(networkName, containerID string) (string, error) {
+	format := fmt.Sprintf("{{with index .NetworkSettings.Networks %q}}{{.IPAddress}}{{end}}", networkName)
+	ip, err := cmdOutput("docker", "inspect", containerID, "--format", format)
 	if err != nil {
 		return "", err
 	}
-
-	type ipamConfig struct {
-		Gateway string `json:"Gateway"`
-	}
-
-	var cfgs []ipamConfig
-	if err := json.Unmarshal([]byte(out), &cfgs); err != nil {
-		return "", fmt.Errorf("parse network IPAM config: %w", err)
-	}
-
-	for _, cfg := range cfgs {
-		if cfg.Gateway == "" {
-			continue
+	if ip == "" {
+		if _, err := cmdOutput("docker", "network", "connect", networkName, containerID); err != nil {
+			return "", err
 		}
-		ip := net.ParseIP(cfg.Gateway)
-		if ip == nil || ip.To4() == nil {
-			continue
+		if ip, err = cmdOutput("docker", "inspect", containerID, "--format", format); err != nil {
+			return "", err
 		}
-		return cfg.Gateway, nil
 	}
-
-	return "", fmt.Errorf("no IPv4 gateway found in docker network %q IPAM config", networkName)
+	if net.ParseIP(ip).To4() == nil {
+		return "", fmt.Errorf("container %s has no IPv4 address on network %q", containerID, networkName)
+	}
+	return ip, nil
 }

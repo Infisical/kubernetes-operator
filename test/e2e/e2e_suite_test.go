@@ -30,6 +30,8 @@ var _ = BeforeSuite(func() {
 	var err error
 	testManager, err = operator.Install(operator.InstallOpts{
 		HostAPIURL:               testInfra.NodeJS().URL(),
+		APIContainerID:           testInfra.NodeJS().ContainerID(),
+		APIContainerPort:         "8080",
 		DefaultConnection:        true,
 		DefaultConnectionAddress: testInfra.NodeJS().URL() + "/api",
 	})

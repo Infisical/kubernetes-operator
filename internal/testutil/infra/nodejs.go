@@ -85,9 +85,11 @@ func startNodeJS(ctx context.Context, networkName string, files []testcontainers
 	}
 
 	req := testcontainers.ContainerRequest{
-		Image:        "infisical/infisical:latest",
-		ExposedPorts: []string{"8080/tcp"},
-		Networks:     []string{networkName},
+		Image: "infisical/infisical:latest",
+		// Always pull so local runs use the same API version as CI instead of a stale cached :latest.
+		AlwaysPullImage: true,
+		ExposedPorts:    []string{"8080/tcp"},
+		Networks:        []string{networkName},
 		NetworkAliases: map[string][]string{
 			networkName: {"backend-nodejs"},
 		},

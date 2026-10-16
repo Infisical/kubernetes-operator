@@ -10,11 +10,13 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	secretsv1alpha1 "github.com/Infisical/infisical/k8-operator/api/v1alpha1"
 	secretsv1beta1 "github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/testutil/infra"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
@@ -734,6 +736,102 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 			"APP_NAME":  "my-app",
 			"REDIS_URL": "redis://cache:6379",
 		})
+	})
+
+	It("should adopt a target owned by an InfisicalSecret and keep it after the InfisicalSecret is deleted", func() {
+		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "adopt")
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/adopt", "ADOPT_KEY", "adopt-value", nil)
+
+		const targetName = "e2e-adopt-synced"
+		targetKey := types.NamespacedName{Name: targetName, Namespace: testNamespace}
+
+		By("creating an InfisicalSecret that owns the target")
+		infisicalSecret := &secretsv1alpha1.InfisicalSecret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "e2e-adopt-legacy",
+				Namespace: testNamespace,
+			},
+			Spec: secretsv1alpha1.InfisicalSecretSpec{
+				HostAPI: testManager.InClusterAPIURL(),
+				Authentication: secretsv1alpha1.Authentication{
+					UniversalAuth: secretsv1alpha1.UniversalAuthDetails{
+						CredentialsRef: secretsv1alpha1.KubeSecretReference{
+							SecretName:      "e2e-ua-credentials",
+							SecretNamespace: testNamespace,
+						},
+						SecretsScope: secretsv1alpha1.MachineIdentityScopeInWorkspace{
+							ProjectID:   project.ID,
+							EnvSlug:     project.EnvSlug,
+							SecretsPath: "/adopt",
+						},
+					},
+				},
+				ManagedKubeSecretReferences: []secretsv1alpha1.ManagedKubeSecretConfig{{
+					SecretName:      targetName,
+					SecretNamespace: testNamespace,
+					SecretType:      string(corev1.SecretTypeOpaque),
+					CreationPolicy:  "Owner",
+				}},
+			},
+		}
+		Expect(k.Create(ctx, infisicalSecret)).To(Succeed())
+		DeferCleanup(func() { _ = client.IgnoreNotFound(k.Delete(ctx, infisicalSecret)) })
+
+		var original corev1.Secret
+		Eventually(func(g Gomega) {
+			g.Expect(k.Get(ctx, targetKey, &original)).To(Succeed())
+			g.Expect(metav1.IsControlledBy(&original, infisicalSecret)).To(BeTrue(),
+				"target is not controlled by the InfisicalSecret: %v", original.OwnerReferences)
+			g.Expect(original.Data).To(HaveKeyWithValue("ADOPT_KEY", []byte("adopt-value")))
+		}).WithTimeout(60 * time.Second).WithPolling(time.Second).Should(Succeed())
+
+		By("creating an InfisicalStaticSecret targeting the same secret")
+		staticSecret := createStaticSecret("e2e-adopt-sync", secretsv1beta1.InfisicalStaticSecretSpec{
+			InfisicalAuthRef: authRef,
+			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
+			Sources: []secretsv1beta1.SecretSource{{
+				ProjectId:       project.ID,
+				EnvironmentSlug: project.EnvSlug,
+				SecretPath:      "/adopt",
+			}},
+			Targets: []secretsv1beta1.SecretTarget{{
+				Name:           targetName,
+				Namespace:      testNamespace,
+				Kind:           secretsv1beta1.SecretTargetKindSecret,
+				SecretType:     corev1.SecretTypeOpaque,
+				CreationPolicy: secretsv1beta1.CreationPolicyOwner,
+			}},
+		})
+
+		By("waiting for the InfisicalStaticSecret to reconcile")
+		Eventually(func(g Gomega) {
+			var ss secretsv1beta1.InfisicalStaticSecret
+			g.Expect(k.Get(ctx, types.NamespacedName{Name: staticSecret.Name, Namespace: testNamespace}, &ss)).To(Succeed())
+			cond := meta.FindStatusCondition(ss.Status.Conditions, "secrets.infisical.com/LastReconcileStatus")
+			g.Expect(cond).NotTo(BeNil(), "InfisicalStaticSecret has not reconciled yet")
+			g.Expect(cond.Status).To(Equal(metav1.ConditionTrue),
+				"InfisicalStaticSecret reconciliation failed: %s", cond.Message)
+		}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(Succeed())
+
+		By("deleting the InfisicalSecret")
+		Expect(k.Delete(ctx, infisicalSecret)).To(Succeed())
+		Eventually(func() error {
+			return k.Get(ctx, types.NamespacedName{Name: infisicalSecret.Name, Namespace: testNamespace}, &secretsv1alpha1.InfisicalSecret{})
+		}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(Satisfy(k8sErrors.IsNotFound))
+
+		By("checking the target was adopted by the InfisicalStaticSecret, not recreated")
+		Eventually(func(g Gomega) {
+			var secret corev1.Secret
+			g.Expect(k.Get(ctx, targetKey, &secret)).To(Succeed())
+			g.Expect(secret.UID).To(Equal(original.UID), "target was recreated")
+			g.Expect(metav1.IsControlledBy(&secret, staticSecret)).To(BeTrue(),
+				"target is not controlled by the InfisicalStaticSecret: %v", secret.OwnerReferences)
+		}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(Succeed())
+		Consistently(func(g Gomega) {
+			var secret corev1.Secret
+			g.Expect(k.Get(ctx, targetKey, &secret)).To(Succeed())
+			g.Expect(secret.UID).To(Equal(original.UID), "target was recreated")
+		}).WithTimeout(10 * time.Second).WithPolling(time.Second).Should(Succeed())
 	})
 })
 

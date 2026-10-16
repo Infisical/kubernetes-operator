@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Infisical/infisical/k8-operator/api/v1alpha1"
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/api"
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
@@ -25,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -135,6 +137,34 @@ func computeTargetMetadata(owner metav1.Object, target v1beta1.SecretTarget, exi
 	annotations[constants.MANAGED_ANNOTATIONS_ANNOTATION] = formatManagedKeys(currentAnnotationKeys)
 
 	return labels, annotations
+}
+
+// adoptFromInfisicalSecret drops owner references held by an InfisicalSecret so the
+// target survives that CRD's deletion, and takes ownership when the policy is Owner.
+// Taking ownership is best effort so that it never blocks the data sync.
+// Returns true when the owner references were modified.
+func (r *InfisicalStaticSecretReconciler) adoptFromInfisicalSecret(owner, obj metav1.Object, policy v1beta1.CreationPolicy) bool {
+	refs := obj.GetOwnerReferences()
+	kept := make([]metav1.OwnerReference, 0, len(refs))
+	for _, ref := range refs {
+		gv, err := schema.ParseGroupVersion(ref.APIVersion)
+		if err == nil && gv.Group == v1alpha1.GroupVersion.Group && ref.Kind == constants.INFISICAL_SECRET_KIND {
+			continue
+		}
+		kept = append(kept, ref)
+	}
+	if len(kept) == len(refs) {
+		return false
+	}
+
+	obj.SetOwnerReferences(kept)
+	if policy == v1beta1.CreationPolicyOwner {
+		if err := ctrl.SetControllerReference(owner, obj, r.Scheme); err != nil {
+			r.logger.Error(err, "Unable to take ownership of target previously owned by an InfisicalSecret, leaving it unowned",
+				"namespace", obj.GetNamespace(), "name", obj.GetName())
+		}
+	}
+	return true
 }
 
 type InfisicalStaticSecretReconciler struct {
@@ -499,7 +529,8 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeSecret(ctx context.Context, ow
 		r.logger.Info("Managed target was edited outside the operator, restoring value from Infisical",
 			"kind", target.Kind, "namespace", target.Namespace, "name", target.Name)
 	}
-	if !changed {
+	adopted := r.adoptFromInfisicalSecret(owner, existingSecret, target.CreationPolicy)
+	if !changed && !adopted {
 		return false, newEtag, nil
 	}
 
@@ -568,7 +599,8 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeConfigMap(ctx context.Context,
 		r.logger.Info("Managed target was edited outside the operator, restoring value from Infisical",
 			"kind", target.Kind, "namespace", target.Namespace, "name", target.Name)
 	}
-	if !changed {
+	adopted := r.adoptFromInfisicalSecret(owner, existingConfigMap, target.CreationPolicy)
+	if !changed && !adopted {
 		return false, newEtag, nil
 	}
 

@@ -1981,21 +1981,23 @@ var _ = Describe("SyncSecrets status", func() {
 		Expect(legacy.Status).To(Equal(metav1.ConditionFalse))
 	})
 
-	It("flips a previously healthy resource to Ready=False while keeping informational conditions", func() {
-		staticSecret := newStaticSecret(validSpec())
+	It("flips a previously healthy resource to Ready=False when its InfisicalAuth does not exist", func() {
+		spec := validSpec()
+		spec.InfisicalAuthRef = v1beta1.NamespacedName{Name: "missing-auth", Namespace: "default"}
+
+		staticSecret := newStaticSecret(spec)
 		staticSecret.Status.Conditions = []metav1.Condition{
 			{Type: svc.ConditionReady, Status: metav1.ConditionTrue, Reason: svc.ReasonReconcileSucceeded, LastTransitionTime: metav1.Now()},
 			{Type: svc.ConditionLastSuccessfulReconcileAt, Status: metav1.ConditionTrue, Reason: "OK", LastTransitionTime: metav1.Now()},
 		}
 
-		// The referenced InfisicalAuth does not exist, so authentication fails.
 		updated := sync(staticSecret)
 
 		ready := meta.FindStatusCondition(updated.Status.Conditions, svc.ConditionReady)
 		Expect(ready).NotTo(BeNil())
 		Expect(ready.Status).To(Equal(metav1.ConditionFalse))
 		Expect(ready.Reason).To(Equal(svc.ReasonAuthenticationFailed))
-		Expect(ready.Message).NotTo(BeEmpty())
+		Expect(ready.Message).To(ContainSubstring(`"missing-auth" not found`))
 
 		Expect(meta.FindStatusCondition(updated.Status.Conditions, svc.ConditionLastSuccessfulReconcileAt)).NotTo(BeNil())
 	})

@@ -95,7 +95,11 @@ func startNodeJS(ctx context.Context, networkName string, files []testcontainers
 		},
 		User: user,
 		Env: map[string]string{
-			"NODE_ENV":                       "development",
+			"NODE_ENV": "development",
+			// Listen on IPv6 too. On a dual-stack network such as Kind's, Docker on Linux
+			// forwards the published port's [::1] binding to the container's IPv6 address,
+			// so localhost requests are reset when the API only listens on IPv4.
+			"HOST":                           "::",
 			"DB_CONNECTION_URI":              fmt.Sprintf("postgres://%s:%s@db:5432/%s?sslmode=disable", pgUser, pgPassword, pgDB),
 			"REDIS_URL":                      "redis://redis:6379",
 			"ENCRYPTION_KEY":                 EncryptionKey,

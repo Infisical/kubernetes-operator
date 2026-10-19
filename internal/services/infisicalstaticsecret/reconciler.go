@@ -177,6 +177,7 @@ type InfisicalStaticSecretReconciler struct {
 }
 
 func (r *InfisicalStaticSecretReconciler) getProjectIDBySlug(restClient *resty.Client, authRef v1beta1.NamespacedName, slug string) (string, error) {
+	authRef = ResolveAuthRef(authRef)
 	cacheKey := cache.ProjectBySlugCacheKey(authRef.Namespace, authRef.Name, slug)
 	if r.projectIDCache != nil {
 		if cached, ok := r.projectIDCache.Get(cacheKey); ok {
@@ -268,12 +269,27 @@ func NewReconcilerForTest(c client.Client, scheme *runtime.Scheme) *InfisicalSta
 	}
 }
 
+// ResolveAuthRef returns the given auth reference, or the default InfisicalAuth
+// in the operator namespace if no reference was provided.
+func ResolveAuthRef(authRef v1beta1.NamespacedName) v1beta1.NamespacedName {
+	if authRef.Name != "" {
+		return authRef
+	}
+
+	return v1beta1.NamespacedName{
+		Name:      constants.DEFAULT_INFISICAL_AUTH_NAME,
+		Namespace: constants.GetOperatorNamespace(),
+	}
+}
+
 func (r *InfisicalStaticSecretReconciler) getInfisicalAuth(ctx context.Context, authRef v1beta1.NamespacedName) (*v1beta1.InfisicalAuth, error) {
+	resolved := ResolveAuthRef(authRef)
+
 	auth := v1beta1.InfisicalAuth{}
 
 	err := r.Client.Get(ctx, types.NamespacedName{
-		Name:      authRef.Name,
-		Namespace: authRef.Namespace,
+		Name:      resolved.Name,
+		Namespace: resolved.Namespace,
 	}, &auth)
 	if err != nil {
 		if util.IsNamespaceScopedError(err, r.IsNamespaceScoped) {

@@ -106,6 +106,7 @@ defaultInfisicalAuth:
   infisicalConnectionRef:
     # @type: string
     name: ""
+    # -- Defaults to the operator namespace when empty
     # @type: string
     namespace: ""
 

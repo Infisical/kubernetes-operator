@@ -1,4 +1,5 @@
 {{- if .Values.defaultInfisicalAuth.enabled }}
+{{- include "secrets-operator.validateDefaultNamespace" (dict "ctx" . "value" "defaultInfisicalAuth") }}
 {{- $auth := .Values.defaultInfisicalAuth }}
 apiVersion: secrets.infisical.com/v1beta1
 kind: InfisicalAuth
@@ -15,7 +16,7 @@ spec:
   {{- if .name }}
   infisicalConnectionRef:
     name: {{ .name | quote }}
-    namespace: {{ .namespace | quote }}
+    namespace: {{ .namespace | default $.Release.Namespace | quote }}
   {{- end }}
   {{- end }}
   method: {{ required "defaultInfisicalAuth.method is required when defaultInfisicalAuth.enabled is true" $auth.method | quote }}

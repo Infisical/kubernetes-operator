@@ -96,3 +96,22 @@ true
 false
 {{- end -}}
 {{- end }}
+{{/*
+Fail if a default CR (InfisicalConnection/InfisicalAuth) would be installed in a
+namespace the operator does not watch. In scoped mode the operator only sees the
+namespaces passed via --namespaces, so the default must live in one of them.
+Usage: {{ include "secrets-operator.validateDefaultNamespace" (dict "ctx" . "value" "defaultInfisicalAuth") }}
+*/}}
+{{- define "secrets-operator.validateDefaultNamespace" -}}
+{{- $ctx := .ctx -}}
+{{- $namespaces := (include "secrets-operator.scopedNamespaces" $ctx | fromJson).list -}}
+{{- if and $namespaces $ctx.Values.scopedRBAC -}}
+  {{- $trimmed := list -}}
+  {{- range $namespaces -}}
+    {{- $trimmed = append $trimmed (trim .) -}}
+  {{- end -}}
+  {{- if not (has $ctx.Release.Namespace $trimmed) -}}
+    {{- fail (printf "%s.enabled is true, but the release namespace %q is not in scopedNamespaces (%s). The operator would not be able to read the default resource. Add %q to scopedNamespaces." .value $ctx.Release.Namespace (join ", " $trimmed) $ctx.Release.Namespace) -}}
+  {{- end -}}
+{{- end -}}
+{{- end }}

@@ -51,6 +51,8 @@ const (
 // +kubebuilder:printcolumn:name="Auth Method",type=string,JSONPath=`.status.conditions[?(@.type=="secrets.infisical.com/LastReconcileAuthMethod")].message`
 // +kubebuilder:printcolumn:name="Synced",type=string,JSONPath=`.status.conditions[?(@.type=="secrets.infisical.com/LastReconcileStatus")].status`
 // +kubebuilder:printcolumn:name="Affected Deployments",type=string,JSONPath=`.status.conditions[?(@.type=="secrets.infisical.com/LastReconcileAffectedDeployments")].message`
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// +kubebuilder:printcolumn:name="Reason",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].reason`
 type InfisicalStaticSecret struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -145,8 +147,16 @@ type SecretTemplate struct {
 	Data SecretTemplateData `json:"data"`
 }
 
-// InfisicalStaticSecretStatus defines the observed state of InfisicalAuth
+// InfisicalStaticSecretStatus defines the observed state of InfisicalStaticSecret
 type InfisicalStaticSecretStatus struct {
+	// ObservedGeneration is the most recent metadata.generation the operator has reconciled.
+	// When it is lower than metadata.generation, the status does not yet reflect the current spec.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// Conditions describe the state of the resource. The "Ready" condition is the single source
+	// of truth for health: status "True" means secrets are synced, "False" means the last
+	// reconciliation failed, with the failure in its reason and message.
 	Conditions []metav1.Condition `json:"conditions"`
 }
 

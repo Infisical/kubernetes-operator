@@ -17,6 +17,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8Errors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -1923,5 +1924,79 @@ var _ = Describe("Drift detection and replacement", func() {
 			Expect(reconciled.Data).NotTo(HaveKey("INJECTED"))
 			Expect(reconciled.Data).To(HaveLen(len(data)))
 		})
+	})
+})
+
+var _ = Describe("SyncSecrets status", func() {
+	var (
+		ctx    context.Context
+		scheme *runtime.Scheme
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		scheme = runtime.NewScheme()
+		Expect(v1beta1.AddToScheme(scheme)).To(Succeed())
+	})
+
+	sync := func(staticSecret *v1beta1.InfisicalStaticSecret) *v1beta1.InfisicalStaticSecret {
+		GinkgoHelper()
+		c := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(staticSecret).
+			WithStatusSubresource(&v1beta1.InfisicalStaticSecret{}).
+			Build()
+		handler := svc.NewInfisicalStaticSecretHandler(c, scheme, false, nil, nil, GinkgoLogr)
+
+		_, err := handler.SyncSecrets(ctx, staticSecret)
+		Expect(err).To(HaveOccurred())
+
+		var updated v1beta1.InfisicalStaticSecret
+		Expect(c.Get(ctx, client.ObjectKeyFromObject(staticSecret), &updated)).To(Succeed())
+		return &updated
+	}
+
+	newStaticSecret := func(spec v1beta1.InfisicalStaticSecretSpec) *v1beta1.InfisicalStaticSecret {
+		return &v1beta1.InfisicalStaticSecret{
+			ObjectMeta: metav1.ObjectMeta{Name: "static-secret", Namespace: "default", Generation: 3},
+			Spec:       spec,
+		}
+	}
+
+	It("marks Ready=False with ValidationFailed when the spec is invalid", func() {
+		spec := validSpec()
+		spec.Sources = nil
+
+		updated := sync(newStaticSecret(spec))
+
+		ready := meta.FindStatusCondition(updated.Status.Conditions, svc.ConditionReady)
+		Expect(ready).NotTo(BeNil())
+		Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+		Expect(ready.Reason).To(Equal(svc.ReasonValidationFailed))
+		Expect(ready.ObservedGeneration).To(Equal(int64(3)))
+		Expect(updated.Status.ObservedGeneration).To(Equal(int64(3)))
+
+		legacy := meta.FindStatusCondition(updated.Status.Conditions, svc.ConditionLastReconcileStatus)
+		Expect(legacy).NotTo(BeNil())
+		Expect(legacy.Status).To(Equal(metav1.ConditionFalse))
+	})
+
+	It("flips a previously healthy resource to Ready=False while keeping informational conditions", func() {
+		staticSecret := newStaticSecret(validSpec())
+		staticSecret.Status.Conditions = []metav1.Condition{
+			{Type: svc.ConditionReady, Status: metav1.ConditionTrue, Reason: svc.ReasonReconcileSucceeded, LastTransitionTime: metav1.Now()},
+			{Type: svc.ConditionLastSuccessfulReconcileAt, Status: metav1.ConditionTrue, Reason: "OK", LastTransitionTime: metav1.Now()},
+		}
+
+		// The referenced InfisicalAuth does not exist, so authentication fails.
+		updated := sync(staticSecret)
+
+		ready := meta.FindStatusCondition(updated.Status.Conditions, svc.ConditionReady)
+		Expect(ready).NotTo(BeNil())
+		Expect(ready.Status).To(Equal(metav1.ConditionFalse))
+		Expect(ready.Reason).To(Equal(svc.ReasonAuthenticationFailed))
+		Expect(ready.Message).NotTo(BeEmpty())
+
+		Expect(meta.FindStatusCondition(updated.Status.Conditions, svc.ConditionLastSuccessfulReconcileAt)).NotTo(BeNil())
 	})
 })

@@ -149,7 +149,7 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 		if err := k.Get(ctx, types.NamespacedName{Name: crdName, Namespace: testNamespace}, &ss); err != nil {
 			return // CRD not yet visible; let the outer Eventually keep polling
 		}
-		cond := meta.FindStatusCondition(ss.Status.Conditions, "secrets.infisical.com/LastReconcileStatus")
+		cond := meta.FindStatusCondition(ss.Status.Conditions, "Ready")
 		if cond != nil && cond.Status == metav1.ConditionFalse {
 			g.Expect(cond.Status).To(Equal(metav1.ConditionTrue),
 				"InfisicalStaticSecret %q reconciliation failed: %s", crdName, cond.Message)
@@ -807,7 +807,7 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 		Eventually(func(g Gomega) {
 			var ss secretsv1beta1.InfisicalStaticSecret
 			g.Expect(k.Get(ctx, types.NamespacedName{Name: staticSecret.Name, Namespace: testNamespace}, &ss)).To(Succeed())
-			cond := meta.FindStatusCondition(ss.Status.Conditions, "secrets.infisical.com/LastReconcileStatus")
+			cond := meta.FindStatusCondition(ss.Status.Conditions, "Ready")
 			g.Expect(cond).NotTo(BeNil(), "InfisicalStaticSecret has not reconciled yet")
 			g.Expect(cond.Status).To(Equal(metav1.ConditionTrue),
 				"InfisicalStaticSecret reconciliation failed: %s", cond.Message)

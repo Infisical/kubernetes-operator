@@ -1963,41 +1963,37 @@ var _ = Describe("SyncSecrets status", func() {
 		}
 	}
 
-	It("marks Ready=False with ValidationFailed when the spec is invalid", func() {
+	It("sets status.error when the spec is invalid", func() {
 		spec := validSpec()
 		spec.Sources = nil
 
 		updated := sync(newStaticSecret(spec))
 
-		ready := meta.FindStatusCondition(updated.Status.Conditions, svc.ConditionReady)
-		Expect(ready).NotTo(BeNil())
-		Expect(ready.Status).To(Equal(metav1.ConditionFalse))
-		Expect(ready.Reason).To(Equal(svc.ReasonValidationFailed))
-		Expect(ready.ObservedGeneration).To(Equal(int64(3)))
+		Expect(updated.Status.Error).To(BeTrue())
 		Expect(updated.Status.ObservedGeneration).To(Equal(int64(3)))
 
-		legacy := meta.FindStatusCondition(updated.Status.Conditions, svc.ConditionLastReconcileStatus)
-		Expect(legacy).NotTo(BeNil())
-		Expect(legacy.Status).To(Equal(metav1.ConditionFalse))
+		lastReconcile := meta.FindStatusCondition(updated.Status.Conditions, svc.ConditionLastReconcileStatus)
+		Expect(lastReconcile).NotTo(BeNil())
+		Expect(lastReconcile.Status).To(Equal(metav1.ConditionFalse))
 	})
 
-	It("flips a previously healthy resource to Ready=False when its InfisicalAuth does not exist", func() {
+	It("flips status.error on a previously healthy resource when its InfisicalAuth does not exist", func() {
 		spec := validSpec()
 		spec.InfisicalAuthRef = v1beta1.NamespacedName{Name: "missing-auth", Namespace: "default"}
 
 		staticSecret := newStaticSecret(spec)
+		staticSecret.Status.Error = false
 		staticSecret.Status.Conditions = []metav1.Condition{
-			{Type: svc.ConditionReady, Status: metav1.ConditionTrue, Reason: svc.ReasonReconcileSucceeded, LastTransitionTime: metav1.Now()},
 			{Type: svc.ConditionLastSuccessfulReconcileAt, Status: metav1.ConditionTrue, Reason: "OK", LastTransitionTime: metav1.Now()},
 		}
 
 		updated := sync(staticSecret)
 
-		ready := meta.FindStatusCondition(updated.Status.Conditions, svc.ConditionReady)
-		Expect(ready).NotTo(BeNil())
-		Expect(ready.Status).To(Equal(metav1.ConditionFalse))
-		Expect(ready.Reason).To(Equal(svc.ReasonAuthenticationFailed))
-		Expect(ready.Message).To(ContainSubstring(`"missing-auth" not found`))
+		Expect(updated.Status.Error).To(BeTrue())
+
+		lastReconcile := meta.FindStatusCondition(updated.Status.Conditions, svc.ConditionLastReconcileStatus)
+		Expect(lastReconcile).NotTo(BeNil())
+		Expect(lastReconcile.Message).To(ContainSubstring(`"missing-auth" not found`))
 
 		Expect(meta.FindStatusCondition(updated.Status.Conditions, svc.ConditionLastSuccessfulReconcileAt)).NotTo(BeNil())
 	})

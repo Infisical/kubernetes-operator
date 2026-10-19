@@ -15,19 +15,6 @@ const (
 	ConditionLastReconcileStatus       = "secrets.infisical.com/LastReconcileStatus"
 	ConditionLastReconcileAuthMethod   = "secrets.infisical.com/LastReconcileAuthMethod"
 	ConditionAutoRedeployReady         = "secrets.infisical.com/LastReconcileAffectedDeployments"
-
-	// ConditionReady is the single source of truth for the health of the resource.
-	// It follows the standard Kubernetes "Ready" convention so tools such as ArgoCD health checks,
-	// kstatus and `kubectl wait --for=condition=Ready` can consume it directly.
-	ConditionReady = "Ready"
-)
-
-const (
-	ReasonReconcileSucceeded   = "ReconcileSucceeded"
-	ReasonValidationFailed     = "ValidationFailed"
-	ReasonAuthenticationFailed = "AuthenticationFailed"
-	ReasonSecretsFetchFailed   = "SecretsFetchFailed"
-	ReasonTargetSyncFailed     = "TargetSyncFailed"
 )
 
 func initConditions(infisicalStaticSecret *v1beta1.InfisicalStaticSecret) {
@@ -58,20 +45,14 @@ func setAuthMethodCondition(infisicalStaticSecret *v1beta1.InfisicalStaticSecret
 	})
 }
 
-// setReconcileStatusCondition records the outcome of a reconciliation on both the Ready condition and the
-// legacy LastReconcileStatus condition, and stamps status.observedGeneration. A nil error marks the resource as ready.
-func setReconcileStatusCondition(infisicalStaticSecret *v1beta1.InfisicalStaticSecret, reason string, errorToConditionOn error) {
+// setReconcileStatusCondition records the outcome of a reconciliation on status.error, the LastReconcileStatus
+// condition and status.observedGeneration. A nil error marks the resource as healthy.
+func setReconcileStatusCondition(infisicalStaticSecret *v1beta1.InfisicalStaticSecret, errorToConditionOn error) {
 	initConditions(infisicalStaticSecret)
 	infisicalStaticSecret.Status.ObservedGeneration = infisicalStaticSecret.Generation
+	infisicalStaticSecret.Status.Error = errorToConditionOn != nil
 
 	if errorToConditionOn == nil {
-		meta.SetStatusCondition(&infisicalStaticSecret.Status.Conditions, metav1.Condition{
-			Type:               ConditionReady,
-			Status:             metav1.ConditionTrue,
-			Reason:             ReasonReconcileSucceeded,
-			Message:            "Secrets are synced",
-			ObservedGeneration: infisicalStaticSecret.Generation,
-		})
 		meta.SetStatusCondition(&infisicalStaticSecret.Status.Conditions, metav1.Condition{
 			Type:               ConditionLastReconcileStatus,
 			Status:             metav1.ConditionTrue,
@@ -80,13 +61,6 @@ func setReconcileStatusCondition(infisicalStaticSecret *v1beta1.InfisicalStaticS
 			ObservedGeneration: infisicalStaticSecret.Generation,
 		})
 	} else {
-		meta.SetStatusCondition(&infisicalStaticSecret.Status.Conditions, metav1.Condition{
-			Type:               ConditionReady,
-			Status:             metav1.ConditionFalse,
-			Reason:             reason,
-			Message:            errorToConditionOn.Error(),
-			ObservedGeneration: infisicalStaticSecret.Generation,
-		})
 		meta.SetStatusCondition(&infisicalStaticSecret.Status.Conditions, metav1.Condition{
 			Type:               ConditionLastReconcileStatus,
 			Status:             metav1.ConditionFalse,

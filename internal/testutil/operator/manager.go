@@ -26,8 +26,11 @@ const (
 	helmReleaseName = "infisical-e2e"
 	helmNamespace   = "infisical-operator-system"
 	testImage       = "infisical/kubernetes-operator:e2e-test"
-	kindNetwork     = "kind"
 )
+
+// KindNetwork is the Docker network Kind nodes run on. The Infisical API must be
+// started on it so pods can reach it by container IP.
+const KindNetwork = "kind"
 
 type Manager struct {
 	client          client.Client
@@ -46,7 +49,7 @@ func (m *Manager) Stop() {
 
 type InstallOpts struct {
 	HostAPIURL               string
-	APIContainerID           string // Container running the Infisical API. It is attached to the Kind network so pods can reach it directly.
+	APIContainerID           string // Container running the Infisical API. It must be on KindNetwork so pods can reach it directly.
 	APIContainerPort         string // Port the API listens on inside its container.
 	DefaultConnection        bool   // If true, install a default InfisicalConnection in the operator namespace
 	DefaultConnectionAddress string // Address for the default InfisicalConnection. The host is replaced with the in-cluster API address; the path is preserved. If empty, defaults to the in-cluster API URL.
@@ -59,12 +62,13 @@ func Install(opts InstallOpts) (*Manager, error) {
 	// Remove any pre-existing CRDs so Helm can manage them cleanly.
 	_ = runDir(root, "make", "uninstall", "ignore-not-found=true")
 
-	// Attach the API container to the Kind network so pods reach it by container IP.
-	// Going through the host's port mapping via the network gateway only works when
-	// Docker runs natively on Linux, not with Docker Desktop, Colima or OrbStack.
-	apiIP, err := attachToNetwork(kindNetwork, opts.APIContainerID)
+	// Pods reach the API by its container IP on the Kind network. Going through the
+	// host's port mapping via the network gateway only works when Docker runs natively
+	// on Linux, and attaching a second network to the container breaks its published
+	// port on Linux, so the API is started on the Kind network directly.
+	apiIP, err := containerIPv4(KindNetwork, opts.APIContainerID)
 	if err != nil {
-		return nil, fmt.Errorf("attach API container to kind network: %w", err)
+		return nil, fmt.Errorf("get API container IP on kind network: %w", err)
 	}
 	apiHost := net.JoinHostPort(apiIP, opts.APIContainerPort)
 	inClusterURL := "http://" + apiHost
@@ -231,21 +235,12 @@ func cmdOutput(name string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// attachToNetwork connects the container to the Docker network (if not already
-// connected) and returns its IPv4 address on that network.
-func attachToNetwork(networkName, containerID string) (string, error) {
+// containerIPv4 returns the container's IPv4 address on the Docker network.
+func containerIPv4(networkName, containerID string) (string, error) {
 	format := fmt.Sprintf("{{with index .NetworkSettings.Networks %q}}{{.IPAddress}}{{end}}", networkName)
 	ip, err := cmdOutput("docker", "inspect", containerID, "--format", format)
 	if err != nil {
 		return "", err
-	}
-	if ip == "" {
-		if _, err := cmdOutput("docker", "network", "connect", networkName, containerID); err != nil {
-			return "", err
-		}
-		if ip, err = cmdOutput("docker", "inspect", containerID, "--format", format); err != nil {
-			return "", err
-		}
 	}
 	if net.ParseIP(ip).To4() == nil {
 		return "", fmt.Errorf("container %s has no IPv4 address on network %q", containerID, networkName)

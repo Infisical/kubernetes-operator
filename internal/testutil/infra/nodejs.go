@@ -85,15 +85,21 @@ func startNodeJS(ctx context.Context, networkName string, files []testcontainers
 	}
 
 	req := testcontainers.ContainerRequest{
-		Image:        "infisical/infisical:latest",
-		ExposedPorts: []string{"8080/tcp"},
-		Networks:     []string{networkName},
+		Image: "infisical/infisical:latest",
+		// Always pull so local runs use the same API version as CI instead of a stale cached :latest.
+		AlwaysPullImage: true,
+		ExposedPorts:    []string{"8080/tcp"},
+		Networks:        []string{networkName},
 		NetworkAliases: map[string][]string{
 			networkName: {"backend-nodejs"},
 		},
 		User: user,
 		Env: map[string]string{
-			"NODE_ENV":                       "development",
+			"NODE_ENV": "development",
+			// Listen on IPv6 too. On a dual-stack network such as Kind's, Docker on Linux
+			// forwards the published port's [::1] binding to the container's IPv6 address,
+			// so localhost requests are reset when the API only listens on IPv4.
+			"HOST":                           "::",
 			"DB_CONNECTION_URI":              fmt.Sprintf("postgres://%s:%s@db:5432/%s?sslmode=disable", pgUser, pgPassword, pgDB),
 			"REDIS_URL":                      "redis://redis:6379",
 			"ENCRYPTION_KEY":                 EncryptionKey,

@@ -25,11 +25,13 @@ func TestE2E(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	testInfra = infra.New().WithNodeJSApi().MustStart()
+	testInfra = infra.New().WithNodeJSApi().WithNetwork(operator.KindNetwork).MustStart()
 
 	var err error
 	testManager, err = operator.Install(operator.InstallOpts{
 		HostAPIURL:               testInfra.NodeJS().URL(),
+		APIContainerID:           testInfra.NodeJS().ContainerID(),
+		APIContainerPort:         "8080",
 		DefaultConnection:        true,
 		DefaultConnectionAddress: testInfra.NodeJS().URL() + "/api",
 	})

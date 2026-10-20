@@ -113,13 +113,18 @@ setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
 	esac
 
 E2E_IMG ?= infisical/kubernetes-operator:e2e-test
+# Dedicated kubeconfig so the e2e suite never touches the current kubectl context.
+E2E_KUBECONFIG ?= $(LOCALBIN)/e2e-kubeconfig
 
 .PHONY: test-e2e
 test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
 	$(CONTAINER_TOOL) build -t $(E2E_IMG) .
 	$(KIND) load docker-image $(E2E_IMG) --name $(KIND_CLUSTER)
-	INTEGRATION_TESTS=true KIND_CLUSTER=$(KIND_CLUSTER) go run github.com/onsi/ginkgo/v2/ginkgo -v --timeout 20m ./test/e2e/
-	$(MAKE) cleanup-test-e2e
+	$(KIND) get kubeconfig --name $(KIND_CLUSTER) > $(E2E_KUBECONFIG)
+	status=0; \
+	KUBECONFIG=$(E2E_KUBECONFIG) INTEGRATION_TESTS=true KIND_CLUSTER=$(KIND_CLUSTER) go run github.com/onsi/ginkgo/v2/ginkgo -v --timeout 20m ./test/e2e/ || status=$$?; \
+	$(MAKE) cleanup-test-e2e; \
+	exit $$status
 
 .PHONY: cleanup-test-e2e
 cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests

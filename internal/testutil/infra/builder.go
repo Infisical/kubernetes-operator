@@ -19,6 +19,7 @@ type Builder struct {
 	wantNodeJS   bool
 	nodeJSFiles  []testcontainers.ContainerFile
 	eeFeatures   []string
+	networkName  string
 }
 
 func New() *Builder { return &Builder{} }
@@ -38,6 +39,10 @@ func (b *Builder) WithNodeJSFile(file testcontainers.ContainerFile) *Builder {
 	b.nodeJSFiles = append(b.nodeJSFiles, file)
 	return b
 }
+
+// WithNetwork starts the containers on an existing Docker network instead of a
+// dedicated one. The network is left in place when the stack stops.
+func (b *Builder) WithNetwork(name string) *Builder { b.networkName = name; return b }
 
 func (b *Builder) WithEEFeatures(features ...string) *Builder {
 	b.eeFeatures = append(b.eeFeatures, features...)
@@ -61,12 +66,16 @@ func (b *Builder) buildNodeJSCmd() []string {
 func (b *Builder) MustStart() *Stack {
 	ctx := context.Background()
 
-	net, err := network.New(ctx)
-	if err != nil {
-		log.Fatalf("infra: create network: %v", err)
+	stack := &Stack{}
+	networkName := b.networkName
+	if networkName == "" {
+		net, err := network.New(ctx)
+		if err != nil {
+			log.Fatalf("infra: create network: %v", err)
+		}
+		stack.network = net
+		networkName = net.Name
 	}
-
-	stack := &Stack{network: net}
 
 	var wg sync.WaitGroup
 	var pgErr, redisErr error
@@ -75,7 +84,7 @@ func (b *Builder) MustStart() *Stack {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			stack.postgres, pgErr = startPostgres(ctx, net.Name)
+			stack.postgres, pgErr = startPostgres(ctx, networkName)
 		}()
 	}
 
@@ -83,7 +92,7 @@ func (b *Builder) MustStart() *Stack {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			stack.redis, redisErr = startRedis(ctx, net.Name)
+			stack.redis, redisErr = startRedis(ctx, networkName)
 		}()
 	}
 
@@ -97,7 +106,8 @@ func (b *Builder) MustStart() *Stack {
 	}
 
 	if b.wantNodeJS {
-		stack.nodejs, err = startNodeJS(ctx, net.Name, b.nodeJSFiles, b.buildNodeJSCmd())
+		var err error
+		stack.nodejs, err = startNodeJS(ctx, networkName, b.nodeJSFiles, b.buildNodeJSCmd())
 		if err != nil {
 			log.Fatalf("infra: %v", err)
 		}

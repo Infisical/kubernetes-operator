@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -634,11 +635,9 @@ func (r *InfisicalStaticSecretReconciler) PropagateSecretToWorkloads(ctx context
 }
 
 type workloadRef struct {
-	kind                string
-	name                string
-	annotations         map[string]string
-	templateAnnotations map[string]string
-	obj                 client.Object
+	kind string
+	name string
+	obj  client.Object
 }
 
 func (r *InfisicalStaticSecretReconciler) listWorkloadsConsumingTarget(ctx context.Context, target v1beta1.SecretTarget) ([]workloadRef, error) {
@@ -656,16 +655,7 @@ func (r *InfisicalStaticSecretReconciler) listWorkloadsConsumingTarget(ctx conte
 
 	for _, deployment := range deployments.Items {
 		if deployment.Annotations[AutoReloadAnnotation] == "true" && isConsuming(deployment.Spec.Template.Spec, target.Name) {
-			if deployment.Spec.Template.Annotations == nil {
-				deployment.Spec.Template.Annotations = make(map[string]string)
-			}
-			workloads = append(workloads, workloadRef{
-				kind:                "Deployment",
-				name:                deployment.Name,
-				annotations:         deployment.Annotations,
-				templateAnnotations: deployment.Spec.Template.Annotations,
-				obj:                 &deployment,
-			})
+			workloads = append(workloads, workloadRef{kind: "Deployment", name: deployment.Name, obj: &deployment})
 		}
 	}
 
@@ -676,16 +666,7 @@ func (r *InfisicalStaticSecretReconciler) listWorkloadsConsumingTarget(ctx conte
 
 	for _, daemonSet := range daemonSets.Items {
 		if daemonSet.Annotations[AutoReloadAnnotation] == "true" && isConsuming(daemonSet.Spec.Template.Spec, target.Name) {
-			if daemonSet.Spec.Template.Annotations == nil {
-				daemonSet.Spec.Template.Annotations = make(map[string]string)
-			}
-			workloads = append(workloads, workloadRef{
-				kind:                "DaemonSet",
-				name:                daemonSet.Name,
-				annotations:         daemonSet.Annotations,
-				templateAnnotations: daemonSet.Spec.Template.Annotations,
-				obj:                 &daemonSet,
-			})
+			workloads = append(workloads, workloadRef{kind: "DaemonSet", name: daemonSet.Name, obj: &daemonSet})
 		}
 	}
 
@@ -696,39 +677,63 @@ func (r *InfisicalStaticSecretReconciler) listWorkloadsConsumingTarget(ctx conte
 
 	for _, statefulSet := range statefulSets.Items {
 		if statefulSet.Annotations[AutoReloadAnnotation] == "true" && isConsuming(statefulSet.Spec.Template.Spec, target.Name) {
-			if statefulSet.Spec.Template.Annotations == nil {
-				statefulSet.Spec.Template.Annotations = make(map[string]string)
-			}
-			workloads = append(workloads, workloadRef{
-				kind:                "StatefulSet",
-				name:                statefulSet.Name,
-				annotations:         statefulSet.Annotations,
-				templateAnnotations: statefulSet.Spec.Template.Annotations,
-				obj:                 &statefulSet,
-			})
+			workloads = append(workloads, workloadRef{kind: "StatefulSet", name: statefulSet.Name, obj: &statefulSet})
 		}
 	}
 
 	return workloads, nil
 }
 
-func (r *InfisicalStaticSecretReconciler) updateWorkloadAnnotations(ctx context.Context, w workloadRef, annotationKey, etag string) error {
-	if w.annotations == nil {
-		w.annotations = make(map[string]string)
-	}
-
-	if w.templateAnnotations == nil {
-		w.templateAnnotations = make(map[string]string)
-	}
-
-	if w.annotations[annotationKey] == etag && w.templateAnnotations[annotationKey] == etag {
+func podTemplateMeta(obj client.Object) *metav1.ObjectMeta {
+	switch o := obj.(type) {
+	case *appsv1.Deployment:
+		return &o.Spec.Template.ObjectMeta
+	case *appsv1.DaemonSet:
+		return &o.Spec.Template.ObjectMeta
+	case *appsv1.StatefulSet:
+		return &o.Spec.Template.ObjectMeta
+	default:
 		return nil
 	}
+}
 
-	w.annotations[annotationKey] = etag
-	w.templateAnnotations[annotationKey] = etag
+// updateWorkloadAnnotations retries on conflict because the workload may be modified
+// concurrently (e.g. by another InfisicalStaticSecret targeting it). Returning a conflict
+// error would be lossy: the next reconcile sees an unchanged target secret and never
+// propagates the new etag.
+func (r *InfisicalStaticSecretReconciler) updateWorkloadAnnotations(ctx context.Context, w workloadRef, annotationKey, etag string) error {
+	firstAttempt := true
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if !firstAttempt {
+			if err := r.Client.Get(ctx, client.ObjectKeyFromObject(w.obj), w.obj); err != nil {
+				return err
+			}
+		}
+		firstAttempt = false
 
-	return r.Client.Update(ctx, w.obj)
+		templateMeta := podTemplateMeta(w.obj)
+		if templateMeta == nil {
+			return fmt.Errorf("unsupported workload kind %q", w.kind)
+		}
+
+		annotations := w.obj.GetAnnotations()
+		if annotations[annotationKey] == etag && templateMeta.Annotations[annotationKey] == etag {
+			return nil
+		}
+
+		if annotations == nil {
+			annotations = make(map[string]string)
+		}
+		annotations[annotationKey] = etag
+		w.obj.SetAnnotations(annotations)
+
+		if templateMeta.Annotations == nil {
+			templateMeta.Annotations = make(map[string]string)
+		}
+		templateMeta.Annotations[annotationKey] = etag
+
+		return r.Client.Update(ctx, w.obj)
+	})
 }
 
 func isContainerConsumingSecret(containers []corev1.Container, secretName string) bool {

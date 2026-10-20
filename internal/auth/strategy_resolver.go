@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
@@ -24,6 +25,14 @@ type AuthStrategyResolver struct {
 	cache             *cache.AuthCache
 	logger            logr.Logger
 	isNamespaceScoped bool
+
+	// loginLocks holds one lock per InfisicalAuth so that concurrent reconciles missing
+	// the cache for the same auth trigger a single login. Locks are never removed:
+	// DeleteCacheEntry also runs on spec changes and token invalidation, and dropping a
+	// lock while it is held would let a second login run alongside the first. The map
+	// grows by one small entry per InfisicalAuth.
+	loginLocksMu sync.Mutex
+	loginLocks   map[string]*sync.Mutex
 }
 
 func NewAuthStrategyResolver(client client.Client, cache *cache.AuthCache, logger logr.Logger, isNamespaceScoped bool) *AuthStrategyResolver {
@@ -106,6 +115,16 @@ func (r *AuthStrategyResolver) Authenticate(
 		return v, nil
 	}
 
+	lock := r.loginLock(cacheKey.String())
+	lock.Lock()
+	defer lock.Unlock()
+
+	// Another reconcile may have logged in while we were waiting for the lock.
+	if v, found := r.cache.Get(cacheKey); found {
+		r.logger.Info(fmt.Sprintf("Reusing cached authentication: %v", cacheKey))
+		return v, nil
+	}
+
 	r.logger.Info("Auth not found in cache, running authentication process")
 
 	caCertificate, err := util.ResolveTLSCaCertificate(ctx, r.client, connection.Spec.TLS)
@@ -129,6 +148,22 @@ func (r *AuthStrategyResolver) Authenticate(
 	r.logger.Info(fmt.Sprintf("successful authentication with %q, caching credentials for %v", auth.Spec.Method, ttl))
 
 	return authResult, nil
+}
+
+func (r *AuthStrategyResolver) loginLock(key string) *sync.Mutex {
+	r.loginLocksMu.Lock()
+	defer r.loginLocksMu.Unlock()
+
+	if r.loginLocks == nil {
+		r.loginLocks = make(map[string]*sync.Mutex)
+	}
+
+	lock, ok := r.loginLocks[key]
+	if !ok {
+		lock = &sync.Mutex{}
+		r.loginLocks[key] = lock
+	}
+	return lock
 }
 
 func (r *AuthStrategyResolver) DeleteCacheEntry(auth *v1beta1.InfisicalAuth) {

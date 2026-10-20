@@ -31,7 +31,7 @@ controllerManager:
       readOnlyRootFilesystem: true
     image:
       repository: infisical/kubernetes-operator
-      tag: v0.11.12
+      tag: v0.11.13
     resources:
       limits:
         cpu: 500m
@@ -92,6 +92,47 @@ defaultInfisicalConnection:
       # -- Key in the secret that contains the certificate
       # @type: string
       key: ""
+
+# Configures the default InfisicalAuth CR which will be used by resources
+# if they do not specify an auth reference. The name is 'default' and will
+# always be installed in the same namespace as the operator.
+defaultInfisicalAuth:
+  # -- Toggles the deployment of the default InfisicalAuth CR
+  # @type: boolean
+  enabled: false
+
+  # -- Reference to the InfisicalConnection used by this auth. If omitted, the
+  # default InfisicalConnection is used.
+  infisicalConnectionRef:
+    # @type: string
+    name: ""
+    # -- Defaults to the operator namespace when empty
+    # @type: string
+    namespace: ""
+
+  # -- Authentication method. One of: universal, kubernetes, aws-iam, azure,
+  # gcp-id-token, gcp-iam, ldap. Required when enabled.
+  # @type: string
+  method: ""
+
+  # -- Configuration for the selected method. Only the block matching `method`
+  # needs to be set, and it follows the InfisicalAuth CRD spec. Example:
+  # universal:
+  #   clientIdRef:
+  #     name: infisical-universal-auth
+  #     namespace: infisical-operator-system
+  #     key: clientId
+  #   clientSecretRef:
+  #     name: infisical-universal-auth
+  #     namespace: infisical-operator-system
+  #     key: clientSecret
+  universal: {}
+  kubernetes: {}
+  awsIam: {}
+  azure: {}
+  gcpIdToken: {}
+  gcpIam: {}
+  ldap: {}
 
 metricsService:
   ports:

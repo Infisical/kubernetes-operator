@@ -1,4 +1,5 @@
 {{- if .Values.defaultInfisicalConnection.enabled }}
+{{- include "secrets-operator.validateDefaultNamespace" (dict "ctx" . "value" "defaultInfisicalConnection") }}
 apiVersion: secrets.infisical.com/v1beta1
 kind: InfisicalConnection
 metadata:

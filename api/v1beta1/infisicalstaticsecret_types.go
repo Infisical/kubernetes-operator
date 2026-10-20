@@ -61,8 +61,8 @@ type InfisicalStaticSecret struct {
 }
 
 type InfisicalStaticSecretSpec struct {
-	// +kubebuilder:validation:Required
-	InfisicalAuthRef NamespacedName `json:"infisicalAuthRef"`
+	// +kubebuilder:validation:Optional
+	InfisicalAuthRef NamespacedName `json:"infisicalAuthRef,omitempty"`
 
 	// +kubebuilder:validation:Required
 	SyncOptions *SyncOptions `json:"syncOptions"`

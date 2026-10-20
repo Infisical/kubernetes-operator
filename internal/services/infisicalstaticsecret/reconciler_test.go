@@ -1410,6 +1410,40 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			Expect(updated.Spec.Template.Annotations[annotationKey]).To(Equal(etag))
 		})
 
+		It("retries on conflict when the workload is modified concurrently", func() {
+			const concurrentKey = "secrets.infisical.com/managed-other-secret"
+			dep := newDeployment("web", true, consumesSecret, secretName)
+			s := newScheme()
+			underlying := fake.NewClientBuilder().WithScheme(s).WithObjects(newTargetSecret(), dep).Build()
+
+			updateCalls := 0
+			wrapped := interceptor.NewClient(underlying, interceptor.Funcs{
+				Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+					updateCalls++
+					if updateCalls == 1 {
+						// Simulate another reconcile updating the same workload first.
+						concurrent := &appsv1.Deployment{}
+						Expect(c.Get(ctx, client.ObjectKeyFromObject(obj), concurrent)).To(Succeed())
+						concurrent.Spec.Template.Annotations = map[string]string{concurrentKey: "other-etag"}
+						Expect(c.Update(ctx, concurrent)).To(Succeed())
+					}
+					return c.Update(ctx, obj, opts...)
+				},
+			})
+			reconciler := svc.NewReconcilerForTest(wrapped, s)
+
+			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(affected).To(Equal(1))
+			Expect(updateCalls).To(Equal(2))
+
+			updated := &appsv1.Deployment{}
+			Expect(underlying.Get(ctx, types.NamespacedName{Name: "web", Namespace: namespace}, updated)).To(Succeed())
+			Expect(updated.Annotations[annotationKey]).To(Equal(etag))
+			Expect(updated.Spec.Template.Annotations[annotationKey]).To(Equal(etag))
+			Expect(updated.Spec.Template.Annotations[concurrentKey]).To(Equal("other-etag"))
+		})
+
 		It("reconciles a daemonset that consumes the secret", func() {
 			ds := newDaemonSet("agent", true, consumesSecret, secretName)
 			reconciler := newReconciler(newTargetSecret(), ds)

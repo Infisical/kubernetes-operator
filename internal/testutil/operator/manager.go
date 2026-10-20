@@ -105,7 +105,7 @@ controllerManager:
     args:
     - --metrics-bind-address=:8443
     - --health-probe-bind-address=:8081
-    maxConcurrency: %d
+maxConcurrency: %d
 defaultInfisicalConnection:
   enabled: %t
   address: %q

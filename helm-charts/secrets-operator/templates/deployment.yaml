@@ -28,8 +28,8 @@ spec:
         {{- with .Values.controllerManager.manager.args }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-        {{- if ne (int .Values.controllerManager.manager.maxConcurrency) 1 }}
-        - --max-concurrency={{ .Values.controllerManager.manager.maxConcurrency | int }}
+        {{- if ne (int .Values.maxConcurrency) 1 }}
+        - --max-concurrency={{ .Values.maxConcurrency | int }}
         {{- end }}
         {{- $namespaces := (include "secrets-operator.scopedNamespaces" . | fromJson).list }}
         {{- if and $namespaces .Values.scopedRBAC }}

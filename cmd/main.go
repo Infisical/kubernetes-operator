@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
@@ -55,6 +56,7 @@ import (
 	"github.com/Infisical/infisical/k8-operator/internal/config"
 	"github.com/Infisical/infisical/k8-operator/internal/controller"
 	controllerv1beta1 "github.com/Infisical/infisical/k8-operator/internal/controller/v1beta1"
+	infisicalmetrics "github.com/Infisical/infisical/k8-operator/internal/metrics"
 	"github.com/Infisical/infisical/k8-operator/internal/template"
 	// +kubebuilder:scaffold:imports
 )
@@ -345,6 +347,11 @@ func main() {
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
+
+	if err := infisicalmetrics.Register(ctrlmetrics.Registry, mgr.GetClient()); err != nil {
+		setupLog.Error(err, "unable to register InfisicalStaticSecret metrics")
+		os.Exit(1)
+	}
 
 	if metricsCertWatcher != nil {
 		setupLog.Info("Adding metrics certificate watcher to manager")

@@ -11,6 +11,7 @@ import (
 	"github.com/Infisical/infisical/k8-operator/internal/api"
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
 	"github.com/Infisical/infisical/k8-operator/internal/cache"
+	"github.com/Infisical/infisical/k8-operator/internal/metrics"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
 	templatev1 "github.com/Infisical/infisical/k8-operator/internal/template/v1"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
@@ -85,6 +86,7 @@ func (h *InfisicalStaticSecretHandler) SyncSecrets(ctx context.Context, infisica
 			ImportedSecrets: importedSecrets,
 		}, target)
 		totalAffectedWorkloads += affectedWorkloads
+		metrics.RecordStaticSecretWorkloadRedeploys(infisicalStaticSecret.Namespace, infisicalStaticSecret.Name, affectedWorkloads)
 		if err != nil {
 			setReconcileStatusCondition(infisicalStaticSecret, err)
 			return 0, fmt.Errorf("unable to sync target %q: %w", target.Name, err)

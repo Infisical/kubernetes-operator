@@ -37,6 +37,42 @@ The Infisical Operator is a collection of Kubernetes controllers that streamline
 - Push new secrets from Kubernetes to Infisical (`InfisicalPushSecret`).
 - Manage dynamic secrets and automatically create time-bound leases (`InfisicalDynamicSecret`).
 
+## Metrics
+
+The operator serves Prometheus metrics over HTTPS on port `8443` (set with `--metrics-bind-address`). If you run the Prometheus Operator, set `telemetry.serviceMonitor.enabled=true` in the Helm chart and it creates a `ServiceMonitor` that scrapes the endpoint.
+
+Besides the standard `controller_runtime_*` and `workqueue_*` metrics, the operator exposes the following metrics about `InfisicalStaticSecret` resources:
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `infisical_static_secrets` | gauge | `namespace` | Number of `InfisicalStaticSecret` resources |
+| `infisical_static_secrets_sync_failed` | gauge | `namespace` | Number of `InfisicalStaticSecret` resources whose last reconciliation failed |
+| `infisical_static_secret_sync_status` | gauge | `namespace`, `name`, `status` | `1` for the current status of the last reconciliation (`synced`, `failed`, or `unknown` before the first one), `0` for the others |
+| `infisical_static_secret_refresh_interval_seconds` | gauge | `namespace`, `name` | Configured `refreshInterval` in seconds |
+| `infisical_static_secret_info` | gauge | `namespace`, `name`, `auth_namespace`, `auth_name`, `instant_updates` | Configuration of the resource, always `1` |
+| `infisical_static_secret_workload_redeploys_total` | counter | `namespace`, `name` | Workloads redeployed through auto-reload because a target of the resource changed |
+
+Example queries:
+
+```promql
+# Resources synced from Infisical, over time
+sum(infisical_static_secrets)
+
+# Alert on a resource that has been failing to sync (add "for: 10m" to the rule)
+infisical_static_secret_sync_status{status="failed"} == 1
+
+# Average refresh interval
+avg(infisical_static_secret_refresh_interval_seconds)
+
+# Resources using instant updates
+count(infisical_static_secret_info{instant_updates="true"})
+
+# Auto-reload redeploys in the last 24 hours
+sum(increase(infisical_static_secret_workload_redeploys_total[24h]))
+```
+
+If you run more than one replica, every replica reports the same gauges, so aggregate them with `max` rather than `sum`.
+
 ## Security
 
 Please do not file GitHub issues or post on our public forum for security vulnerabilities, as they are public!

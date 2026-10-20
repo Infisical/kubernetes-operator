@@ -25,7 +25,9 @@ spec:
       {{- end }}
       containers:
       - args:
-        {{- toYaml .Values.controllerManager.manager.args | nindent 8 }}
+        {{- with .Values.controllerManager.manager.args }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
         - --max-concurrency={{ .Values.controllerManager.manager.maxConcurrency | int }}
         {{- $namespaces := (include "secrets-operator.scopedNamespaces" . | fromJson).list }}
         {{- if and $namespaces .Values.scopedRBAC }}

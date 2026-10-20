@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -96,13 +97,13 @@ func Install(opts InstallOpts) (*Manager, error) {
 		connAddress = connURL.String()
 	}
 
-	args := append([]string{
+	// JSON is valid YAML, so the args can be written as a flow sequence on one line.
+	args, err := json.Marshal(append([]string{
 		"--metrics-bind-address=:8443",
 		"--health-probe-bind-address=:8081",
-	}, opts.ExtraArgs...)
-	var argsYAML strings.Builder
-	for _, arg := range args {
-		fmt.Fprintf(&argsYAML, "    - %q\n", arg)
+	}, opts.ExtraArgs...))
+	if err != nil {
+		return nil, fmt.Errorf("marshal args: %w", err)
 	}
 
 	valuesContent := fmt.Sprintf(`hostAPI: %q
@@ -111,11 +112,11 @@ controllerManager:
     image:
       repository: infisical/kubernetes-operator
       tag: e2e-test
-    args:
-%sdefaultInfisicalConnection:
+    args: %s
+defaultInfisicalConnection:
   enabled: %t
   address: %q
-`, inClusterURL, argsYAML.String(), opts.DefaultConnection, connAddress)
+`, inClusterURL, args, opts.DefaultConnection, connAddress)
 
 	if _, err := valuesFile.WriteString(valuesContent); err != nil {
 		return nil, fmt.Errorf("write values file: %w", err)

@@ -84,10 +84,10 @@ func main() {
 	var enableHTTP2 bool
 	var namespaces string
 	var deprecatedScopedNamespaceWarning bool
-	var staticSecretMaxConcurrentReconciles int
+	var maxConcurrency int
 
 	var tlsOpts []func(*tls.Config)
-	flag.IntVar(&staticSecretMaxConcurrentReconciles, "static-secret-max-concurrent-reconciles", 1,
+	flag.IntVar(&maxConcurrency, "max-concurrency", 1,
 		"Maximum number of InfisicalStaticSecret resources reconciled concurrently. Must be at least 1.")
 	flag.StringVar(&namespaces, "namespaces", "", "Comma-separated list of namespaces to watch. If empty, watches all namespaces (cluster-scoped)")
 	flag.BoolVar(&deprecatedScopedNamespaceWarning, "deprecated-scoped-namespace-warning", false, "If true, logs a deprecation warning for the scopedNamespace field")
@@ -122,8 +122,8 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts), zap.WriteTo(config.API_LOG_WRITER)))
 
-	if staticSecretMaxConcurrentReconciles < 1 {
-		setupLog.Error(fmt.Errorf("must be at least 1, got %d", staticSecretMaxConcurrentReconciles), "invalid --static-secret-max-concurrent-reconciles")
+	if maxConcurrency < 1 {
+		setupLog.Error(fmt.Errorf("must be at least 1, got %d", maxConcurrency), "invalid --max-concurrency")
 		os.Exit(1)
 	}
 
@@ -348,7 +348,7 @@ func main() {
 		IsNamespaceScoped:       isNamespaceScoped,
 		AuthResolver:            authStrategyResolver,
 		ProjectIDCache:          projectIDCache,
-		MaxConcurrentReconciles: staticSecretMaxConcurrentReconciles,
+		MaxConcurrentReconciles: maxConcurrency,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InfisicalStaticSecret")
 		os.Exit(1)

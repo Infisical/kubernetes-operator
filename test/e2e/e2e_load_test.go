@@ -56,8 +56,9 @@ var _ = Describe("InfisicalStaticSecret load", Ordered, func() {
 		Expect(k.Create(ctx, credentialSecret)).To(Succeed())
 		DeferCleanup(func() { _ = client.IgnoreNotFound(k.Delete(ctx, credentialSecret)) })
 
-		// All static secrets share this auth (on the Helm-installed default connection),
-		// so the first reconciles race to log in with it.
+		// All static secrets share this auth (on the Helm-installed default connection).
+		// Waiting for it to become ready below caches its login, so the static secrets
+		// reuse it; concurrent logins on a cache miss are covered by the auth unit tests.
 		auth := &secretsv1beta1.InfisicalAuth{
 			ObjectMeta: metav1.ObjectMeta{Name: "e2e-load-auth", Namespace: testNamespace},
 			Spec: secretsv1beta1.InfisicalAuthSpec{

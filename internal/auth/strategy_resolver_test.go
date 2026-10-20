@@ -41,6 +41,18 @@ type blockingAuthStrategy struct {
 	result  *model.AuthenticationResult
 }
 
+// releaseOnCleanup returns a function that unblocks every Authenticate call. It also
+// registers it, followed by wg.Wait, as a cleanup so that a failed assertion never
+// leaves callers blocked.
+func (b *blockingAuthStrategy) releaseOnCleanup(wg *sync.WaitGroup) func() {
+	release := sync.OnceFunc(func() { close(b.release) })
+	DeferCleanup(func() {
+		release()
+		wg.Wait()
+	})
+	return release
+}
+
 func (b *blockingAuthStrategy) Validate(_ context.Context, _ *secretsv1beta1.InfisicalAuth) error {
 	return nil
 }
@@ -143,6 +155,9 @@ var _ = Describe("Cache behavior", func() {
 		var err error
 		authCache, err = cache.NewAuthCache(cache.WithMinTTLThreshold(1 * time.Second))
 		Expect(err).ToNot(HaveOccurred())
+		// DeferCleanup (not AfterEach) so that cleanups registered by specs, which run in
+		// reverse order, release blocked callers before the cache is closed.
+		DeferCleanup(authCache.Cleanup)
 
 		fake = &fakeAuthStrategy{
 			result: &model.AuthenticationResult{
@@ -165,10 +180,6 @@ var _ = Describe("Cache behavior", func() {
 		}
 
 		authCR = newInfisicalAuth(secretsv1beta1.UniversalAuth)
-	})
-
-	AfterEach(func() {
-		authCache.Cleanup()
 	})
 
 	It("should call the provider on the first request and return from cache on the second", func() {
@@ -230,6 +241,7 @@ var _ = Describe("Cache behavior", func() {
 
 		const callers = 10
 		var wg sync.WaitGroup
+		release := blocking.releaseOnCleanup(&wg)
 		errs := make(chan error, callers)
 		for range callers {
 			wg.Add(1)
@@ -244,7 +256,7 @@ var _ = Describe("Cache behavior", func() {
 		Eventually(blocking.calls.Load).Should(Equal(int32(1)))
 		// Give the remaining callers time to reach the resolver while the first one is blocked.
 		time.Sleep(100 * time.Millisecond)
-		close(blocking.release)
+		release()
 		wg.Wait()
 		close(errs)
 
@@ -264,6 +276,7 @@ var _ = Describe("Cache behavior", func() {
 		otherAuthCR.Name = "other-auth"
 
 		var wg sync.WaitGroup
+		release := blocking.releaseOnCleanup(&wg)
 		for _, a := range []*secretsv1beta1.InfisicalAuth{authCR, otherAuthCR} {
 			wg.Add(1)
 			go func() {
@@ -276,7 +289,7 @@ var _ = Describe("Cache behavior", func() {
 
 		// Both logins must be in flight at the same time.
 		Eventually(blocking.calls.Load).Should(Equal(int32(2)))
-		close(blocking.release)
+		release()
 		wg.Wait()
 	})
 })

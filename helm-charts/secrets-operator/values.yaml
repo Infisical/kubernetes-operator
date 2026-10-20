@@ -23,6 +23,8 @@ controllerManager:
     - --metrics-bind-address=:8443
     - --leader-elect
     - --health-probe-bind-address=:8081
+    # -- Maximum number of InfisicalStaticSecret resources reconciled concurrently. Must be at least 1.
+    maxConcurrency: 1
     containerSecurityContext:
       allowPrivilegeEscalation: false
       capabilities:

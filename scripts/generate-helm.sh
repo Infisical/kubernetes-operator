@@ -369,6 +369,7 @@ if [ -f "${HELM_DIR}/templates/deployment.yaml" ]; then
       # Add our custom args section with multi-namespace conditional logic
       echo "      - args:" >> "${HELM_DIR}/templates/deployment.yaml.new"
       echo "        {{- toYaml .Values.controllerManager.manager.args | nindent 8 }}" >> "${HELM_DIR}/templates/deployment.yaml.new"
+      echo '        - --max-concurrency={{ .Values.controllerManager.manager.maxConcurrency | int }}' >> "${HELM_DIR}/templates/deployment.yaml.new"
       echo '        {{- $namespaces := (include "secrets-operator.scopedNamespaces" . | fromJson).list }}' >> "${HELM_DIR}/templates/deployment.yaml.new"
       echo '        {{- if and $namespaces .Values.scopedRBAC }}' >> "${HELM_DIR}/templates/deployment.yaml.new"
       echo '        - --namespaces={{ join "," $namespaces }}' >> "${HELM_DIR}/templates/deployment.yaml.new"

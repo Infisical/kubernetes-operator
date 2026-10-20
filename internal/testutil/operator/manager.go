@@ -1,7 +1,6 @@
 package operator
 
 import (
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -55,8 +54,8 @@ type InstallOpts struct {
 	DefaultConnection        bool   // If true, install a default InfisicalConnection in the operator namespace
 	DefaultConnectionAddress string // Address for the default InfisicalConnection. The host is replaced with the in-cluster API address; the path is preserved. If empty, defaults to the in-cluster API URL.
 
-	// ExtraArgs are extra command-line flags passed to the operator.
-	ExtraArgs []string
+	// MaxConcurrency sets the chart value of the same name. Defaults to 1.
+	MaxConcurrency int
 }
 
 func Install(opts InstallOpts) (*Manager, error) {
@@ -97,26 +96,20 @@ func Install(opts InstallOpts) (*Manager, error) {
 		connAddress = connURL.String()
 	}
 
-	// JSON is valid YAML, so the args can be written as a flow sequence on one line.
-	args, err := json.Marshal(append([]string{
-		"--metrics-bind-address=:8443",
-		"--health-probe-bind-address=:8081",
-	}, opts.ExtraArgs...))
-	if err != nil {
-		return nil, fmt.Errorf("marshal args: %w", err)
-	}
-
 	valuesContent := fmt.Sprintf(`hostAPI: %q
 controllerManager:
   manager:
     image:
       repository: infisical/kubernetes-operator
       tag: e2e-test
-    args: %s
+    args:
+    - --metrics-bind-address=:8443
+    - --health-probe-bind-address=:8081
+    maxConcurrency: %d
 defaultInfisicalConnection:
   enabled: %t
   address: %q
-`, inClusterURL, args, opts.DefaultConnection, connAddress)
+`, inClusterURL, max(opts.MaxConcurrency, 1), opts.DefaultConnection, connAddress)
 
 	if _, err := valuesFile.WriteString(valuesContent); err != nil {
 		return nil, fmt.Errorf("write values file: %w", err)

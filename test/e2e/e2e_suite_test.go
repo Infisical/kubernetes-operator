@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"fmt"
 	"os"
 	"testing"
 
@@ -40,9 +39,7 @@ var _ = BeforeSuite(func() {
 		APIContainerPort:         "8080",
 		DefaultConnection:        true,
 		DefaultConnectionAddress: testInfra.NodeJS().URL() + "/api",
-		ExtraArgs: []string{
-			fmt.Sprintf("--static-secret-max-concurrent-reconciles=%d", staticSecretWorkers),
-		},
+		MaxConcurrency:           staticSecretWorkers,
 	})
 	Expect(err).NotTo(HaveOccurred())
 })

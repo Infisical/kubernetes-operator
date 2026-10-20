@@ -45,8 +45,13 @@ func setAuthMethodCondition(infisicalStaticSecret *v1beta1.InfisicalStaticSecret
 	})
 }
 
+// setReconcileStatusCondition records the outcome of a reconciliation on status.error, the LastReconcileStatus
+// condition and status.observedGeneration. A nil error marks the resource as healthy.
 func setReconcileStatusCondition(infisicalStaticSecret *v1beta1.InfisicalStaticSecret, errorToConditionOn error) {
 	initConditions(infisicalStaticSecret)
+	infisicalStaticSecret.Status.ObservedGeneration = infisicalStaticSecret.Generation
+	infisicalStaticSecret.Status.Error = errorToConditionOn != nil
+
 	if errorToConditionOn == nil {
 		meta.SetStatusCondition(&infisicalStaticSecret.Status.Conditions, metav1.Condition{
 			Type:               ConditionLastReconcileStatus,

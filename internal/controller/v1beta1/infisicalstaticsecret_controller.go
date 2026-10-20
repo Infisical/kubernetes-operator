@@ -16,6 +16,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -77,6 +78,9 @@ type InfisicalStaticSecretReconciler struct {
 	AuthResolver      *auth.AuthStrategyResolver
 	ProjectIDCache    *cache.ResourceCache[string]
 	SourceCh          chan event.TypedGenericEvent[client.Object]
+	// MaxConcurrentReconciles is the number of InfisicalStaticSecrets reconciled in parallel.
+	// The workqueue guarantees a single resource is never reconciled by two workers at once.
+	MaxConcurrentReconciles int
 }
 
 func (r *InfisicalStaticSecretReconciler) GetLogger(req ctrl.Request) logr.Logger {
@@ -170,6 +174,7 @@ func (r *InfisicalStaticSecretReconciler) SetupWithManager(mgr ctrl.Manager) err
 	r.SourceCh = make(chan event.TypedGenericEvent[client.Object])
 
 	return ctrl.NewControllerManagedBy(mgr).
+		WithOptions(controller.Options{MaxConcurrentReconciles: r.MaxConcurrentReconciles}).
 		WatchesRawSource(
 			source.Channel(r.SourceCh, &util.EnqueueDelayedEventHandler{Delay: time.Second * 10}),
 		).

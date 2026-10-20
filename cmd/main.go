@@ -84,8 +84,11 @@ func main() {
 	var enableHTTP2 bool
 	var namespaces string
 	var deprecatedScopedNamespaceWarning bool
+	var staticSecretMaxConcurrentReconciles int
 
 	var tlsOpts []func(*tls.Config)
+	flag.IntVar(&staticSecretMaxConcurrentReconciles, "static-secret-max-concurrent-reconciles", 1,
+		"Maximum number of InfisicalStaticSecret resources reconciled concurrently. Must be at least 1.")
 	flag.StringVar(&namespaces, "namespaces", "", "Comma-separated list of namespaces to watch. If empty, watches all namespaces (cluster-scoped)")
 	flag.BoolVar(&deprecatedScopedNamespaceWarning, "deprecated-scoped-namespace-warning", false, "If true, logs a deprecation warning for the scopedNamespace field")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
@@ -118,6 +121,11 @@ func main() {
 	config.API_LOG_WRITER = logWriter.Writer()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts), zap.WriteTo(config.API_LOG_WRITER)))
+
+	if staticSecretMaxConcurrentReconciles < 1 {
+		setupLog.Error(fmt.Errorf("must be at least 1, got %d", staticSecretMaxConcurrentReconciles), "invalid --static-secret-max-concurrent-reconciles")
+		os.Exit(1)
+	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -334,12 +342,13 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&controllerv1beta1.InfisicalStaticSecretReconciler{
-		Client:            mgr.GetClient(),
-		Scheme:            mgr.GetScheme(),
-		BaseLogger:        ctrl.Log,
-		IsNamespaceScoped: isNamespaceScoped,
-		AuthResolver:      authStrategyResolver,
-		ProjectIDCache:    projectIDCache,
+		Client:                  mgr.GetClient(),
+		Scheme:                  mgr.GetScheme(),
+		BaseLogger:              ctrl.Log,
+		IsNamespaceScoped:       isNamespaceScoped,
+		AuthResolver:            authStrategyResolver,
+		ProjectIDCache:          projectIDCache,
+		MaxConcurrentReconciles: staticSecretMaxConcurrentReconciles,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "InfisicalStaticSecret")
 		os.Exit(1)

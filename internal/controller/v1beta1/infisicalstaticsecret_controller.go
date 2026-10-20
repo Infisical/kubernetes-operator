@@ -92,9 +92,9 @@ func (r *InfisicalStaticSecretReconciler) GetLogger(req ctrl.Request) logr.Logge
 // +kubebuilder:rbac:groups=secrets.infisical.com,resources=infisicalstaticsecrets/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;delete
-// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=list;watch;get;update
-// +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=list;watch;get;update
-// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=list;watch;get;update
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=list;watch;get;update;patch
+// +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=list;watch;get;update;patch
+// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=list;watch;get;update;patch
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list
 // +kubebuilder:rbac:groups="authentication.k8s.io",resources=tokenreviews,verbs=create

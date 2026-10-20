@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -697,43 +696,37 @@ func podTemplateMeta(obj client.Object) *metav1.ObjectMeta {
 	}
 }
 
-// updateWorkloadAnnotations retries on conflict because the workload may be modified
-// concurrently (e.g. by another InfisicalStaticSecret targeting it). Returning a conflict
-// error would be lossy: the next reconcile sees an unchanged target secret and never
-// propagates the new etag.
+// updateWorkloadAnnotations patches only the etag annotations. A merge patch carries no
+// resourceVersion, so it never conflicts when the workload is modified concurrently (e.g. by
+// other InfisicalStaticSecrets targeting it), and annotations written by others are kept.
+// An Update would conflict, and retries re-read the workload from the informer cache, which can
+// stay stale until the retries run out. The next reconcile then sees an unchanged target secret
+// and never propagates the new etag.
 func (r *InfisicalStaticSecretReconciler) updateWorkloadAnnotations(ctx context.Context, w workloadRef, annotationKey, etag string) error {
-	firstAttempt := true
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		if !firstAttempt {
-			if err := r.Client.Get(ctx, client.ObjectKeyFromObject(w.obj), w.obj); err != nil {
-				return err
-			}
-		}
-		firstAttempt = false
+	templateMeta := podTemplateMeta(w.obj)
+	if templateMeta == nil {
+		return fmt.Errorf("unsupported workload kind %q", w.kind)
+	}
 
-		templateMeta := podTemplateMeta(w.obj)
-		if templateMeta == nil {
-			return fmt.Errorf("unsupported workload kind %q", w.kind)
-		}
+	annotations := w.obj.GetAnnotations()
+	if annotations[annotationKey] == etag && templateMeta.Annotations[annotationKey] == etag {
+		return nil
+	}
 
-		annotations := w.obj.GetAnnotations()
-		if annotations[annotationKey] == etag && templateMeta.Annotations[annotationKey] == etag {
-			return nil
-		}
+	patch := client.MergeFrom(w.obj.DeepCopyObject().(client.Object))
 
-		if annotations == nil {
-			annotations = make(map[string]string)
-		}
-		annotations[annotationKey] = etag
-		w.obj.SetAnnotations(annotations)
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+	annotations[annotationKey] = etag
+	w.obj.SetAnnotations(annotations)
 
-		if templateMeta.Annotations == nil {
-			templateMeta.Annotations = make(map[string]string)
-		}
-		templateMeta.Annotations[annotationKey] = etag
+	if templateMeta.Annotations == nil {
+		templateMeta.Annotations = make(map[string]string)
+	}
+	templateMeta.Annotations[annotationKey] = etag
 
-		return r.Client.Update(ctx, w.obj)
-	})
+	return r.Client.Patch(ctx, w.obj, patch)
 }
 
 func isContainerConsumingSecret(containers []corev1.Container, secretName string) bool {

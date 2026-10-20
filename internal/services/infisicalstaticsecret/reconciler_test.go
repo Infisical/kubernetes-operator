@@ -1410,24 +1410,46 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			Expect(updated.Spec.Template.Annotations[annotationKey]).To(Equal(etag))
 		})
 
-		It("retries on conflict when the workload is modified concurrently", func() {
+		It("propagates when the workload is modified concurrently and the cache is stale", func() {
 			const concurrentKey = "secrets.infisical.com/managed-other-secret"
 			dep := newDeployment("web", true, consumesSecret, secretName)
 			s := newScheme()
 			underlying := fake.NewClientBuilder().WithScheme(s).WithObjects(newTargetSecret(), dep).Build()
 
-			updateCalls := 0
+			// What the informer cache holds: the workload as it was before the concurrent write.
+			stale := &appsv1.Deployment{}
+			Expect(underlying.Get(ctx, client.ObjectKeyFromObject(dep), stale)).To(Succeed())
+
+			concurrentWrite := func(ctx context.Context, c client.WithWatch) {
+				// Another reconcile updates the same workload first.
+				current := &appsv1.Deployment{}
+				Expect(c.Get(ctx, client.ObjectKeyFromObject(dep), current)).To(Succeed())
+				current.Spec.Template.Annotations = map[string]string{concurrentKey: "other-etag"}
+				Expect(c.Update(ctx, current)).To(Succeed())
+			}
+
+			wrote := false
 			wrapped := interceptor.NewClient(underlying, interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if d, ok := obj.(*appsv1.Deployment); ok && key == client.ObjectKeyFromObject(dep) {
+						stale.DeepCopyInto(d)
+						return nil
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
 				Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
-					updateCalls++
-					if updateCalls == 1 {
-						// Simulate another reconcile updating the same workload first.
-						concurrent := &appsv1.Deployment{}
-						Expect(c.Get(ctx, client.ObjectKeyFromObject(obj), concurrent)).To(Succeed())
-						concurrent.Spec.Template.Annotations = map[string]string{concurrentKey: "other-etag"}
-						Expect(c.Update(ctx, concurrent)).To(Succeed())
+					if !wrote {
+						wrote = true
+						concurrentWrite(ctx, c)
 					}
 					return c.Update(ctx, obj, opts...)
+				},
+				Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+					if !wrote {
+						wrote = true
+						concurrentWrite(ctx, c)
+					}
+					return c.Patch(ctx, obj, patch, opts...)
 				},
 			})
 			reconciler := svc.NewReconcilerForTest(wrapped, s)
@@ -1435,7 +1457,6 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
-			Expect(updateCalls).To(Equal(2))
 
 			updated := &appsv1.Deployment{}
 			Expect(underlying.Get(ctx, types.NamespacedName{Name: "web", Namespace: namespace}, updated)).To(Succeed())

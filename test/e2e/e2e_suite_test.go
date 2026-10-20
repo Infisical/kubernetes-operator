@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
@@ -10,6 +11,11 @@ import (
 	"github.com/Infisical/infisical/k8-operator/internal/testutil/infra"
 	"github.com/Infisical/infisical/k8-operator/internal/testutil/operator"
 )
+
+// staticSecretWorkers is the number of InfisicalStaticSecret workers the operator runs with
+// during e2e tests. It is above the default of 1 so the whole suite exercises concurrent
+// reconciliation.
+const staticSecretWorkers = 2
 
 var (
 	testInfra   *infra.Stack
@@ -34,6 +40,9 @@ var _ = BeforeSuite(func() {
 		APIContainerPort:         "8080",
 		DefaultConnection:        true,
 		DefaultConnectionAddress: testInfra.NodeJS().URL() + "/api",
+		ExtraArgs: []string{
+			fmt.Sprintf("--static-secret-max-concurrent-reconciles=%d", staticSecretWorkers),
+		},
 	})
 	Expect(err).NotTo(HaveOccurred())
 })

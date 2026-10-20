@@ -53,6 +53,9 @@ type InstallOpts struct {
 	APIContainerPort         string // Port the API listens on inside its container.
 	DefaultConnection        bool   // If true, install a default InfisicalConnection in the operator namespace
 	DefaultConnectionAddress string // Address for the default InfisicalConnection. The host is replaced with the in-cluster API address; the path is preserved. If empty, defaults to the in-cluster API URL.
+
+	// ExtraArgs are extra command-line flags passed to the operator.
+	ExtraArgs []string
 }
 
 func Install(opts InstallOpts) (*Manager, error) {
@@ -93,6 +96,15 @@ func Install(opts InstallOpts) (*Manager, error) {
 		connAddress = connURL.String()
 	}
 
+	args := append([]string{
+		"--metrics-bind-address=:8443",
+		"--health-probe-bind-address=:8081",
+	}, opts.ExtraArgs...)
+	var argsYAML strings.Builder
+	for _, arg := range args {
+		fmt.Fprintf(&argsYAML, "    - %q\n", arg)
+	}
+
 	valuesContent := fmt.Sprintf(`hostAPI: %q
 controllerManager:
   manager:
@@ -100,12 +112,10 @@ controllerManager:
       repository: infisical/kubernetes-operator
       tag: e2e-test
     args:
-    - --metrics-bind-address=:8443
-    - --health-probe-bind-address=:8081
-defaultInfisicalConnection:
+%sdefaultInfisicalConnection:
   enabled: %t
   address: %q
-`, inClusterURL, opts.DefaultConnection, connAddress)
+`, inClusterURL, argsYAML.String(), opts.DefaultConnection, connAddress)
 
 	if _, err := valuesFile.WriteString(valuesContent); err != nil {
 		return nil, fmt.Errorf("write values file: %w", err)

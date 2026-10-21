@@ -304,5 +304,7 @@ func (h *InfisicalStaticSecretHandler) syncTargetSecrets(ctx context.Context, ow
 		return affectedWorkloads, nil
 	}
 
+	// Creates the counter at zero, so rate queries see the first redeploy after an operator restart.
+	metrics.RecordStaticSecretWorkloadRedeploys(owner.Namespace, owner.Name, 0)
 	return 0, nil
 }

@@ -614,37 +614,47 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeConfigMap(ctx context.Context,
 	return changed, newEtag, nil
 }
 
-func (r *InfisicalStaticSecretReconciler) PropagateSecretToWorkloads(ctx context.Context, target v1beta1.SecretTarget, etag string) (int, error) {
+// PropagateSecretToWorkloads returns how many workloads consume the target, followed by how many
+// of them were updated and so redeployed. Workloads already at the etag or failing to update are
+// not redeployed.
+func (r *InfisicalStaticSecretReconciler) PropagateSecretToWorkloads(ctx context.Context, target v1beta1.SecretTarget, etag string) (int, int, error) {
 	annotationKey := util.ComputeManagedSecretAnnotation(target.Name)
 
 	workloads, err := r.listWorkloadsConsumingTarget(ctx, target)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	// Prevents one workload from stopping our operator from updating all others
 	var errs []error
+	redeployed := 0
 	for _, workload := range workloads {
-		if err := r.updateWorkloadAnnotations(ctx, workload, annotationKey, etag); err != nil {
+		updated, err := r.updateWorkloadAnnotations(ctx, workload, annotationKey, etag)
+		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to reconcile workload. Kind: %q, Name: %q", workload.kind, workload.name))
+		} else if updated {
+			redeployed++
 		}
 	}
 
-	return len(workloads), errors.Join(errs...)
+	return len(workloads), redeployed, errors.Join(errs...)
 }
 
 // CountAutoReloadWorkloads returns how many workloads opted into auto-reload consume the targets.
+// A workload consuming several targets is counted once.
 func (r *InfisicalStaticSecretReconciler) CountAutoReloadWorkloads(ctx context.Context, targets []v1beta1.SecretTarget) (int, error) {
-	count := 0
+	workloads := make(map[string]bool)
 	for _, target := range targets {
-		workloads, err := r.listWorkloadsConsumingTarget(ctx, target)
+		consuming, err := r.listWorkloadsConsumingTarget(ctx, target)
 		if err != nil {
 			return 0, err
 		}
-		count += len(workloads)
+		for _, workload := range consuming {
+			workloads[workload.kind+"/"+target.Namespace+"/"+workload.name] = true
+		}
 	}
 
-	return count, nil
+	return len(workloads), nil
 }
 
 type workloadRef struct {
@@ -726,7 +736,8 @@ func (r *InfisicalStaticSecretReconciler) listWorkloadsConsumingTarget(ctx conte
 	return workloads, nil
 }
 
-func (r *InfisicalStaticSecretReconciler) updateWorkloadAnnotations(ctx context.Context, w workloadRef, annotationKey, etag string) error {
+// updateWorkloadAnnotations returns whether the workload was updated, which redeploys it.
+func (r *InfisicalStaticSecretReconciler) updateWorkloadAnnotations(ctx context.Context, w workloadRef, annotationKey, etag string) (bool, error) {
 	if w.annotations == nil {
 		w.annotations = make(map[string]string)
 	}
@@ -736,13 +747,17 @@ func (r *InfisicalStaticSecretReconciler) updateWorkloadAnnotations(ctx context.
 	}
 
 	if w.annotations[annotationKey] == etag && w.templateAnnotations[annotationKey] == etag {
-		return nil
+		return false, nil
 	}
 
 	w.annotations[annotationKey] = etag
 	w.templateAnnotations[annotationKey] = etag
 
-	return r.Client.Update(ctx, w.obj)
+	if err := r.Client.Update(ctx, w.obj); err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 func isContainerConsumingSecret(containers []corev1.Container, secretName string) bool {

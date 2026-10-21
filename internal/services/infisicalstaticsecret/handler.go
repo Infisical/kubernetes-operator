@@ -86,7 +86,6 @@ func (h *InfisicalStaticSecretHandler) SyncSecrets(ctx context.Context, infisica
 			ImportedSecrets: importedSecrets,
 		}, target)
 		totalAffectedWorkloads += affectedWorkloads
-		metrics.RecordStaticSecretWorkloadRedeploys(infisicalStaticSecret.Namespace, infisicalStaticSecret.Name, affectedWorkloads)
 		if err != nil {
 			setReconcileStatusCondition(infisicalStaticSecret, err)
 			return 0, fmt.Errorf("unable to sync target %q: %w", target.Name, err)
@@ -296,7 +295,8 @@ func (h *InfisicalStaticSecretHandler) syncTargetSecrets(ctx context.Context, ow
 	}
 
 	if targetResourceChanged {
-		affectedWorkloads, err := h.reconciler.PropagateSecretToWorkloads(ctx, target, etag)
+		affectedWorkloads, redeployedWorkloads, err := h.reconciler.PropagateSecretToWorkloads(ctx, target, etag)
+		metrics.RecordStaticSecretWorkloadRedeploys(owner.Namespace, owner.Name, redeployedWorkloads)
 		if err != nil {
 			return affectedWorkloads, fmt.Errorf("failed to reconcile dependent resources of target %q: %w", target.Name, err)
 		}

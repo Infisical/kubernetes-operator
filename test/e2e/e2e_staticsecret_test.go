@@ -1,18 +1,14 @@
 package e2e
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	dto "github.com/prometheus/client_model/go"
-	"github.com/prometheus/common/expfmt"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -914,69 +910,100 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 
 		Eventually(func(g Gomega) {
 			var ss secretsv1beta1.InfisicalStaticSecret
-			g.Expect(k.Get(ctx, client.ObjectKeyFromObject(broken), &ss)).To(Succeed())
-			g.Expect(meta.IsStatusConditionFalse(ss.Status.Conditions, secretsv1beta1.ConditionLastReconcileStatus)).To(BeTrue(),
-				"expected %s to fail reconciliation", broken.Name)
+			g.Expect(k.Get(ctx, types.NamespacedName{Name: broken.Name, Namespace: testNamespace}, &ss)).To(Succeed())
+			cond := meta.FindStatusCondition(ss.Status.Conditions, "secrets.infisical.com/LastReconcileStatus")
+			g.Expect(cond).NotTo(BeNil(), "InfisicalStaticSecret has no LastReconcileStatus condition yet")
+			g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 		}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(Succeed())
 
-		healthyLabels := map[string]string{"namespace": testNamespace, "name": healthy.Name}
-		brokenLabels := map[string]string{"namespace": testNamespace, "name": broken.Name}
-		var scraped scrapedMetrics
+		clientset, err := kubernetes.NewForConfig(ctrl.GetConfigOrDie())
+		Expect(err).NotTo(HaveOccurred())
+
+		// scrapeMetrics returns the operator's infisical_* metric lines. It reads /metrics through
+		// the API server's service proxy, which needs no port-forward and accepts the endpoint's
+		// self-signed certificate. Labels are rendered in alphabetical order.
+		scrapeMetrics := func(g Gomega) []string {
+			var services corev1.ServiceList
+			g.Expect(k.List(ctx, &services, client.InNamespace(operatorNamespace))).To(Succeed())
+			metricsService := ""
+			for _, service := range services.Items {
+				if strings.HasSuffix(service.Name, "-controller-manager-metrics-service") {
+					metricsService = service.Name
+				}
+			}
+			g.Expect(metricsService).NotTo(BeEmpty(), "operator metrics service not found")
+
+			raw, err := clientset.CoreV1().RESTClient().Get().
+				Namespace(operatorNamespace).
+				Resource("services").
+				Name("https:" + metricsService + ":https").
+				SubResource("proxy").
+				Suffix("metrics").
+				DoRaw(ctx)
+			g.Expect(err).NotTo(HaveOccurred())
+
+			var lines []string
+			for _, line := range strings.Split(string(raw), "\n") {
+				if strings.HasPrefix(line, "infisical_") {
+					lines = append(lines, line)
+				}
+			}
+			return lines
+		}
+
+		namespaceLabels := fmt.Sprintf(`namespace=%q`, testNamespace)
+		healthyLabels := fmt.Sprintf(`name=%q,namespace=%q`, healthy.Name, testNamespace)
+		brokenLabels := fmt.Sprintf(`name=%q,namespace=%q`, broken.Name, testNamespace)
 
 		By("scraping the operator's /metrics endpoint")
 		Eventually(func(g Gomega) {
-			scraped = scrapeOperatorMetrics(g)
-
-			// Compare the per-namespace gauges with the API server's view rather than
-			// fixed numbers, since resources from earlier specs may still be going away.
+			// Compare the per-namespace counts with the API server's view rather than fixed
+			// numbers, since resources from earlier specs may still be going away.
 			var list secretsv1beta1.InfisicalStaticSecretList
 			g.Expect(k.List(ctx, &list, client.InNamespace(testNamespace))).To(Succeed())
 			failed := 0
 			for _, ss := range list.Items {
-				if meta.IsStatusConditionFalse(ss.Status.Conditions, secretsv1beta1.ConditionLastReconcileStatus) {
+				cond := meta.FindStatusCondition(ss.Status.Conditions, "secrets.infisical.com/LastReconcileStatus")
+				if cond != nil && cond.Status == metav1.ConditionFalse {
 					failed++
 				}
 			}
-			namespaceLabels := map[string]string{"namespace": testNamespace}
-			g.Expect(scraped.value("infisical_static_secrets", namespaceLabels)).To(Equal(float64(len(list.Items))))
-			g.Expect(scraped.value("infisical_static_secrets_sync_failed", namespaceLabels)).To(Equal(float64(failed)))
 
-			g.Expect(scraped.value("infisical_static_secret_sync_status", withLabel(healthyLabels, "status", "synced"))).To(Equal(1.0))
-			g.Expect(scraped.value("infisical_static_secret_sync_status", withLabel(healthyLabels, "status", "failed"))).To(Equal(0.0))
-			g.Expect(scraped.value("infisical_static_secret_sync_status", withLabel(brokenLabels, "status", "failed"))).To(Equal(1.0))
-			g.Expect(scraped.value("infisical_static_secret_refresh_interval_seconds", healthyLabels)).To(Equal(120.0))
-			g.Expect(scraped.value("infisical_static_secret_info", map[string]string{
-				"namespace":       testNamespace,
-				"name":            healthy.Name,
-				"auth_namespace":  authRef.Namespace,
-				"auth_name":       authRef.Name,
-				"instant_updates": "false",
-			})).To(Equal(1.0))
-			g.Expect(scraped.value("infisical_static_secret_workload_redeploys_total", healthyLabels)).To(BeNumerically(">=", 1))
-		}).WithTimeout(60 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
-		scraped.log()
+			lines := scrapeMetrics(g)
+			g.Expect(lines).To(ContainElements(
+				fmt.Sprintf("infisical_static_secrets{%s} %d", namespaceLabels, len(list.Items)),
+				fmt.Sprintf("infisical_static_secrets_sync_failed{%s} %d", namespaceLabels, failed),
+				fmt.Sprintf(`infisical_static_secret_sync_status{%s,status="synced"} 1`, healthyLabels),
+				fmt.Sprintf(`infisical_static_secret_sync_status{%s,status="failed"} 0`, healthyLabels),
+				fmt.Sprintf(`infisical_static_secret_sync_status{%s,status="failed"} 1`, brokenLabels),
+				fmt.Sprintf("infisical_static_secret_refresh_interval_seconds{%s} 120", healthyLabels),
+				fmt.Sprintf(`infisical_static_secret_info{auth_name=%q,auth_namespace=%q,instant_updates="false",%s} 1`,
+					authRef.Name, authRef.Namespace, healthyLabels),
+				fmt.Sprintf("infisical_static_secret_workload_redeploys_total{%s} 1", healthyLabels),
+				fmt.Sprintf("infisical_static_secret_auto_reload_workloads{%s} 1", healthyLabels),
+			))
+			// The auto-reload count is recorded only after a complete sync, which the broken secret never had.
+			g.Expect(lines).NotTo(ContainElement(HavePrefix("infisical_static_secret_auto_reload_workloads{" + brokenLabels + "}")))
+		}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(Succeed())
 
 		By("fixing the broken secret and watching it leave the failed state")
-		Expect(k.Get(ctx, client.ObjectKeyFromObject(broken), broken)).To(Succeed())
+		Expect(k.Get(ctx, types.NamespacedName{Name: broken.Name, Namespace: testNamespace}, broken)).To(Succeed())
 		broken.Spec.Sources[0].EnvironmentSlug = project.EnvSlug
 		broken.Spec.Sources[0].SecretPath = "/metrics"
 		Expect(k.Update(ctx, broken)).To(Succeed())
 		Eventually(func(g Gomega) {
-			scraped = scrapeOperatorMetrics(g)
-			g.Expect(scraped.value("infisical_static_secret_sync_status", withLabel(brokenLabels, "status", "synced"))).To(Equal(1.0))
-			g.Expect(scraped.value("infisical_static_secret_sync_status", withLabel(brokenLabels, "status", "failed"))).To(Equal(0.0))
-		}).WithTimeout(60 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
-		scraped.log()
+			g.Expect(scrapeMetrics(g)).To(ContainElements(
+				fmt.Sprintf(`infisical_static_secret_sync_status{%s,status="synced"} 1`, brokenLabels),
+				fmt.Sprintf(`infisical_static_secret_sync_status{%s,status="failed"} 0`, brokenLabels),
+				fmt.Sprintf("infisical_static_secret_auto_reload_workloads{%s} 0", brokenLabels),
+			))
+		}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(Succeed())
 
 		By("deleting a secret and watching its series disappear")
 		Expect(k.Delete(ctx, healthy)).To(Succeed())
 		Eventually(func(g Gomega) {
-			scraped = scrapeOperatorMetrics(g)
-			g.Expect(scraped.has("infisical_static_secret_info", healthyLabels)).To(BeFalse())
-			g.Expect(scraped.has("infisical_static_secret_sync_status", healthyLabels)).To(BeFalse())
-			g.Expect(scraped.has("infisical_static_secret_workload_redeploys_total", healthyLabels)).To(BeFalse())
-		}).WithTimeout(60 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
-		scraped.log()
+			g.Expect(scrapeMetrics(g)).NotTo(ContainElement(ContainSubstring(healthyLabels)))
+		}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(Succeed())
 	})
 })
 
@@ -1111,109 +1138,3 @@ var _ = Describe("DefaultInfisicalConnection", Ordered, ContinueOnFailure, func(
 		Expect(synced.Data).To(HaveKeyWithValue("DEFAULT_CONN_HOST", []byte("infisical.example.com")))
 	})
 })
-
-// scrapedMetrics is one parsed scrape of the operator's /metrics endpoint.
-type scrapedMetrics struct {
-	raw      []byte
-	families map[string]*dto.MetricFamily
-}
-
-// scrapeOperatorMetrics reads /metrics through the API server's service proxy, which needs
-// no port-forward and does not verify the metrics server's self-signed certificate.
-func scrapeOperatorMetrics(g Gomega) scrapedMetrics {
-	GinkgoHelper()
-	ctx := context.Background()
-
-	var services corev1.ServiceList
-	g.Expect(testManager.Client().List(ctx, &services, client.InNamespace(testManager.Namespace()))).To(Succeed())
-	var metricsService *corev1.Service
-	for i := range services.Items {
-		if strings.HasSuffix(services.Items[i].Name, "-controller-manager-metrics-service") {
-			metricsService = &services.Items[i]
-		}
-	}
-	g.Expect(metricsService).NotTo(BeNil(), "operator metrics service not found in %s", testManager.Namespace())
-
-	clientset, err := kubernetes.NewForConfig(ctrl.GetConfigOrDie())
-	g.Expect(err).NotTo(HaveOccurred())
-	raw, err := clientset.CoreV1().RESTClient().Get().
-		Namespace(metricsService.Namespace).
-		Resource("services").
-		Name("https:" + metricsService.Name + ":https").
-		SubResource("proxy").
-		Suffix("metrics").
-		DoRaw(ctx)
-	g.Expect(err).NotTo(HaveOccurred())
-
-	var parser expfmt.TextParser
-	families, err := parser.TextToMetricFamilies(bytes.NewReader(raw))
-	g.Expect(err).NotTo(HaveOccurred())
-	return scrapedMetrics{raw: raw, families: families}
-}
-
-func (s scrapedMetrics) find(name string, labels map[string]string) *dto.Metric {
-	family, ok := s.families[name]
-	if !ok {
-		return nil
-	}
-	for _, metric := range family.Metric {
-		if labelsMatch(metric.Label, labels) {
-			return metric
-		}
-	}
-	return nil
-}
-
-func (s scrapedMetrics) has(name string, labels map[string]string) bool {
-	return s.find(name, labels) != nil
-}
-
-// value returns the sample for the series, or NaN when there is none so the assertion fails.
-func (s scrapedMetrics) value(name string, labels map[string]string) float64 {
-	metric := s.find(name, labels)
-	switch {
-	case metric == nil:
-		return math.NaN()
-	case metric.Gauge != nil:
-		return metric.Gauge.GetValue()
-	case metric.Counter != nil:
-		return metric.Counter.GetValue()
-	default:
-		return metric.Untyped.GetValue()
-	}
-}
-
-// log writes the operator's own metric lines to the spec output.
-func (s scrapedMetrics) log() {
-	fmt.Fprintln(GinkgoWriter, "--- infisical_* metrics ---")
-	for _, line := range strings.Split(string(s.raw), "\n") {
-		if strings.HasPrefix(line, "infisical_") {
-			fmt.Fprintln(GinkgoWriter, line)
-		}
-	}
-}
-
-func labelsMatch(pairs []*dto.LabelPair, want map[string]string) bool {
-	for key, value := range want {
-		found := false
-		for _, pair := range pairs {
-			if pair.GetName() == key && pair.GetValue() == value {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-	return true
-}
-
-func withLabel(labels map[string]string, key, value string) map[string]string {
-	merged := make(map[string]string, len(labels)+1)
-	for k, v := range labels {
-		merged[k] = v
-	}
-	merged[key] = value
-	return merged
-}

@@ -37,7 +37,6 @@ type Manager struct {
 
 func (m *Manager) Client() client.Client   { return m.client }
 func (m *Manager) InClusterAPIURL() string { return m.inClusterAPIURL }
-func (m *Manager) Namespace() string       { return helmNamespace }
 
 func (m *Manager) Stop() {
 	cmd := exec.Command("helm", "uninstall", helmReleaseName, "--namespace", helmNamespace, "--wait")

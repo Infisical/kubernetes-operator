@@ -633,6 +633,20 @@ func (r *InfisicalStaticSecretReconciler) PropagateSecretToWorkloads(ctx context
 	return len(workloads), errors.Join(errs...)
 }
 
+// CountAutoReloadWorkloads returns how many workloads opted into auto-reload consume the targets.
+func (r *InfisicalStaticSecretReconciler) CountAutoReloadWorkloads(ctx context.Context, targets []v1beta1.SecretTarget) (int, error) {
+	count := 0
+	for _, target := range targets {
+		workloads, err := r.listWorkloadsConsumingTarget(ctx, target)
+		if err != nil {
+			return 0, err
+		}
+		count += len(workloads)
+	}
+
+	return count, nil
+}
+
 type workloadRef struct {
 	kind                string
 	name                string

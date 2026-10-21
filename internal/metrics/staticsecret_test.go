@@ -9,16 +9,37 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/testutil"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/metrics"
 )
+
+// samples returns the values of a metric keyed by its labels, e.g. "name=x,namespace=y".
+func samples(gatherer prometheus.Gatherer, name string) map[string]float64 {
+	families, err := gatherer.Gather()
+	Expect(err).NotTo(HaveOccurred())
+
+	values := map[string]float64{}
+	for _, family := range families {
+		if family.GetName() != name {
+			continue
+		}
+		for _, metric := range family.GetMetric() {
+			var labels []string
+			for _, pair := range metric.GetLabel() {
+				labels = append(labels, pair.GetName()+"="+pair.GetValue())
+			}
+			values[strings.Join(labels, ",")] = metric.GetGauge().GetValue() + metric.GetCounter().GetValue()
+		}
+	}
+	return values
+}
 
 // staticSecret builds a minimal InfisicalStaticSecret. An empty lastReconcile leaves the
 // resource without a LastReconcileStatus condition, as it is before its first reconcile.
@@ -35,7 +56,7 @@ func staticSecret(namespace, name, refreshInterval string, instantUpdates bool, 
 	}
 	if lastReconcile != "" {
 		secret.Status.Conditions = []metav1.Condition{{
-			Type:   v1beta1.ConditionLastReconcileStatus,
+			Type:   "secrets.infisical.com/LastReconcileStatus",
 			Status: lastReconcile,
 			Reason: "Test",
 		}}
@@ -62,43 +83,43 @@ var _ = Describe("StaticSecretCollector", func() {
 			staticSecret("billing", "other", "not-a-duration", false, sharedAuth, metav1.ConditionTrue),
 		).Build()
 
-		expected := `
-# HELP infisical_static_secrets Number of InfisicalStaticSecret resources.
-# TYPE infisical_static_secrets gauge
-infisical_static_secrets{namespace="billing"} 1
-infisical_static_secrets{namespace="payments"} 3
-# HELP infisical_static_secrets_sync_failed Number of InfisicalStaticSecret resources whose last reconciliation failed.
-# TYPE infisical_static_secrets_sync_failed gauge
-infisical_static_secrets_sync_failed{namespace="billing"} 0
-infisical_static_secrets_sync_failed{namespace="payments"} 1
-# HELP infisical_static_secret_sync_status Result of the last reconciliation of an InfisicalStaticSecret: 1 for the current status, 0 for the others.
-# TYPE infisical_static_secret_sync_status gauge
-infisical_static_secret_sync_status{name="synced",namespace="payments",status="synced"} 1
-infisical_static_secret_sync_status{name="synced",namespace="payments",status="failed"} 0
-infisical_static_secret_sync_status{name="synced",namespace="payments",status="unknown"} 0
-infisical_static_secret_sync_status{name="failed",namespace="payments",status="synced"} 0
-infisical_static_secret_sync_status{name="failed",namespace="payments",status="failed"} 1
-infisical_static_secret_sync_status{name="failed",namespace="payments",status="unknown"} 0
-infisical_static_secret_sync_status{name="pending",namespace="payments",status="synced"} 0
-infisical_static_secret_sync_status{name="pending",namespace="payments",status="failed"} 0
-infisical_static_secret_sync_status{name="pending",namespace="payments",status="unknown"} 1
-infisical_static_secret_sync_status{name="other",namespace="billing",status="synced"} 1
-infisical_static_secret_sync_status{name="other",namespace="billing",status="failed"} 0
-infisical_static_secret_sync_status{name="other",namespace="billing",status="unknown"} 0
-# HELP infisical_static_secret_refresh_interval_seconds Configured refreshInterval of an InfisicalStaticSecret in seconds.
-# TYPE infisical_static_secret_refresh_interval_seconds gauge
-infisical_static_secret_refresh_interval_seconds{name="synced",namespace="payments"} 30
-infisical_static_secret_refresh_interval_seconds{name="failed",namespace="payments"} 300
-infisical_static_secret_refresh_interval_seconds{name="pending",namespace="payments"} 3600
-# HELP infisical_static_secret_info Configuration of an InfisicalStaticSecret. The value is always 1.
-# TYPE infisical_static_secret_info gauge
-infisical_static_secret_info{auth_name="shared-auth",auth_namespace="infisical",instant_updates="true",name="synced",namespace="payments"} 1
-infisical_static_secret_info{auth_name="shared-auth",auth_namespace="infisical",instant_updates="false",name="failed",namespace="payments"} 1
-infisical_static_secret_info{auth_name="local-auth",auth_namespace="payments",instant_updates="false",name="pending",namespace="payments"} 1
-infisical_static_secret_info{auth_name="shared-auth",auth_namespace="infisical",instant_updates="false",name="other",namespace="billing"} 1
-`
-		collector := metrics.NewStaticSecretCollector(reader)
-		Expect(testutil.CollectAndCompare(collector, strings.NewReader(expected))).To(Succeed())
+		registry := prometheus.NewRegistry()
+		Expect(registry.Register(metrics.NewStaticSecretCollector(reader))).To(Succeed())
+
+		Expect(samples(registry, "infisical_static_secrets")).To(Equal(map[string]float64{
+			"namespace=billing":  1,
+			"namespace=payments": 3,
+		}))
+		Expect(samples(registry, "infisical_static_secrets_sync_failed")).To(Equal(map[string]float64{
+			"namespace=billing":  0,
+			"namespace=payments": 1,
+		}))
+		Expect(samples(registry, "infisical_static_secret_sync_status")).To(Equal(map[string]float64{
+			"name=synced,namespace=payments,status=synced":   1,
+			"name=synced,namespace=payments,status=failed":   0,
+			"name=synced,namespace=payments,status=unknown":  0,
+			"name=failed,namespace=payments,status=synced":   0,
+			"name=failed,namespace=payments,status=failed":   1,
+			"name=failed,namespace=payments,status=unknown":  0,
+			"name=pending,namespace=payments,status=synced":  0,
+			"name=pending,namespace=payments,status=failed":  0,
+			"name=pending,namespace=payments,status=unknown": 1,
+			"name=other,namespace=billing,status=synced":     1,
+			"name=other,namespace=billing,status=failed":     0,
+			"name=other,namespace=billing,status=unknown":    0,
+		}))
+		// The secret with an invalid refreshInterval has no interval series.
+		Expect(samples(registry, "infisical_static_secret_refresh_interval_seconds")).To(Equal(map[string]float64{
+			"name=synced,namespace=payments":  30,
+			"name=failed,namespace=payments":  300,
+			"name=pending,namespace=payments": 3600,
+		}))
+		Expect(samples(registry, "infisical_static_secret_info")).To(Equal(map[string]float64{
+			"auth_name=shared-auth,auth_namespace=infisical,instant_updates=true,name=synced,namespace=payments":  1,
+			"auth_name=shared-auth,auth_namespace=infisical,instant_updates=false,name=failed,namespace=payments": 1,
+			"auth_name=local-auth,auth_namespace=payments,instant_updates=false,name=pending,namespace=payments":  1,
+			"auth_name=shared-auth,auth_namespace=infisical,instant_updates=false,name=other,namespace=billing":   1,
+		}))
 	})
 
 	It("emits nothing when the resources cannot be listed", func() {
@@ -108,33 +129,32 @@ infisical_static_secret_info{auth_name="shared-auth",auth_namespace="infisical",
 			},
 		}).Build()
 
-		collector := metrics.NewStaticSecretCollector(reader)
-		Expect(testutil.CollectAndCount(collector)).To(Equal(0))
+		registry := prometheus.NewRegistry()
+		Expect(registry.Register(metrics.NewStaticSecretCollector(reader))).To(Succeed())
+
+		families, err := registry.Gather()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(families).To(BeEmpty())
 	})
 })
 
-var _ = Describe("Workload redeploy counter", func() {
-	It("accumulates per secret and is removed when the secret is forgotten", func() {
-		scheme := runtime.NewScheme()
-		Expect(v1beta1.AddToScheme(scheme)).To(Succeed())
-		reader := fake.NewClientBuilder().WithScheme(scheme).Build()
+var _ = Describe("Per-secret sync metrics", func() {
+	const redeploys = "infisical_static_secret_workload_redeploys_total"
+	const autoReloadWorkloads = "infisical_static_secret_auto_reload_workloads"
 
-		registry := prometheus.NewPedanticRegistry()
-		Expect(metrics.Register(registry, reader)).To(Succeed())
-
+	It("are recorded per secret and removed when the secret is forgotten", func() {
+		// The counter accumulates, the gauge keeps the latest value.
 		metrics.RecordStaticSecretWorkloadRedeploys("payments", "db-creds", 0)
 		metrics.RecordStaticSecretWorkloadRedeploys("payments", "db-creds", 2)
 		metrics.RecordStaticSecretWorkloadRedeploys("payments", "db-creds", 1)
+		metrics.RecordStaticSecretAutoReloadWorkloads("payments", "db-creds", 3)
+		metrics.RecordStaticSecretAutoReloadWorkloads("payments", "db-creds", 2)
 
-		const name = "infisical_static_secret_workload_redeploys_total"
-		expected := `
-# HELP infisical_static_secret_workload_redeploys_total Number of workloads redeployed by an InfisicalStaticSecret because one of its targets changed.
-# TYPE infisical_static_secret_workload_redeploys_total counter
-infisical_static_secret_workload_redeploys_total{name="db-creds",namespace="payments"} 3
-`
-		Expect(testutil.GatherAndCompare(registry, strings.NewReader(expected), name)).To(Succeed())
+		Expect(samples(ctrlmetrics.Registry, redeploys)).To(Equal(map[string]float64{"name=db-creds,namespace=payments": 3}))
+		Expect(samples(ctrlmetrics.Registry, autoReloadWorkloads)).To(Equal(map[string]float64{"name=db-creds,namespace=payments": 2}))
 
 		metrics.ForgetStaticSecret("payments", "db-creds")
-		Expect(testutil.GatherAndCount(registry, name)).To(Equal(0))
+		Expect(samples(ctrlmetrics.Registry, redeploys)).To(BeEmpty())
+		Expect(samples(ctrlmetrics.Registry, autoReloadWorkloads)).To(BeEmpty())
 	})
 })

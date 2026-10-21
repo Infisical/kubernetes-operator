@@ -348,7 +348,7 @@ func main() {
 	}
 	// +kubebuilder:scaffold:builder
 
-	if err := infisicalmetrics.Register(ctrlmetrics.Registry, mgr.GetClient()); err != nil {
+	if err := ctrlmetrics.Registry.Register(infisicalmetrics.NewStaticSecretCollector(mgr.GetClient())); err != nil {
 		setupLog.Error(err, "unable to register InfisicalStaticSecret metrics")
 		os.Exit(1)
 	}

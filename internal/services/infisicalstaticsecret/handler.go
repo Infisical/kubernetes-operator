@@ -93,6 +93,14 @@ func (h *InfisicalStaticSecretHandler) SyncSecrets(ctx context.Context, infisica
 		}
 	}
 
+	// The secrets are already synced at this point, so a failed count only affects the metric.
+	autoReloadWorkloads, err := h.reconciler.CountAutoReloadWorkloads(ctx, infisicalStaticSecret.Spec.Targets)
+	if err != nil {
+		h.logger.Error(err, "Unable to count auto-reload workloads for metrics")
+	} else {
+		metrics.RecordStaticSecretAutoReloadWorkloads(infisicalStaticSecret.Namespace, infisicalStaticSecret.Name, autoReloadWorkloads)
+	}
+
 	setAutoRedeployReadyCondition(infisicalStaticSecret, totalAffectedWorkloads)
 	setReconcileStatusCondition(infisicalStaticSecret, nil)
 	setLastSuccessfulReconcileAtCondition(infisicalStaticSecret)

@@ -1662,6 +1662,41 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 		})
 
 	})
+
+	Context("when counting auto-reload workloads", func() {
+		configMapTarget := v1beta1.SecretTarget{
+			Name:      "app-config",
+			Namespace: namespace,
+			Kind:      v1beta1.SecretTargetKindConfigMap,
+		}
+
+		It("counts the opted-in workloads consuming any of the targets", func() {
+			reconciler := newReconciler(
+				newDeployment("web", true, consumesSecret, secretName),
+				newDaemonSet("agent", true, consumesConfigMap, "app-config"),
+				newStatefulSet("db", false, consumesSecret, secretName),
+				newDeployment("unrelated", true, consumesSecret, "other-secret"),
+			)
+
+			count, err := reconciler.CountAutoReloadWorkloads(ctx, []v1beta1.SecretTarget{target, configMapTarget})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(count).To(Equal(2))
+		})
+
+		It("does not redeploy the workloads it counts", func() {
+			dep := newDeployment("web", true, consumesSecret, secretName)
+			reconciler := newReconciler(dep)
+
+			count, err := reconciler.CountAutoReloadWorkloads(ctx, []v1beta1.SecretTarget{target})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(count).To(Equal(1))
+
+			updated := &appsv1.Deployment{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "web", Namespace: namespace}, updated)).To(Succeed())
+			Expect(updated.Annotations).NotTo(HaveKey(annotationKey))
+			Expect(updated.Spec.Template.Annotations).NotTo(HaveKey(annotationKey))
+		})
+	})
 })
 
 // newStaleCacheReconciler builds a reconciler where Get returns NotFound for

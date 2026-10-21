@@ -150,12 +150,6 @@ type InfisicalStaticSecretStatus struct {
 	Conditions []metav1.Condition `json:"conditions"`
 }
 
-// Condition types reported in InfisicalStaticSecretStatus.
-const (
-	// ConditionLastReconcileStatus is True when the last reconciliation succeeded and False when it failed.
-	ConditionLastReconcileStatus = "secrets.infisical.com/LastReconcileStatus"
-)
-
 // InfisicalStaticSecretList contains a list of InfisicalStaticSecret.
 // +kubebuilder:object:root=true
 type InfisicalStaticSecretList struct {

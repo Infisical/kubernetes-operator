@@ -12,7 +12,7 @@ import (
 
 const (
 	ConditionLastSuccessfulReconcileAt = "secrets.infisical.com/LastSuccessfulReconcileAt"
-	ConditionLastReconcileStatus       = v1beta1.ConditionLastReconcileStatus
+	ConditionLastReconcileStatus       = "secrets.infisical.com/LastReconcileStatus"
 	ConditionLastReconcileAuthMethod   = "secrets.infisical.com/LastReconcileAuthMethod"
 	ConditionAutoRedeployReady         = "secrets.infisical.com/LastReconcileAffectedDeployments"
 )

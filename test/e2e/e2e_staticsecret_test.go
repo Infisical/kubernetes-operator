@@ -951,14 +951,13 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 			return lines
 		}
 
-		namespaceLabels := fmt.Sprintf(`namespace=%q`, testNamespace)
 		healthyLabels := fmt.Sprintf(`name=%q,namespace=%q`, healthy.Name, testNamespace)
 		brokenLabels := fmt.Sprintf(`name=%q,namespace=%q`, broken.Name, testNamespace)
 
 		By("scraping the operator's /metrics endpoint")
 		Eventually(func(g Gomega) {
-			// Compare the per-namespace counts with the API server's view rather than fixed
-			// numbers, since resources from earlier specs may still be going away.
+			// Compare with the API server's view rather than fixed numbers, since resources
+			// from earlier specs may still be going away.
 			var list secretsv1beta1.InfisicalStaticSecretList
 			g.Expect(k.List(ctx, &list, client.InNamespace(testNamespace))).To(Succeed())
 			failed := 0
@@ -970,15 +969,22 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 			}
 
 			lines := scrapeMetrics(g)
+			resources, failedResources := 0, 0
+			for _, line := range lines {
+				if strings.HasPrefix(line, "infisical_static_secrets{") && strings.Contains(line, fmt.Sprintf(`namespace=%q`, testNamespace)) {
+					resources++
+					if strings.Contains(line, `status="failed"`) {
+						failedResources++
+					}
+				}
+			}
+			g.Expect(resources).To(Equal(len(list.Items)), "expected one infisical_static_secrets series per resource")
+			g.Expect(failedResources).To(Equal(failed))
+
 			g.Expect(lines).To(ContainElements(
-				fmt.Sprintf("infisical_static_secrets{%s} %d", namespaceLabels, len(list.Items)),
-				fmt.Sprintf("infisical_static_secrets_sync_failed{%s} %d", namespaceLabels, failed),
-				fmt.Sprintf(`infisical_static_secret_sync_status{%s,status="synced"} 1`, healthyLabels),
-				fmt.Sprintf(`infisical_static_secret_sync_status{%s,status="failed"} 0`, healthyLabels),
-				fmt.Sprintf(`infisical_static_secret_sync_status{%s,status="failed"} 1`, brokenLabels),
+				fmt.Sprintf(`infisical_static_secrets{instant_updates="false",%s,status="synced"} 1`, healthyLabels),
+				fmt.Sprintf(`infisical_static_secrets{instant_updates="false",%s,status="failed"} 1`, brokenLabels),
 				fmt.Sprintf("infisical_static_secret_refresh_interval_seconds{%s} 120", healthyLabels),
-				fmt.Sprintf(`infisical_static_secret_info{auth_name=%q,auth_namespace=%q,instant_updates="false",%s} 1`,
-					authRef.Name, authRef.Namespace, healthyLabels),
 				fmt.Sprintf("infisical_static_secret_workload_redeploys_total{%s} 1", healthyLabels),
 				fmt.Sprintf("infisical_static_secret_auto_reload_workloads{%s} 1", healthyLabels),
 			))
@@ -992,11 +998,12 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 		broken.Spec.Sources[0].SecretPath = "/metrics"
 		Expect(k.Update(ctx, broken)).To(Succeed())
 		Eventually(func(g Gomega) {
-			g.Expect(scrapeMetrics(g)).To(ContainElements(
-				fmt.Sprintf(`infisical_static_secret_sync_status{%s,status="synced"} 1`, brokenLabels),
-				fmt.Sprintf(`infisical_static_secret_sync_status{%s,status="failed"} 0`, brokenLabels),
+			lines := scrapeMetrics(g)
+			g.Expect(lines).To(ContainElements(
+				fmt.Sprintf(`infisical_static_secrets{instant_updates="false",%s,status="synced"} 1`, brokenLabels),
 				fmt.Sprintf("infisical_static_secret_auto_reload_workloads{%s} 0", brokenLabels),
 			))
+			g.Expect(lines).NotTo(ContainElement(ContainSubstring(brokenLabels + `,status="failed"`)))
 		}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(Succeed())
 
 		By("deleting a secret and watching its series disappear")

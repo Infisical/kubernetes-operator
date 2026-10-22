@@ -27,8 +27,6 @@ const (
 	collectTimeout = 10 * time.Second
 )
 
-var syncStatuses = []string{syncStatusSynced, syncStatusFailed, syncStatusUnknown}
-
 // staticSecretWorkloadRedeploys counts the workloads that auto-reload redeployed
 // because a target of an InfisicalStaticSecret changed.
 var staticSecretWorkloadRedeploys = prometheus.NewCounterVec(
@@ -52,28 +50,13 @@ var staticSecretAutoReloadWorkloads = prometheus.NewGaugeVec(
 var (
 	staticSecretsDesc = prometheus.NewDesc(
 		"infisical_static_secrets",
-		"Number of InfisicalStaticSecret resources.",
-		[]string{"namespace"}, nil,
-	)
-	staticSecretsSyncFailedDesc = prometheus.NewDesc(
-		"infisical_static_secrets_sync_failed",
-		"Number of InfisicalStaticSecret resources whose last reconciliation failed.",
-		[]string{"namespace"}, nil,
-	)
-	staticSecretSyncStatusDesc = prometheus.NewDesc(
-		"infisical_static_secret_sync_status",
-		"Result of the last reconciliation of an InfisicalStaticSecret: 1 for the current status, 0 for the others.",
-		[]string{"namespace", "name", "status"}, nil,
+		"InfisicalStaticSecret resources, one series per resource with the value 1. status is the result of the last reconciliation: synced, failed, or unknown before the first one.",
+		[]string{"namespace", "name", "status", "instant_updates"}, nil,
 	)
 	staticSecretRefreshIntervalDesc = prometheus.NewDesc(
 		"infisical_static_secret_refresh_interval_seconds",
 		"Configured refreshInterval of an InfisicalStaticSecret in seconds.",
 		[]string{"namespace", "name"}, nil,
-	)
-	staticSecretInfoDesc = prometheus.NewDesc(
-		"infisical_static_secret_info",
-		"Configuration of an InfisicalStaticSecret. The value is always 1.",
-		[]string{"namespace", "name", "auth_namespace", "auth_name", "instant_updates"}, nil,
 	)
 )
 
@@ -115,10 +98,7 @@ func NewStaticSecretCollector(reader client.Reader) *StaticSecretCollector {
 
 func (c *StaticSecretCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- staticSecretsDesc
-	ch <- staticSecretsSyncFailedDesc
-	ch <- staticSecretSyncStatusDesc
 	ch <- staticSecretRefreshIntervalDesc
-	ch <- staticSecretInfoDesc
 }
 
 func (c *StaticSecretCollector) Collect(ch chan<- prometheus.Metric) {
@@ -131,25 +111,8 @@ func (c *StaticSecretCollector) Collect(ch chan<- prometheus.Metric) {
 		return
 	}
 
-	total := make(map[string]int)
-	failed := make(map[string]int)
-
 	for i := range list.Items {
 		secret := &list.Items[i]
-		total[secret.Namespace]++
-
-		status := syncStatus(secret)
-		if status == syncStatusFailed {
-			failed[secret.Namespace]++
-		}
-		for _, candidate := range syncStatuses {
-			value := 0.0
-			if candidate == status {
-				value = 1
-			}
-			ch <- prometheus.MustNewConstMetric(staticSecretSyncStatusDesc, prometheus.GaugeValue, value,
-				secret.Namespace, secret.Name, candidate)
-		}
 
 		instantUpdates := false
 		if secret.Spec.SyncOptions != nil {
@@ -160,15 +123,8 @@ func (c *StaticSecretCollector) Collect(ch chan<- prometheus.Metric) {
 			}
 		}
 
-		ch <- prometheus.MustNewConstMetric(staticSecretInfoDesc, prometheus.GaugeValue, 1,
-			secret.Namespace, secret.Name,
-			secret.Spec.InfisicalAuthRef.Namespace, secret.Spec.InfisicalAuthRef.Name,
-			strconv.FormatBool(instantUpdates))
-	}
-
-	for namespace, count := range total {
-		ch <- prometheus.MustNewConstMetric(staticSecretsDesc, prometheus.GaugeValue, float64(count), namespace)
-		ch <- prometheus.MustNewConstMetric(staticSecretsSyncFailedDesc, prometheus.GaugeValue, float64(failed[namespace]), namespace)
+		ch <- prometheus.MustNewConstMetric(staticSecretsDesc, prometheus.GaugeValue, 1,
+			secret.Namespace, secret.Name, syncStatus(secret), strconv.FormatBool(instantUpdates))
 	}
 }
 

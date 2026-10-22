@@ -841,8 +841,7 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "metrics")
 		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/metrics", "METRICS_KEY", "metrics-value", nil)
 
-		// A workload opted into auto-reload, created before the secret so that the
-		// first sync redeploys it and moves the redeploy counter off zero.
+		// A workload opted into auto-reload that consumes the healthy secret's target.
 		replicas := int32(1)
 		consumer := &appsv1.Deployment{
 			ObjectMeta: metav1.ObjectMeta{
@@ -872,9 +871,10 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 		Expect(k.Create(ctx, consumer)).To(Succeed())
 		DeferCleanup(func() { _ = client.IgnoreNotFound(k.Delete(ctx, consumer)) })
 
+		// A short refresh interval so that a change in Infisical is synced within the waits below.
 		healthy := createStaticSecret("e2e-metrics-healthy", secretsv1beta1.InfisicalStaticSecretSpec{
 			InfisicalAuthRef: authRef,
-			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "2m"},
+			SyncOptions:      &secretsv1beta1.SyncOptions{RefreshInterval: "5s"},
 			Sources: []secretsv1beta1.SecretSource{{
 				ProjectId:       project.ID,
 				EnvironmentSlug: project.EnvSlug,
@@ -951,8 +951,24 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 			return lines
 		}
 
+		// seriesValue returns the value of a series in scraped lines, failing g when it is missing.
+		seriesValue := func(g Gomega, lines []string, series string) float64 {
+			for _, line := range lines {
+				if value, found := strings.CutPrefix(line, series+" "); found {
+					var parsed float64
+					_, err := fmt.Sscan(value, &parsed)
+					g.Expect(err).NotTo(HaveOccurred())
+					return parsed
+				}
+			}
+			g.Expect(lines).To(ContainElement(HavePrefix(series + " ")))
+			return 0
+		}
+
 		healthyLabels := fmt.Sprintf(`name=%q,namespace=%q`, healthy.Name, testNamespace)
 		brokenLabels := fmt.Sprintf(`name=%q,namespace=%q`, broken.Name, testNamespace)
+		healthyRedeploys := "infisical_static_secret_workload_redeploys_total{" + healthyLabels + "}"
+		var redeploysBefore float64
 
 		By("scraping the operator's /metrics endpoint")
 		Eventually(func(g Gomega) {
@@ -984,12 +1000,20 @@ var _ = Describe("InfisicalStaticSecret", Ordered, ContinueOnFailure, func() {
 			g.Expect(lines).To(ContainElements(
 				fmt.Sprintf(`infisical_static_secrets{instant_updates="false",%s,status="synced"} 1`, healthyLabels),
 				fmt.Sprintf(`infisical_static_secrets{instant_updates="false",%s,status="failed"} 1`, brokenLabels),
-				fmt.Sprintf("infisical_static_secret_refresh_interval_seconds{%s} 120", healthyLabels),
-				fmt.Sprintf("infisical_static_secret_workload_redeploys_total{%s} 1", healthyLabels),
+				fmt.Sprintf("infisical_static_secret_refresh_interval_seconds{%s} 5", healthyLabels),
+				// The operator's cache may not list the consumer yet at the first sync; a later sync counts it.
 				fmt.Sprintf("infisical_static_secret_auto_reload_workloads{%s} 1", healthyLabels),
 			))
 			// The auto-reload count is recorded only after a complete sync, which the broken secret never had.
 			g.Expect(lines).NotTo(ContainElement(HavePrefix("infisical_static_secret_auto_reload_workloads{" + brokenLabels + "}")))
+			// The first sync may or may not have redeployed the consumer, depending on the cache.
+			redeploysBefore = seriesValue(g, lines, healthyRedeploys)
+		}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(Succeed())
+
+		By("changing the secret in Infisical and watching the redeploy counter go up")
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/metrics", "ROTATED_KEY", "rotated-value", nil)
+		Eventually(func(g Gomega) {
+			g.Expect(seriesValue(g, scrapeMetrics(g), healthyRedeploys)).To(Equal(redeploysBefore + 1))
 		}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(Succeed())
 
 		By("fixing the broken secret and watching it leave the failed state")

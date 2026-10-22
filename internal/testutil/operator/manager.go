@@ -1,7 +1,6 @@
 package operator
 
 import (
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -27,8 +26,11 @@ const (
 	helmReleaseName = "infisical-e2e"
 	helmNamespace   = "infisical-operator-system"
 	testImage       = "infisical/kubernetes-operator:e2e-test"
-	kindNetwork     = "kind"
 )
+
+// KindNetwork is the Docker network Kind nodes run on. The Infisical API must be
+// started on it so pods can reach it by container IP.
+const KindNetwork = "kind"
 
 type Manager struct {
 	client          client.Client
@@ -47,8 +49,10 @@ func (m *Manager) Stop() {
 
 type InstallOpts struct {
 	HostAPIURL               string
+	APIContainerID           string // Container running the Infisical API. It must be on KindNetwork so pods can reach it directly.
+	APIContainerPort         string // Port the API listens on inside its container.
 	DefaultConnection        bool   // If true, install a default InfisicalConnection in the operator namespace
-	DefaultConnectionAddress string // Address for the default InfisicalConnection. The host is replaced with the in-cluster gateway; the path is preserved. If empty, defaults to the in-cluster API URL.
+	DefaultConnectionAddress string // Address for the default InfisicalConnection. The host is replaced with the in-cluster API address; the path is preserved. If empty, defaults to the in-cluster API URL.
 }
 
 func Install(opts InstallOpts) (*Manager, error) {
@@ -58,18 +62,16 @@ func Install(opts InstallOpts) (*Manager, error) {
 	// Remove any pre-existing CRDs so Helm can manage them cleanly.
 	_ = runDir(root, "make", "uninstall", "ignore-not-found=true")
 
-	// The Kind network gateway is the host IP from within Kind pods.
-	// This lets the operator pod reach the testcontainer API via the host's port mapping.
-	gateway, err := kindIPv4Gateway(kindNetwork)
+	// Pods reach the API by its container IP on the Kind network. Going through the
+	// host's port mapping via the network gateway only works when Docker runs natively
+	// on Linux, and attaching a second network to the container breaks its published
+	// port on Linux, so the API is started on the Kind network directly.
+	apiIP, err := containerIPv4(KindNetwork, opts.APIContainerID)
 	if err != nil {
-		return nil, fmt.Errorf("get kind network gateway: %w", err)
+		return nil, fmt.Errorf("get API container IP on kind network: %w", err)
 	}
-
-	hostURL, err := url.Parse(opts.HostAPIURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse host URL: %w", err)
-	}
-	inClusterURL := fmt.Sprintf("http://%s:%s", gateway, hostURL.Port())
+	apiHost := net.JoinHostPort(apiIP, opts.APIContainerPort)
+	inClusterURL := "http://" + apiHost
 
 	if err := waitForAPI(opts.HostAPIURL, 60*time.Second); err != nil {
 		return nil, fmt.Errorf("API not ready: %w", err)
@@ -87,7 +89,7 @@ func Install(opts InstallOpts) (*Manager, error) {
 		if err != nil {
 			return nil, fmt.Errorf("parse default connection address: %w", err)
 		}
-		connURL.Host = net.JoinHostPort(gateway, connURL.Port())
+		connURL.Host = apiHost
 		connAddress = connURL.String()
 	}
 
@@ -233,31 +235,15 @@ func cmdOutput(name string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func kindIPv4Gateway(networkName string) (string, error) {
-	out, err := cmdOutput("docker", "network", "inspect", networkName, "--format", "{{json .IPAM.Config}}")
+// containerIPv4 returns the container's IPv4 address on the Docker network.
+func containerIPv4(networkName, containerID string) (string, error) {
+	format := fmt.Sprintf("{{with index .NetworkSettings.Networks %q}}{{.IPAddress}}{{end}}", networkName)
+	ip, err := cmdOutput("docker", "inspect", containerID, "--format", format)
 	if err != nil {
 		return "", err
 	}
-
-	type ipamConfig struct {
-		Gateway string `json:"Gateway"`
+	if net.ParseIP(ip).To4() == nil {
+		return "", fmt.Errorf("container %s has no IPv4 address on network %q", containerID, networkName)
 	}
-
-	var cfgs []ipamConfig
-	if err := json.Unmarshal([]byte(out), &cfgs); err != nil {
-		return "", fmt.Errorf("parse network IPAM config: %w", err)
-	}
-
-	for _, cfg := range cfgs {
-		if cfg.Gateway == "" {
-			continue
-		}
-		ip := net.ParseIP(cfg.Gateway)
-		if ip == nil || ip.To4() == nil {
-			continue
-		}
-		return cfg.Gateway, nil
-	}
-
-	return "", fmt.Errorf("no IPv4 gateway found in docker network %q IPAM config", networkName)
+	return ip, nil
 }

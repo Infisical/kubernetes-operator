@@ -1,0 +1,29 @@
+{{- if .Values.defaultInfisicalAuth.enabled }}
+{{- include "secrets-operator.validateDefaultNamespace" (dict "ctx" . "value" "defaultInfisicalAuth") }}
+{{- $auth := .Values.defaultInfisicalAuth }}
+apiVersion: secrets.infisical.com/v1beta1
+kind: InfisicalAuth
+metadata:
+  name: default
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "secrets-operator.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "2"
+spec:
+  {{- with $auth.infisicalConnectionRef }}
+  {{- if .name }}
+  infisicalConnectionRef:
+    name: {{ .name | quote }}
+    namespace: {{ .namespace | default $.Release.Namespace | quote }}
+  {{- end }}
+  {{- end }}
+  method: {{ required "defaultInfisicalAuth.method is required when defaultInfisicalAuth.enabled is true" $auth.method | quote }}
+  {{- range $key := list "universal" "kubernetes" "awsIam" "azure" "gcpIdToken" "gcpIam" "ldap" }}
+  {{- with index $auth $key }}
+  {{ $key }}:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
+{{- end }}

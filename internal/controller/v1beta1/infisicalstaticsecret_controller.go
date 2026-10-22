@@ -222,7 +222,9 @@ func (r *InfisicalStaticSecretReconciler) FindStaticSecretsReferencingAuth(ctx c
 
 	var requests []reconcile.Request
 	for _, staticSecret := range staticSecretList.Items {
-		ref := staticSecret.Spec.InfisicalAuthRef
+		// Static secrets without an explicit auth ref resolve to the default
+		// InfisicalAuth, so they are re-reconciled when it changes.
+		ref := infisicalstaticsecret.ResolveAuthRef(staticSecret.Spec.InfisicalAuthRef)
 		if ref.Name == authCRD.Name && ref.Namespace == authCRD.Namespace {
 			requests = append(requests, reconcile.Request{
 				NamespacedName: types.NamespacedName{

@@ -25,9 +25,7 @@ spec:
       {{- end }}
       containers:
       - args:
-        {{- with .Values.controllerManager.manager.args }}
-        {{- toYaml . | nindent 8 }}
-        {{- end }}
+        {{- toYaml .Values.controllerManager.manager.args | nindent 8 }}
         {{- if ne (int .Values.maxConcurrency) 1 }}
         - --max-concurrency={{ .Values.maxConcurrency | int }}
         {{- end }}

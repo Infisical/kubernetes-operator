@@ -11,6 +11,7 @@ import (
 	"github.com/Infisical/infisical/k8-operator/internal/api"
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
 	"github.com/Infisical/infisical/k8-operator/internal/cache"
+	"github.com/Infisical/infisical/k8-operator/internal/metrics"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
 	templatev1 "github.com/Infisical/infisical/k8-operator/internal/template/v1"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
@@ -89,6 +90,14 @@ func (h *InfisicalStaticSecretHandler) SyncSecrets(ctx context.Context, infisica
 			setReconcileStatusCondition(infisicalStaticSecret, err)
 			return 0, fmt.Errorf("unable to sync target %q: %w", target.Name, err)
 		}
+	}
+
+	// The secrets are already synced at this point, so a failed count only affects the metric.
+	autoReloadWorkloads, err := h.reconciler.CountAutoReloadWorkloads(ctx, infisicalStaticSecret.Spec.Targets)
+	if err != nil {
+		h.logger.Error(err, "Unable to count auto-reload workloads for metrics")
+	} else {
+		metrics.RecordStaticSecretAutoReloadWorkloads(infisicalStaticSecret.Namespace, infisicalStaticSecret.Name, autoReloadWorkloads)
 	}
 
 	setAutoRedeployReadyCondition(infisicalStaticSecret, totalAffectedWorkloads)
@@ -286,7 +295,8 @@ func (h *InfisicalStaticSecretHandler) syncTargetSecrets(ctx context.Context, ow
 	}
 
 	if targetResourceChanged {
-		affectedWorkloads, err := h.reconciler.PropagateSecretToWorkloads(ctx, target, etag)
+		affectedWorkloads, redeployedWorkloads, err := h.reconciler.PropagateSecretToWorkloads(ctx, target, etag)
+		metrics.RecordStaticSecretWorkloadRedeploys(owner.Namespace, owner.Name, redeployedWorkloads)
 		if err != nil {
 			return affectedWorkloads, fmt.Errorf("failed to reconcile dependent resources of target %q: %w", target.Name, err)
 		}
@@ -294,5 +304,7 @@ func (h *InfisicalStaticSecretHandler) syncTargetSecrets(ctx context.Context, ow
 		return affectedWorkloads, nil
 	}
 
+	// Creates the counter at zero, so rate queries see the first redeploy after an operator restart.
+	metrics.RecordStaticSecretWorkloadRedeploys(owner.Namespace, owner.Name, 0)
 	return 0, nil
 }

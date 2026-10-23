@@ -13,6 +13,7 @@ require (
 	github.com/lestrrat-go/jwx/v2 v2.1.6
 	github.com/onsi/ginkgo/v2 v2.22.0
 	github.com/onsi/gomega v1.36.1
+	github.com/prometheus/client_golang v1.22.0
 	github.com/sethvargo/go-password v0.3.1
 	github.com/testcontainers/testcontainers-go v0.36.0
 	golang.org/x/crypto v0.52.0
@@ -119,7 +120,6 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
-	github.com/prometheus/client_golang v1.22.0 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.62.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect

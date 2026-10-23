@@ -966,3 +966,114 @@ var _ = Describe("DefaultInfisicalConnection", Ordered, ContinueOnFailure, func(
 		Expect(synced.Data).To(HaveKeyWithValue("DEFAULT_CONN_HOST", []byte("infisical.example.com")))
 	})
 })
+
+var _ = Describe("DefaultInfisicalAuth", Ordered, ContinueOnFailure, func() {
+	var (
+		ctx     context.Context
+		api     *infra.NodeJSService
+		k       client.Client
+		project *infra.ProjectSeed
+	)
+
+	BeforeAll(func() {
+		ctx = context.Background()
+		api = testInfra.NodeJS()
+		k = testManager.Client()
+
+		project = api.CreateProject(GinkgoT(), "default-auth")
+		DeferCleanup(func() { api.DeleteProject(GinkgoT(), project.ID) })
+
+		identity := api.CreateIdentity(GinkgoT(), "default-auth-identity")
+		DeferCleanup(func() { api.DeleteIdentity(GinkgoT(), identity.ID) })
+
+		api.AddIdentityToProject(GinkgoT(), project.ID, identity.ID, infra.Role("admin"))
+		creds := api.SetupUniversalAuth(GinkgoT(), identity.ID)
+
+		credentialSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "e2e-default-auth-credentials",
+				Namespace: operatorNamespace,
+			},
+			StringData: map[string]string{
+				"clientId":     creds.ClientID,
+				"clientSecret": creds.ClientSecret,
+			},
+		}
+		Expect(k.Create(ctx, credentialSecret)).To(Succeed())
+		DeferCleanup(func() { _ = client.IgnoreNotFound(k.Delete(ctx, credentialSecret)) })
+
+		// The "default" InfisicalAuth in the operator namespace is what the Helm
+		// chart installs when defaultInfisicalAuth.enabled is true. It is created
+		// here directly because the credentials only exist after the suite starts.
+		auth := &secretsv1beta1.InfisicalAuth{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "default",
+				Namespace: operatorNamespace,
+			},
+			Spec: secretsv1beta1.InfisicalAuthSpec{
+				Method: secretsv1beta1.UniversalAuth,
+				Universal: &secretsv1beta1.UniversalAuthConfig{
+					ClientIdRef: secretsv1beta1.SecretReference{
+						Name:      credentialSecret.Name,
+						Namespace: credentialSecret.Namespace,
+						Key:       "clientId",
+					},
+					ClientSecretRef: secretsv1beta1.SecretReference{
+						Name:      credentialSecret.Name,
+						Namespace: credentialSecret.Namespace,
+						Key:       "clientSecret",
+					},
+				},
+			},
+		}
+		Expect(k.Create(ctx, auth)).To(Succeed())
+		DeferCleanup(func() { _ = client.IgnoreNotFound(k.Delete(ctx, auth)) })
+
+		By("waiting for the default InfisicalAuth to become ready")
+		Eventually(func(g Gomega) {
+			var a secretsv1beta1.InfisicalAuth
+			g.Expect(k.Get(ctx, types.NamespacedName{Name: auth.Name, Namespace: auth.Namespace}, &a)).To(Succeed())
+			cond := meta.FindStatusCondition(a.Status.Conditions, "secrets.infisical.com/IsReady")
+			g.Expect(cond).NotTo(BeNil(), "InfisicalAuth has no IsReady condition yet")
+			g.Expect(cond.Status).To(Equal(metav1.ConditionTrue),
+				"InfisicalAuth not ready: %s", cond.Message)
+		}).WithTimeout(60 * time.Second).WithPolling(time.Second).Should(Succeed())
+	})
+
+	It("should sync secrets using the default auth", func() {
+		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/", "DEFAULT_AUTH_KEY", "default-auth-value", nil)
+
+		ss := &secretsv1beta1.InfisicalStaticSecret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "e2e-default-auth-sync",
+				Namespace: testNamespace,
+			},
+			Spec: secretsv1beta1.InfisicalStaticSecretSpec{
+				// InfisicalAuthRef intentionally omitted to test the default fallback
+				SyncOptions: &secretsv1beta1.SyncOptions{RefreshInterval: "1h"},
+				Sources: []secretsv1beta1.SecretSource{{
+					ProjectId:       project.ID,
+					EnvironmentSlug: project.EnvSlug,
+					SecretPath:      "/",
+				}},
+				Targets: []secretsv1beta1.SecretTarget{{
+					Name:           "e2e-default-auth-synced",
+					Namespace:      testNamespace,
+					Kind:           secretsv1beta1.SecretTargetKindSecret,
+					SecretType:     corev1.SecretTypeOpaque,
+					CreationPolicy: secretsv1beta1.CreationPolicyOwner,
+				}},
+			},
+		}
+		Expect(k.Create(ctx, ss)).To(Succeed())
+		DeferCleanup(func() { _ = client.IgnoreNotFound(k.Delete(ctx, ss)) })
+
+		var synced corev1.Secret
+		Eventually(func(g Gomega) {
+			g.Expect(k.Get(ctx, types.NamespacedName{Name: "e2e-default-auth-synced", Namespace: testNamespace}, &synced)).To(Succeed())
+			g.Expect(synced.Data).NotTo(BeEmpty())
+		}).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(Succeed())
+
+		Expect(synced.Data).To(HaveKeyWithValue("DEFAULT_AUTH_KEY", []byte("default-auth-value")))
+	})
+})

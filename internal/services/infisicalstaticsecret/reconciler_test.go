@@ -1400,7 +1400,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			dep := newDeployment("web", true, consumesSecret, secretName)
 			reconciler := newReconciler(newTargetSecret(), dep)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
+			affected, _, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1454,7 +1454,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			})
 			reconciler := svc.NewReconcilerForTest(wrapped, s)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
+			affected, _, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1469,7 +1469,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			ds := newDaemonSet("agent", true, consumesSecret, secretName)
 			reconciler := newReconciler(newTargetSecret(), ds)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
+			affected, _, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1483,7 +1483,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			ss := newStatefulSet("db", true, consumesSecret, secretName)
 			reconciler := newReconciler(newTargetSecret(), ss)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
+			affected, _, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1497,7 +1497,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			dep := newDeployment("no-reload", false, consumesSecret, secretName)
 			reconciler := newReconciler(newTargetSecret(), dep)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
+			affected, _, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(0))
 
@@ -1510,7 +1510,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			dep := newDeployment("unrelated", true, consumesNothing, "")
 			reconciler := newReconciler(newTargetSecret(), dep)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
+			affected, _, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(0))
 
@@ -1525,7 +1525,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			dep.Spec.Template.Annotations = map[string]string{annotationKey: etag}
 			reconciler := newReconciler(newTargetSecret(), dep)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
+			affected, _, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1540,7 +1540,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			ss := newStatefulSet("db", true, consumesSecret, secretName)
 			reconciler := newReconciler(newTargetSecret(), dep, ds, ss)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
+			affected, _, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(3))
 
@@ -1564,7 +1564,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			dep := newDeploymentWithInitContainer("web-init", true, consumesSecret, secretName)
 			reconciler := newReconciler(newTargetSecret(), dep)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
+			affected, _, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1578,7 +1578,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			ds := newDaemonSetWithInitContainer("agent-init", true, consumesSecret, secretName)
 			reconciler := newReconciler(newTargetSecret(), ds)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
+			affected, _, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1592,7 +1592,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			ss := newStatefulSetWithInitContainer("db-init", true, consumesSecret, secretName)
 			reconciler := newReconciler(newTargetSecret(), ss)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
+			affected, _, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1605,7 +1605,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 		It("does nothing when no workloads exist", func() {
 			reconciler := newReconciler(newTargetSecret())
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
+			affected, _, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(0))
 		})
@@ -1638,7 +1638,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			dep := newDeployment("web", true, consumesConfigMap, configMapName)
 			reconciler := newReconciler(newTargetConfigMap(), dep)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget, etag)
+			affected, _, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1652,7 +1652,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			ss := newStatefulSet("db", true, consumesConfigMap, configMapName)
 			reconciler := newReconciler(newTargetConfigMap(), ss)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget, etag)
+			affected, _, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1666,7 +1666,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			dep := newDeploymentWithInitContainer("web-init", true, consumesConfigMap, configMapName)
 			reconciler := newReconciler(newTargetConfigMap(), dep)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget, etag)
+			affected, _, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1680,7 +1680,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			ds := newDaemonSetWithInitContainer("agent-init", true, consumesConfigMap, configMapName)
 			reconciler := newReconciler(newTargetConfigMap(), ds)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget, etag)
+			affected, _, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1694,7 +1694,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			ss := newStatefulSetWithInitContainer("db-init", true, consumesConfigMap, configMapName)
 			reconciler := newReconciler(newTargetConfigMap(), ss)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget, etag)
+			affected, _, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(1))
 
@@ -1708,7 +1708,7 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			dep := newDeployment("secret-only", true, consumesSecret, configMapName)
 			reconciler := newReconciler(newTargetConfigMap(), dep)
 
-			affected, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget, etag)
+			affected, _, err := reconciler.PropagateSecretToWorkloads(ctx, configMapTarget, etag)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(affected).To(Equal(0))
 
@@ -1717,6 +1717,84 @@ var _ = Describe("PropagateSecretToWorkloads", func() {
 			Expect(updated.Annotations).NotTo(HaveKey(configMapAnnotationKey))
 		})
 
+	})
+
+	Context("when counting auto-reload workloads", func() {
+		configMapTarget := v1beta1.SecretTarget{
+			Name:      "app-config",
+			Namespace: namespace,
+			Kind:      v1beta1.SecretTargetKindConfigMap,
+		}
+
+		It("counts the opted-in workloads consuming any of the targets", func() {
+			reconciler := newReconciler(
+				newDeployment("web", true, consumesSecret, secretName),
+				newDaemonSet("agent", true, consumesConfigMap, "app-config"),
+				newStatefulSet("db", false, consumesSecret, secretName),
+				newDeployment("unrelated", true, consumesSecret, "other-secret"),
+			)
+
+			count, err := reconciler.CountAutoReloadWorkloads(ctx, []v1beta1.SecretTarget{target, configMapTarget})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(count).To(Equal(2))
+		})
+
+		It("counts a workload consuming several targets once", func() {
+			dep := newDeployment("web", true, consumesSecret, secretName)
+			dep.Spec.Template.Spec.Containers[0].EnvFrom = append(dep.Spec.Template.Spec.Containers[0].EnvFrom,
+				envFromForKind(consumesConfigMap, "app-config")...)
+			reconciler := newReconciler(dep)
+
+			count, err := reconciler.CountAutoReloadWorkloads(ctx, []v1beta1.SecretTarget{target, configMapTarget})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(count).To(Equal(1))
+		})
+
+		It("does not redeploy the workloads it counts", func() {
+			dep := newDeployment("web", true, consumesSecret, secretName)
+			reconciler := newReconciler(dep)
+
+			count, err := reconciler.CountAutoReloadWorkloads(ctx, []v1beta1.SecretTarget{target})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(count).To(Equal(1))
+
+			updated := &appsv1.Deployment{}
+			Expect(reconciler.Client.Get(ctx, types.NamespacedName{Name: "web", Namespace: namespace}, updated)).To(Succeed())
+			Expect(updated.Annotations).NotTo(HaveKey(annotationKey))
+			Expect(updated.Spec.Template.Annotations).NotTo(HaveKey(annotationKey))
+		})
+	})
+
+	Context("when counting redeployed workloads", func() {
+		It("does not count workloads already at the current etag", func() {
+			upToDate := newDeployment("up-to-date", true, consumesSecret, secretName)
+			upToDate.Annotations[annotationKey] = etag
+			upToDate.Spec.Template.Annotations = map[string]string{annotationKey: etag}
+			reconciler := newReconciler(newTargetSecret(), upToDate, newDeployment("stale", true, consumesSecret, secretName))
+
+			affected, redeployed, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(affected).To(Equal(2))
+			Expect(redeployed).To(Equal(1))
+		})
+
+		It("does not count workloads whose update failed", func() {
+			s := newScheme()
+			failingClient := interceptor.NewClient(
+				fake.NewClientBuilder().WithScheme(s).WithObjects(newTargetSecret(), newDeployment("web", true, consumesSecret, secretName)).Build(),
+				interceptor.Funcs{
+					Patch: func(context.Context, client.WithWatch, client.Object, client.Patch, ...client.PatchOption) error {
+						return k8Errors.NewServiceUnavailable("api server unavailable")
+					},
+				},
+			)
+			reconciler := svc.NewReconcilerForTest(failingClient, s)
+
+			affected, redeployed, err := reconciler.PropagateSecretToWorkloads(ctx, target, etag)
+			Expect(err).To(HaveOccurred())
+			Expect(affected).To(Equal(1))
+			Expect(redeployed).To(Equal(0))
+		})
 	})
 })
 
@@ -1800,7 +1878,7 @@ var _ = Describe("Cache lag bug: SyncKubeSecret then PropagateSecretToWorkloads"
 
 		// Step 2: PropagateSecretToWorkloads should succeed even though the
 		// informer cache has not caught up with the newly created Secret.
-		affected, err := reconciler.PropagateSecretToWorkloads(ctx, target, newEtag)
+		affected, _, err := reconciler.PropagateSecretToWorkloads(ctx, target, newEtag)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(affected).To(Equal(1))
 	})

@@ -177,6 +177,7 @@ type InfisicalStaticSecretReconciler struct {
 }
 
 func (r *InfisicalStaticSecretReconciler) getProjectIDBySlug(restClient *resty.Client, authRef v1beta1.NamespacedName, slug string) (string, error) {
+	authRef = ResolveAuthRef(authRef)
 	cacheKey := cache.ProjectBySlugCacheKey(authRef.Namespace, authRef.Name, slug)
 	if r.projectIDCache != nil {
 		if cached, ok := r.projectIDCache.Get(cacheKey); ok {
@@ -268,12 +269,27 @@ func NewReconcilerForTest(c client.Client, scheme *runtime.Scheme) *InfisicalSta
 	}
 }
 
+// ResolveAuthRef returns the given auth reference, or the default InfisicalAuth
+// in the operator namespace if no reference was provided.
+func ResolveAuthRef(authRef v1beta1.NamespacedName) v1beta1.NamespacedName {
+	if authRef.Name != "" {
+		return authRef
+	}
+
+	return v1beta1.NamespacedName{
+		Name:      constants.DEFAULT_INFISICAL_AUTH_NAME,
+		Namespace: constants.GetOperatorNamespace(),
+	}
+}
+
 func (r *InfisicalStaticSecretReconciler) getInfisicalAuth(ctx context.Context, authRef v1beta1.NamespacedName) (*v1beta1.InfisicalAuth, error) {
+	resolved := ResolveAuthRef(authRef)
+
 	auth := v1beta1.InfisicalAuth{}
 
 	err := r.Client.Get(ctx, types.NamespacedName{
-		Name:      authRef.Name,
-		Namespace: authRef.Namespace,
+		Name:      resolved.Name,
+		Namespace: resolved.Namespace,
 	}, &auth)
 	if err != nil {
 		if util.IsNamespaceScopedError(err, r.IsNamespaceScoped) {
@@ -614,23 +630,47 @@ func (r *InfisicalStaticSecretReconciler) SyncKubeConfigMap(ctx context.Context,
 	return changed, newEtag, nil
 }
 
-func (r *InfisicalStaticSecretReconciler) PropagateSecretToWorkloads(ctx context.Context, target v1beta1.SecretTarget, etag string) (int, error) {
+// PropagateSecretToWorkloads returns how many workloads consume the target, followed by how many
+// of them were updated and so redeployed. Workloads already at the etag or failing to update are
+// not redeployed.
+func (r *InfisicalStaticSecretReconciler) PropagateSecretToWorkloads(ctx context.Context, target v1beta1.SecretTarget, etag string) (int, int, error) {
 	annotationKey := util.ComputeManagedSecretAnnotation(target.Name)
 
 	workloads, err := r.listWorkloadsConsumingTarget(ctx, target)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	// Prevents one workload from stopping our operator from updating all others
 	var errs []error
+	redeployed := 0
 	for _, workload := range workloads {
-		if err := r.updateWorkloadAnnotations(ctx, workload, annotationKey, etag); err != nil {
+		updated, err := r.updateWorkloadAnnotations(ctx, workload, annotationKey, etag)
+		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to reconcile workload. Kind: %q, Name: %q", workload.kind, workload.name))
+		} else if updated {
+			redeployed++
 		}
 	}
 
-	return len(workloads), errors.Join(errs...)
+	return len(workloads), redeployed, errors.Join(errs...)
+}
+
+// CountAutoReloadWorkloads returns how many workloads opted into auto-reload consume the targets.
+// A workload consuming several targets is counted once.
+func (r *InfisicalStaticSecretReconciler) CountAutoReloadWorkloads(ctx context.Context, targets []v1beta1.SecretTarget) (int, error) {
+	workloads := make(map[string]bool)
+	for _, target := range targets {
+		consuming, err := r.listWorkloadsConsumingTarget(ctx, target)
+		if err != nil {
+			return 0, err
+		}
+		for _, workload := range consuming {
+			workloads[workload.kind+"/"+target.Namespace+"/"+workload.name] = true
+		}
+	}
+
+	return len(workloads), nil
 }
 
 type workloadRef struct {
@@ -696,21 +736,22 @@ func podTemplateMeta(obj client.Object) *metav1.ObjectMeta {
 	}
 }
 
-// updateWorkloadAnnotations patches only the etag annotations. A merge patch carries no
-// resourceVersion, so it never conflicts when the workload is modified concurrently (e.g. by
-// other InfisicalStaticSecrets targeting it), and annotations written by others are kept.
+// updateWorkloadAnnotations patches only the etag annotations and returns whether the workload
+// was updated, which redeploys it. A merge patch carries no resourceVersion, so it never
+// conflicts when the workload is modified concurrently (e.g. by other InfisicalStaticSecrets
+// targeting it), and annotations written by others are kept.
 // An Update would conflict, and retries re-read the workload from the informer cache, which can
 // stay stale until the retries run out. The next reconcile then sees an unchanged target secret
 // and never propagates the new etag.
-func (r *InfisicalStaticSecretReconciler) updateWorkloadAnnotations(ctx context.Context, w workloadRef, annotationKey, etag string) error {
+func (r *InfisicalStaticSecretReconciler) updateWorkloadAnnotations(ctx context.Context, w workloadRef, annotationKey, etag string) (bool, error) {
 	templateMeta := podTemplateMeta(w.obj)
 	if templateMeta == nil {
-		return fmt.Errorf("unsupported workload kind %q", w.kind)
+		return false, fmt.Errorf("unsupported workload kind %q", w.kind)
 	}
 
 	annotations := w.obj.GetAnnotations()
 	if annotations[annotationKey] == etag && templateMeta.Annotations[annotationKey] == etag {
-		return nil
+		return false, nil
 	}
 
 	patch := client.MergeFrom(w.obj.DeepCopyObject().(client.Object))
@@ -726,7 +767,11 @@ func (r *InfisicalStaticSecretReconciler) updateWorkloadAnnotations(ctx context.
 	}
 	templateMeta.Annotations[annotationKey] = etag
 
-	return r.Client.Patch(ctx, w.obj, patch)
+	if err := r.Client.Patch(ctx, w.obj, patch); err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 func isContainerConsumingSecret(containers []corev1.Container, secretName string) bool {

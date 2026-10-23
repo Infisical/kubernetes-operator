@@ -27,6 +27,7 @@ import (
 	"github.com/Infisical/infisical/k8-operator/internal/api"
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
 	"github.com/Infisical/infisical/k8-operator/internal/cache"
+	"github.com/Infisical/infisical/k8-operator/internal/metrics"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
 	"github.com/Infisical/infisical/k8-operator/internal/services/infisicalstaticsecret"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
@@ -113,6 +114,9 @@ func (r *InfisicalStaticSecretReconciler) Reconcile(ctx context.Context, req ctr
 
 		if k8sErrors.IsNotFound(err) {
 			logger.Info("Static Secret CRD not found")
+			// Runs after any sync that was in flight when the CRD was deleted, so a
+			// series re-created by that sync is dropped too.
+			metrics.ForgetStaticSecret(req.Namespace, req.Name)
 			return ctrl.Result{
 				RequeueAfter: 0,
 			}, nil
@@ -126,6 +130,7 @@ func (r *InfisicalStaticSecretReconciler) Reconcile(ctx context.Context, req ctr
 
 	if !staticSecretCRD.DeletionTimestamp.IsZero() {
 		sseRegistries.Cleanup(crdUID)
+		metrics.ForgetStaticSecret(staticSecretCRD.Namespace, staticSecretCRD.Name)
 		return ctrl.Result{}, nil
 	}
 
@@ -222,7 +227,9 @@ func (r *InfisicalStaticSecretReconciler) FindStaticSecretsReferencingAuth(ctx c
 
 	var requests []reconcile.Request
 	for _, staticSecret := range staticSecretList.Items {
-		ref := staticSecret.Spec.InfisicalAuthRef
+		// Static secrets without an explicit auth ref resolve to the default
+		// InfisicalAuth, so they are re-reconciled when it changes.
+		ref := infisicalstaticsecret.ResolveAuthRef(staticSecret.Spec.InfisicalAuthRef)
 		if ref.Name == authCRD.Name && ref.Namespace == authCRD.Namespace {
 			requests = append(requests, reconcile.Request{
 				NamespacedName: types.NamespacedName{

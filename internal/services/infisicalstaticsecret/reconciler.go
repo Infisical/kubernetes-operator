@@ -674,11 +674,9 @@ func (r *InfisicalStaticSecretReconciler) CountAutoReloadWorkloads(ctx context.C
 }
 
 type workloadRef struct {
-	kind                string
-	name                string
-	annotations         map[string]string
-	templateAnnotations map[string]string
-	obj                 client.Object
+	kind string
+	name string
+	obj  client.Object
 }
 
 func (r *InfisicalStaticSecretReconciler) listWorkloadsConsumingTarget(ctx context.Context, target v1beta1.SecretTarget) ([]workloadRef, error) {
@@ -696,16 +694,7 @@ func (r *InfisicalStaticSecretReconciler) listWorkloadsConsumingTarget(ctx conte
 
 	for _, deployment := range deployments.Items {
 		if deployment.Annotations[AutoReloadAnnotation] == "true" && isConsuming(deployment.Spec.Template.Spec, target.Name) {
-			if deployment.Spec.Template.Annotations == nil {
-				deployment.Spec.Template.Annotations = make(map[string]string)
-			}
-			workloads = append(workloads, workloadRef{
-				kind:                "Deployment",
-				name:                deployment.Name,
-				annotations:         deployment.Annotations,
-				templateAnnotations: deployment.Spec.Template.Annotations,
-				obj:                 &deployment,
-			})
+			workloads = append(workloads, workloadRef{kind: "Deployment", name: deployment.Name, obj: &deployment})
 		}
 	}
 
@@ -716,16 +705,7 @@ func (r *InfisicalStaticSecretReconciler) listWorkloadsConsumingTarget(ctx conte
 
 	for _, daemonSet := range daemonSets.Items {
 		if daemonSet.Annotations[AutoReloadAnnotation] == "true" && isConsuming(daemonSet.Spec.Template.Spec, target.Name) {
-			if daemonSet.Spec.Template.Annotations == nil {
-				daemonSet.Spec.Template.Annotations = make(map[string]string)
-			}
-			workloads = append(workloads, workloadRef{
-				kind:                "DaemonSet",
-				name:                daemonSet.Name,
-				annotations:         daemonSet.Annotations,
-				templateAnnotations: daemonSet.Spec.Template.Annotations,
-				obj:                 &daemonSet,
-			})
+			workloads = append(workloads, workloadRef{kind: "DaemonSet", name: daemonSet.Name, obj: &daemonSet})
 		}
 	}
 
@@ -736,40 +716,58 @@ func (r *InfisicalStaticSecretReconciler) listWorkloadsConsumingTarget(ctx conte
 
 	for _, statefulSet := range statefulSets.Items {
 		if statefulSet.Annotations[AutoReloadAnnotation] == "true" && isConsuming(statefulSet.Spec.Template.Spec, target.Name) {
-			if statefulSet.Spec.Template.Annotations == nil {
-				statefulSet.Spec.Template.Annotations = make(map[string]string)
-			}
-			workloads = append(workloads, workloadRef{
-				kind:                "StatefulSet",
-				name:                statefulSet.Name,
-				annotations:         statefulSet.Annotations,
-				templateAnnotations: statefulSet.Spec.Template.Annotations,
-				obj:                 &statefulSet,
-			})
+			workloads = append(workloads, workloadRef{kind: "StatefulSet", name: statefulSet.Name, obj: &statefulSet})
 		}
 	}
 
 	return workloads, nil
 }
 
-// updateWorkloadAnnotations returns whether the workload was updated, which redeploys it.
+func podTemplateMeta(obj client.Object) *metav1.ObjectMeta {
+	switch o := obj.(type) {
+	case *appsv1.Deployment:
+		return &o.Spec.Template.ObjectMeta
+	case *appsv1.DaemonSet:
+		return &o.Spec.Template.ObjectMeta
+	case *appsv1.StatefulSet:
+		return &o.Spec.Template.ObjectMeta
+	default:
+		return nil
+	}
+}
+
+// updateWorkloadAnnotations patches only the etag annotations and returns whether the workload
+// was updated, which redeploys it. A merge patch carries no resourceVersion, so it never
+// conflicts when the workload is modified concurrently (e.g. by other InfisicalStaticSecrets
+// targeting it), and annotations written by others are kept.
+// An Update would conflict, and retries re-read the workload from the informer cache, which can
+// stay stale until the retries run out. The next reconcile then sees an unchanged target secret
+// and never propagates the new etag.
 func (r *InfisicalStaticSecretReconciler) updateWorkloadAnnotations(ctx context.Context, w workloadRef, annotationKey, etag string) (bool, error) {
-	if w.annotations == nil {
-		w.annotations = make(map[string]string)
+	templateMeta := podTemplateMeta(w.obj)
+	if templateMeta == nil {
+		return false, fmt.Errorf("unsupported workload kind %q", w.kind)
 	}
 
-	if w.templateAnnotations == nil {
-		w.templateAnnotations = make(map[string]string)
-	}
-
-	if w.annotations[annotationKey] == etag && w.templateAnnotations[annotationKey] == etag {
+	annotations := w.obj.GetAnnotations()
+	if annotations[annotationKey] == etag && templateMeta.Annotations[annotationKey] == etag {
 		return false, nil
 	}
 
-	w.annotations[annotationKey] = etag
-	w.templateAnnotations[annotationKey] = etag
+	patch := client.MergeFrom(w.obj.DeepCopyObject().(client.Object))
 
-	if err := r.Client.Update(ctx, w.obj); err != nil {
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+	annotations[annotationKey] = etag
+	w.obj.SetAnnotations(annotations)
+
+	if templateMeta.Annotations == nil {
+		templateMeta.Annotations = make(map[string]string)
+	}
+	templateMeta.Annotations[annotationKey] = etag
+
+	if err := r.Client.Patch(ctx, w.obj, patch); err != nil {
 		return false, err
 	}
 

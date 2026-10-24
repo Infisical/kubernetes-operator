@@ -16,6 +16,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -78,6 +79,9 @@ type InfisicalStaticSecretReconciler struct {
 	AuthResolver      *auth.AuthStrategyResolver
 	ProjectIDCache    *cache.ResourceCache[string]
 	SourceCh          chan event.TypedGenericEvent[client.Object]
+	// MaxConcurrentReconciles is the number of InfisicalStaticSecrets reconciled in parallel.
+	// The workqueue guarantees a single resource is never reconciled by two workers at once.
+	MaxConcurrentReconciles int
 }
 
 func (r *InfisicalStaticSecretReconciler) GetLogger(req ctrl.Request) logr.Logger {
@@ -89,9 +93,9 @@ func (r *InfisicalStaticSecretReconciler) GetLogger(req ctrl.Request) logr.Logge
 // +kubebuilder:rbac:groups=secrets.infisical.com,resources=infisicalstaticsecrets/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;delete
-// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=list;watch;get;update
-// +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=list;watch;get;update
-// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=list;watch;get;update
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=list;watch;get;update;patch
+// +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=list;watch;get;update;patch
+// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=list;watch;get;update;patch
 // +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list
 // +kubebuilder:rbac:groups="authentication.k8s.io",resources=tokenreviews,verbs=create
@@ -175,6 +179,7 @@ func (r *InfisicalStaticSecretReconciler) SetupWithManager(mgr ctrl.Manager) err
 	r.SourceCh = make(chan event.TypedGenericEvent[client.Object])
 
 	return ctrl.NewControllerManagedBy(mgr).
+		WithOptions(controller.Options{MaxConcurrentReconciles: r.MaxConcurrentReconciles}).
 		WatchesRawSource(
 			source.Channel(r.SourceCh, &util.EnqueueDelayedEventHandler{Delay: time.Second * 10}),
 		).

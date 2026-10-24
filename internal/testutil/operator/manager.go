@@ -53,6 +53,9 @@ type InstallOpts struct {
 	APIContainerPort         string // Port the API listens on inside its container.
 	DefaultConnection        bool   // If true, install a default InfisicalConnection in the operator namespace
 	DefaultConnectionAddress string // Address for the default InfisicalConnection. The host is replaced with the in-cluster API address; the path is preserved. If empty, defaults to the in-cluster API URL.
+
+	// MaxConcurrency sets the chart value of the same name. Defaults to 1.
+	MaxConcurrency int
 }
 
 func Install(opts InstallOpts) (*Manager, error) {
@@ -102,10 +105,11 @@ controllerManager:
     args:
     - --metrics-bind-address=:8443
     - --health-probe-bind-address=:8081
+maxConcurrency: %d
 defaultInfisicalConnection:
   enabled: %t
   address: %q
-`, inClusterURL, opts.DefaultConnection, connAddress)
+`, inClusterURL, max(opts.MaxConcurrency, 1), opts.DefaultConnection, connAddress)
 
 	if _, err := valuesFile.WriteString(valuesContent); err != nil {
 		return nil, fmt.Errorf("write values file: %w", err)

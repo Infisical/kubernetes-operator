@@ -369,6 +369,9 @@ if [ -f "${HELM_DIR}/templates/deployment.yaml" ]; then
       # Add our custom args section with multi-namespace conditional logic
       echo "      - args:" >> "${HELM_DIR}/templates/deployment.yaml.new"
       echo "        {{- toYaml .Values.controllerManager.manager.args | nindent 8 }}" >> "${HELM_DIR}/templates/deployment.yaml.new"
+      echo '        {{- if ne (int .Values.maxConcurrency) 1 }}' >> "${HELM_DIR}/templates/deployment.yaml.new"
+      echo '        - --max-concurrency={{ .Values.maxConcurrency | int }}' >> "${HELM_DIR}/templates/deployment.yaml.new"
+      echo '        {{- end }}' >> "${HELM_DIR}/templates/deployment.yaml.new"
       echo '        {{- $namespaces := (include "secrets-operator.scopedNamespaces" . | fromJson).list }}' >> "${HELM_DIR}/templates/deployment.yaml.new"
       echo '        {{- if and $namespaces .Values.scopedRBAC }}' >> "${HELM_DIR}/templates/deployment.yaml.new"
       echo '        - --namespaces={{ join "," $namespaces }}' >> "${HELM_DIR}/templates/deployment.yaml.new"
@@ -437,6 +440,9 @@ if [ -f "${HELM_DIR}/templates/deployment.yaml" ]; then
       # replace with our multi-line structure with multi-namespace support
       echo "${base_indent}- args:" >> "${HELM_DIR}/templates/deployment.yaml.tmp"
       echo "${base_indent}  {{- toYaml .Values.controllerManager.manager.args | nindent 8 }}" >> "${HELM_DIR}/templates/deployment.yaml.tmp"
+      echo "${base_indent}  "'{{- if ne (int .Values.maxConcurrency) 1 }}' >> "${HELM_DIR}/templates/deployment.yaml.tmp"
+      echo "${base_indent}  "'- --max-concurrency={{ .Values.maxConcurrency | int }}' >> "${HELM_DIR}/templates/deployment.yaml.tmp"
+      echo "${base_indent}  {{- end }}" >> "${HELM_DIR}/templates/deployment.yaml.tmp"
       echo "${base_indent}  "'{{- $namespaces := (include "secrets-operator.scopedNamespaces" . | fromJson).list }}' >> "${HELM_DIR}/templates/deployment.yaml.tmp"
       echo "${base_indent}  "'{{- if and $namespaces .Values.scopedRBAC }}' >> "${HELM_DIR}/templates/deployment.yaml.tmp"
       echo "${base_indent}  "'- --namespaces={{ join "," $namespaces }}' >> "${HELM_DIR}/templates/deployment.yaml.tmp"

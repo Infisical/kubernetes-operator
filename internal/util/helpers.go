@@ -65,6 +65,8 @@ func IsNamespaceScopedError(err error, isNamespaceScoped bool) bool {
 	return isNamespaceScoped && err != nil && strings.Contains(err.Error(), "unknown namespace for the cache")
 }
 
+var responseHeaderTimeout = 60 * time.Second
+
 func CreateRestyClient(options model.CreateRestyClientOptions) (*resty.Client, error) {
 
 	httpClient := resty.New()
@@ -96,6 +98,12 @@ func CreateRestyClient(options model.CreateRestyClientOptions) (*resty.Client, e
 
 		httpClient.SetTLSClientConfig(tlsConfig)
 	}
+
+	transport, err := httpClient.Transport()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get HTTP transport: %w", err)
+	}
+	transport.ResponseHeaderTimeout = responseHeaderTimeout
 
 	return httpClient, nil
 }

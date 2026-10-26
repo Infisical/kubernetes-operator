@@ -68,6 +68,15 @@ scopedRBAC: false
 maxConcurrency: 1
 
 installCRDs: true
+
+# -- Creates the default InfisicalConnection and InfisicalAuth as Helm hooks, so a fresh
+# `helm install` applies them after the CRDs.
+# IMPORTANT: Argo CD users MUST set this to false. Otherwise Argo CD only creates these resources
+# after everything else in the app is healthy, so anything waiting on a secret that uses them never
+# becomes ready and the sync (and your pipeline) hangs. Argo CD also recreates them on every sync.
+# @type: boolean
+defaultResourcesHelmHooks: true
+
 imagePullSecrets: []
 
 # Configures the default InfisicalConnection CR which will be used by resources

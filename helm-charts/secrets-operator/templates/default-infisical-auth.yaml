@@ -8,9 +8,11 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "secrets-operator.labels" . | nindent 4 }}
+  {{- if .Values.defaultResourcesHelmHooks }}
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "2"
+  {{- end }}
 spec:
   {{- with $auth.infisicalConnectionRef }}
   {{- if .name }}

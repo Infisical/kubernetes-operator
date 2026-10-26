@@ -31,7 +31,7 @@ controllerManager:
       readOnlyRootFilesystem: true
     image:
       repository: infisical/kubernetes-operator
-      tag: v0.11.15
+      tag: v0.11.16
     resources:
       limits:
         cpu: 500m
@@ -68,6 +68,14 @@ scopedRBAC: false
 maxConcurrency: 1
 
 installCRDs: true
+
+# -- Creates the default InfisicalConnection and InfisicalAuth as Helm hooks, so they are applied
+# after the CRDs. Argo CD users MUST set this to false, otherwise syncs hang until the whole app is healthy.
+# Helm CLI / Flux users should keep it true: with false, a fresh install fails unless the CRDs already
+# exist, and switching an existing release to false needs a one-time `helm upgrade --take-ownership`.
+# @type: boolean
+defaultResourcesHelmHooks: true
+
 imagePullSecrets: []
 
 # Configures the default InfisicalConnection CR which will be used by resources

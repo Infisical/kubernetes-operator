@@ -69,11 +69,10 @@ maxConcurrency: 1
 
 installCRDs: true
 
-# -- Creates the default InfisicalConnection and InfisicalAuth as Helm hooks, so a fresh
-# `helm install` applies them after the CRDs.
-# IMPORTANT: Argo CD users MUST set this to false. Otherwise Argo CD only creates these resources
-# after everything else in the app is healthy, so anything waiting on a secret that uses them never
-# becomes ready and the sync (and your pipeline) hangs. Argo CD also recreates them on every sync.
+# -- Creates the default InfisicalConnection and InfisicalAuth as Helm hooks, so they are applied
+# after the CRDs. Argo CD users MUST set this to false, otherwise syncs hang until the whole app is healthy.
+# Helm CLI / Flux users should keep it true: with false, a fresh install fails unless the CRDs already
+# exist, and switching an existing release to false needs a one-time `helm upgrade --take-ownership`.
 # @type: boolean
 defaultResourcesHelmHooks: true
 

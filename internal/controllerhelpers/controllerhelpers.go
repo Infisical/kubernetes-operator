@@ -194,8 +194,9 @@ func ReconcileDeployment(ctx context.Context, client controllerClient.Client, lo
 	annotationKey := fmt.Sprintf("%s.%s", DEPLOYMENT_SECRET_NAME_ANNOTATION_PREFIX, secret.Name)
 	annotationValue := secret.Annotations[constants.SECRET_VERSION_ANNOTATION]
 
-	if deployment.Annotations[annotationKey] == annotationValue &&
-		deployment.Spec.Template.Annotations[annotationKey] == annotationValue {
+	// Only the workload's own annotation decides whether a restart is needed. Another controller
+	// may own the pod template and drop our annotation there, which would otherwise restart on every resync.
+	if deployment.Annotations[annotationKey] == annotationValue {
 		logger.Info(fmt.Sprintf("The [deploymentName=%v] is already using the most up to date managed secrets. No action required.", deployment.ObjectMeta.Name))
 		return nil
 	}
@@ -219,8 +220,9 @@ func ReconcileDaemonSet(ctx context.Context, client controllerClient.Client, log
 	annotationKey := fmt.Sprintf("%s.%s", DEPLOYMENT_SECRET_NAME_ANNOTATION_PREFIX, secret.Name)
 	annotationValue := secret.Annotations[constants.SECRET_VERSION_ANNOTATION]
 
-	if daemonSet.Annotations[annotationKey] == annotationValue &&
-		daemonSet.Spec.Template.Annotations[annotationKey] == annotationValue {
+	// Only the workload's own annotation decides whether a restart is needed. Another controller
+	// may own the pod template and drop our annotation there, which would otherwise restart on every resync.
+	if daemonSet.Annotations[annotationKey] == annotationValue {
 		logger.Info(fmt.Sprintf("The [daemonSetName=%v] is already using the most up to date managed secrets. No action required.", daemonSet.ObjectMeta.Name))
 		return nil
 	}
@@ -244,8 +246,9 @@ func ReconcileStatefulSet(ctx context.Context, client controllerClient.Client, l
 	annotationKey := fmt.Sprintf("%s.%s", DEPLOYMENT_SECRET_NAME_ANNOTATION_PREFIX, secret.Name)
 	annotationValue := secret.Annotations[constants.SECRET_VERSION_ANNOTATION]
 
-	if statefulSet.Annotations[annotationKey] == annotationValue &&
-		statefulSet.Spec.Template.Annotations[annotationKey] == annotationValue {
+	// Only the workload's own annotation decides whether a restart is needed. Another controller
+	// may own the pod template and drop our annotation there, which would otherwise restart on every resync.
+	if statefulSet.Annotations[annotationKey] == annotationValue {
 		logger.Info(fmt.Sprintf("The [statefulSetName=%v] is already using the most up to date managed secrets. No action required.", statefulSet.ObjectMeta.Name))
 		return nil
 	}

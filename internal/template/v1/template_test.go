@@ -579,3 +579,42 @@ var _ = Describe("RenderPerKeyTemplates with subdirectories", func() {
 		Expect(data).To(HaveKeyWithValue("dirs", []byte("db=/db,")))
 	})
 })
+
+var _ = Describe("templates that reference a missing secret", func() {
+
+	ctx := v1.NewTemplateContext(v1.RenderContext{MergedSecrets: []api.Secret{
+		{SecretKey: "DB_HOST", SecretValue: "localhost", SecretPath: "/"},
+	}})
+
+	It("fails a per-key template instead of rendering <no value>", func() {
+		tmpls := map[string]string{
+			"password": `{{ .NEW_KEY.Value }}`,
+		}
+
+		data, err := v1.RenderPerKeyTemplates(tmpls, ctx)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("NEW_KEY"))
+		Expect(data).To(BeNil())
+	})
+
+	It("fails a per-key template that uses the secret without .Value", func() {
+		tmpls := map[string]string{
+			"password": `{{ .NEW_KEY }}`,
+		}
+
+		_, err := v1.RenderPerKeyTemplates(tmpls, ctx)
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("fails a bulk template instead of rendering <no value>", func() {
+		_, err := v1.RenderBulkTemplate(`{"password": "{{ .NEW_KEY.Value }}"}`, ctx)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("NEW_KEY"))
+	})
+
+	It("still renders keys that exist", func() {
+		data, err := v1.RenderPerKeyTemplates(map[string]string{"host": `{{ .DB_HOST.Value }}`}, ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(data).To(HaveKeyWithValue("host", []byte("localhost")))
+	})
+})

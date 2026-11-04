@@ -22,6 +22,10 @@ type InfisicalDynamicSecretHandler struct {
 	Scheme            *runtime.Scheme
 	Random            *rand.Rand
 	IsNamespaceScoped bool
+
+	// hostAPI is the resolved API host for the resource being reconciled. It is passed to the
+	// reconciler instead of reading config.API_HOST_URL, which other controllers also write.
+	hostAPI string
 }
 
 func NewInfisicalDynamicSecretHandler(client client.Client, scheme *runtime.Scheme, isNamespaceScoped bool) *InfisicalDynamicSecretHandler {
@@ -35,10 +39,11 @@ func NewInfisicalDynamicSecretHandler(client client.Client, scheme *runtime.Sche
 
 func (h *InfisicalDynamicSecretHandler) SetupAPIConfig(infisicalDynamicSecret v1alpha1.InfisicalDynamicSecret, infisicalGlobalConfig config.InfisicalGlobalConfig) error {
 	if infisicalDynamicSecret.Spec.HostAPI == "" {
-		config.API_HOST_URL = infisicalGlobalConfig.HostAPI
+		h.hostAPI = infisicalGlobalConfig.HostAPI
 	} else {
-		config.API_HOST_URL = util.AppendAPIEndpoint(infisicalDynamicSecret.Spec.HostAPI)
+		h.hostAPI = util.AppendAPIEndpoint(infisicalDynamicSecret.Spec.HostAPI)
 	}
+	config.API_HOST_URL = h.hostAPI
 	return nil
 }
 
@@ -91,6 +96,7 @@ func (h *InfisicalDynamicSecretHandler) ReconcileInfisicalDynamicSecret(ctx cont
 		Scheme:            h.Scheme,
 		Random:            h.Random,
 		IsNamespaceScoped: h.IsNamespaceScoped,
+		HostAPI:           h.hostAPI,
 	}
 	return reconciler.ReconcileInfisicalDynamicSecret(ctx, logger, infisicalDynamicSecret, resourceVariablesMap)
 }
@@ -101,6 +107,7 @@ func (h *InfisicalDynamicSecretHandler) HandleLeaseRevocation(ctx context.Contex
 		Scheme:            h.Scheme,
 		Random:            h.Random,
 		IsNamespaceScoped: h.IsNamespaceScoped,
+		HostAPI:           h.hostAPI,
 	}
 	return reconciler.HandleLeaseRevocation(ctx, logger, infisicalDynamicSecret, resourceVariablesMap)
 }
@@ -111,6 +118,7 @@ func (h *InfisicalDynamicSecretHandler) SetReconcileConditionStatus(ctx context.
 		Scheme:            h.Scheme,
 		Random:            h.Random,
 		IsNamespaceScoped: h.IsNamespaceScoped,
+		HostAPI:           h.hostAPI,
 	}
 	reconciler.SetReconcileConditionStatus(ctx, logger, infisicalDynamicSecret, errorToConditionOn)
 }
@@ -121,6 +129,7 @@ func (h *InfisicalDynamicSecretHandler) SetReconcileAutoRedeploymentConditionSta
 		Scheme:            h.Scheme,
 		Random:            h.Random,
 		IsNamespaceScoped: h.IsNamespaceScoped,
+		HostAPI:           h.hostAPI,
 	}
 	reconciler.SetReconcileAutoRedeploymentConditionStatus(ctx, logger, infisicalDynamicSecret, numDeployments, errorToConditionOn)
 }

@@ -707,6 +707,22 @@ func (r *InfisicalSecretReconciler) deleteUnreferencedOwnedResources(
 	}
 }
 
+// anyManagedResourceMissing reports whether a managed Secret or ConfigMap does not exist. Any error
+// other than not found also counts as missing, so the full reconcile runs and reports it.
+func (r *InfisicalSecretReconciler) anyManagedResourceMissing(ctx context.Context, managedKubeSecretReferences []v1alpha1.ManagedKubeSecretConfig, managedKubeConfigMapReferences []v1alpha1.ManagedKubeConfigMapConfig) bool {
+	for _, ref := range managedKubeSecretReferences {
+		if _, err := util.GetKubeSecretByNamespacedName(ctx, r.Client, types.NamespacedName{Name: ref.SecretName, Namespace: ref.SecretNamespace}); err != nil {
+			return true
+		}
+	}
+	for _, ref := range managedKubeConfigMapReferences {
+		if _, err := util.GetKubeConfigMapByNamespacedName(ctx, r.Client, types.NamespacedName{Name: ref.ConfigMapName, Namespace: ref.ConfigMapNamespace}); err != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *InfisicalSecretReconciler) ReconcileInfisicalSecret(ctx context.Context, logger logr.Logger, infisicalSecret *v1alpha1.InfisicalSecret, managedKubeSecretReferences []v1alpha1.ManagedKubeSecretConfig, managedKubeConfigMapReferences []v1alpha1.ManagedKubeConfigMapConfig, resourceVariablesMap map[string]util.ResourceVariables) (int, error) {
 
 	if infisicalSecret == nil {
@@ -737,6 +753,12 @@ func (r *InfisicalSecretReconciler) ReconcileInfisicalSecret(ctx context.Context
 	}
 
 	previousETag := resourceVariables.ServerETag
+	// A server ETag match skips the rest of the reconcile, so a managed Secret or ConfigMap that was
+	// deleted out of band would never come back. Drop the cached ETag to force a full sync in that case.
+	if previousETag != "" && r.anyManagedResourceMissing(ctx, managedKubeSecretReferences, managedKubeConfigMapReferences) {
+		logger.Info("A managed secret or configmap is missing, ignoring the cached ETag to recreate it")
+		previousETag = ""
+	}
 	result, err := r.fetchSecretsFromAPI(ctx, logger, authDetails, infisicalClient, *infisicalSecret, previousETag)
 
 	if err != nil {

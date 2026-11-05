@@ -9,6 +9,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/go-logr/logr"
@@ -172,16 +173,17 @@ func (r *InfisicalStaticSecretPushReconciler) ReadSources(ctx context.Context, p
 // PushToTargets pushes the desired secrets to every target and deletes the secrets this
 // resource pushed earlier but no longer pushes. It updates status.managedSecrets with
 // everything the resource owns afterwards. A failing target doesn't stop the others.
-func (r *InfisicalStaticSecretPushReconciler) PushToTargets(restClient *resty.Client, session infisicalsession.Session, push *v1beta1.InfisicalStaticSecretPush, desired map[string]string) error {
+func (r *InfisicalStaticSecretPushReconciler) PushToTargets(ctx context.Context, restClient *resty.Client, session infisicalsession.Session, push *v1beta1.InfisicalStaticSecretPush, desired map[string]string) error {
 	previouslyManaged := push.Status.ManagedSecrets
 	owned := make(map[string]string)
 	listed := make(map[string]secretRef)
 	ownedRefs := make(map[secretRef]struct{})
 	targetIndexByLocation := make(map[api.SecretLocation]int, len(push.Spec.Targets))
+	otherOwners := r.otherOwners(ctx, push)
 
 	var targetErrs []error
 	for i, target := range push.Spec.Targets {
-		result, err := r.syncTarget(restClient, push, target, desired, targetIndexByLocation, i)
+		result, err := r.syncTarget(restClient, push, target, desired, otherOwners, targetIndexByLocation, i)
 
 		maps.Copy(owned, result.owned)
 		maps.Copy(listed, result.listed)
@@ -218,7 +220,7 @@ func (r *InfisicalStaticSecretPushReconciler) PushToTargets(restClient *resty.Cl
 	var cleanupErr error
 	if len(stale) > 0 {
 		if push.Spec.SyncOptions.GetDeletionPolicy() == v1beta1.PushDeletionPolicyDelete {
-			remaining, cleanupErr = r.deleteSecrets(restClient, stale, listed, ownedRefs)
+			remaining, cleanupErr = r.deleteSecrets(restClient, stale, listed, ownedRefs, otherOwners)
 		} else {
 			r.logger.Info(fmt.Sprintf("Deletion policy is None, no longer tracking %d secrets that are not pushed anymore", len(stale)))
 		}
@@ -237,7 +239,7 @@ func (r *InfisicalStaticSecretPushReconciler) PushToTargets(restClient *resty.Cl
 
 // DeleteManagedSecrets deletes every secret recorded in status.managedSecrets and keeps
 // the ones it couldn't delete recorded, so a retry only repeats what failed.
-func (r *InfisicalStaticSecretPushReconciler) DeleteManagedSecrets(restClient *resty.Client, push *v1beta1.InfisicalStaticSecretPush) error {
+func (r *InfisicalStaticSecretPushReconciler) DeleteManagedSecrets(ctx context.Context, restClient *resty.Client, push *v1beta1.InfisicalStaticSecretPush) error {
 	managed := push.Status.ManagedSecrets
 	if len(managed) == 0 {
 		return nil
@@ -260,7 +262,7 @@ func (r *InfisicalStaticSecretPushReconciler) DeleteManagedSecrets(restClient *r
 		}
 	}
 
-	remaining, err := r.deleteSecrets(restClient, managed, listed, nil)
+	remaining, err := r.deleteSecrets(restClient, managed, listed, nil, r.otherOwners(ctx, push))
 	push.Status.ManagedSecrets = nilIfEmpty(remaining)
 	return err
 }
@@ -283,6 +285,7 @@ func (r *InfisicalStaticSecretPushReconciler) syncTarget(
 	push *v1beta1.InfisicalStaticSecretPush,
 	target v1beta1.PushTarget,
 	desired map[string]string,
+	otherOwners func() (map[string]string, error),
 	targetIndexByLocation map[api.SecretLocation]int,
 	index int,
 ) (targetResult, error) {
@@ -307,10 +310,26 @@ func (r *InfisicalStaticSecretPushReconciler) syncTarget(
 	}
 
 	plan := planTarget(desired, existing, push.Status.ManagedSecrets, push.Spec.SyncOptions.GetUpdatePolicy())
+
+	var conflictErr error
+	if len(plan.claims) > 0 {
+		owners, err := otherOwners()
+		if err != nil {
+			return result, err
+		}
+		if conflicts := plan.dropClaimsOwnedByOthers(owners); len(conflicts) > 0 {
+			conflictErr = conflictError(conflicts)
+		}
+	}
 	maps.Copy(result.owned, plan.owned)
 
+	if len(plan.keptByPolicy) > 0 {
+		r.logger.Info(fmt.Sprintf("Left %d existing secrets at %s:%s unchanged because updatePolicy is None: %s",
+			len(plan.keptByPolicy), location.Environment, location.SecretPath, strings.Join(plan.keptByPolicy, ", ")))
+	}
+
 	if len(plan.upserts) == 0 {
-		return result, nil
+		return result, conflictErr
 	}
 
 	stored, err := r.upsertSecrets(restClient, location, plan.upserts, push.Spec.SyncOptions.ShouldCreateMissingFolders())
@@ -318,11 +337,11 @@ func (r *InfisicalStaticSecretPushReconciler) syncTarget(
 		result.owned[secret.ID] = secret.SecretKey
 	}
 	if err != nil {
-		return result, err
+		return result, errors.Join(err, conflictErr)
 	}
 
 	r.logger.Info(fmt.Sprintf("Pushed %d secrets to %s:%s", len(stored), location.Environment, location.SecretPath))
-	return result, nil
+	return result, conflictErr
 }
 
 // listSecrets returns the shared secrets stored directly in a folder, with secret
@@ -355,21 +374,28 @@ func (r *InfisicalStaticSecretPushReconciler) listSecrets(restClient *resty.Clie
 // targetPlan is what a sync must change at one target.
 type targetPlan struct {
 	upserts []api.UpsertSecret
-	// owned holds the secrets this resource owns that are already up to date, keyed by ID.
+	// owned holds the secrets this resource owns that it doesn't write, keyed by ID.
 	owned map[string]string
+	// claims maps the key of every existing secret the plan overwrites or takes over to
+	// that secret's ID.
+	claims map[string]string
+	// keptByPolicy holds the keys whose value in Infisical differs from the source but
+	// that are left unchanged because the update policy is None.
+	keptByPolicy []string
 }
 
 // planTarget decides which desired secrets must be written to a target. Missing keys
-// are created. Keys this resource owns are updated when their value differs. Keys
-// that exist but aren't owned are taken over with PushUpdatePolicyReplace and left
-// untouched with PushUpdatePolicyNone.
+// are always created. With PushUpdatePolicyReplace, existing keys whose value differs
+// are overwritten, and existing keys this resource doesn't own yet are taken over. With
+// PushUpdatePolicyNone, existing keys are never changed, including the ones this
+// resource created; it keeps owning those, so they are still deleted with it.
 func planTarget(desired map[string]string, existing []api.Secret, managed map[string]string, updatePolicy v1beta1.PushUpdatePolicy) targetPlan {
 	existingByKey := make(map[string]api.Secret, len(existing))
 	for _, secret := range existing {
 		existingByKey[secret.SecretKey] = secret
 	}
 
-	plan := targetPlan{owned: map[string]string{}}
+	plan := targetPlan{owned: map[string]string{}, claims: map[string]string{}}
 	for _, key := range slices.Sorted(maps.Keys(desired)) {
 		value := desired[key]
 
@@ -379,19 +405,87 @@ func planTarget(desired map[string]string, existing []api.Secret, managed map[st
 			continue
 		}
 
-		if _, isOwned := managed[current.ID]; !isOwned && updatePolicy == v1beta1.PushUpdatePolicyNone {
+		_, isOwned := managed[current.ID]
+		upToDate := normalizeSecretValue(value) == current.SecretValue
+
+		if updatePolicy == v1beta1.PushUpdatePolicyNone {
+			if isOwned {
+				plan.owned[current.ID] = key
+			}
+			if !upToDate {
+				plan.keptByPolicy = append(plan.keptByPolicy, key)
+			}
 			continue
 		}
 
-		if normalizeSecretValue(value) != current.SecretValue {
+		if !upToDate {
 			plan.upserts = append(plan.upserts, api.UpsertSecret{SecretKey: key, SecretValue: value})
+			plan.claims[key] = current.ID
 			continue
 		}
 
+		if !isOwned {
+			plan.claims[key] = current.ID
+		}
 		plan.owned[current.ID] = key
 	}
 
 	return plan
+}
+
+// dropClaimsOwnedByOthers removes the overwrites and take-overs of secrets that another
+// InfisicalStaticSecretPush owns, given the owner of each secret ID, and returns the
+// keys it removed mapped to their owner.
+func (p *targetPlan) dropClaimsOwnedByOthers(owners map[string]string) map[string]string {
+	conflicts := make(map[string]string)
+	for key, id := range p.claims {
+		if owner, ownedByOther := owners[id]; ownedByOther {
+			conflicts[key] = owner
+			delete(p.owned, id)
+		}
+	}
+	if len(conflicts) == 0 {
+		return nil
+	}
+
+	p.upserts = slices.DeleteFunc(p.upserts, func(upsert api.UpsertSecret) bool {
+		_, conflicting := conflicts[upsert.SecretKey]
+		return conflicting
+	})
+	return conflicts
+}
+
+// otherOwners returns a function that maps the ID of every secret recorded by another
+// InfisicalStaticSecretPush to that resource. Two resources pushing the same key would
+// overwrite each other on every sync, and deleting one would delete the key the other
+// pushed, so the operator leaves such keys alone. The resources are listed at most once,
+// and only when a sync is about to overwrite, take over or delete an existing secret.
+func (r *InfisicalStaticSecretPushReconciler) otherOwners(ctx context.Context, push *v1beta1.InfisicalStaticSecretPush) func() (map[string]string, error) {
+	return sync.OnceValues(func() (map[string]string, error) {
+		var pushes v1beta1.InfisicalStaticSecretPushList
+		if err := r.List(ctx, &pushes, client.UnsafeDisableDeepCopy); err != nil {
+			return nil, fmt.Errorf("unable to list InfisicalStaticSecretPushes to find keys pushed by another resource: %w", err)
+		}
+
+		owners := make(map[string]string)
+		for _, other := range pushes.Items {
+			if other.Namespace == push.Namespace && other.Name == push.Name {
+				continue
+			}
+			for id := range other.Status.ManagedSecrets {
+				owners[id] = other.Namespace + "/" + other.Name
+			}
+		}
+		return owners, nil
+	})
+}
+
+func conflictError(conflicts map[string]string) error {
+	described := make([]string, 0, len(conflicts))
+	for _, key := range slices.Sorted(maps.Keys(conflicts)) {
+		described = append(described, fmt.Sprintf("%s (pushed by %s)", key, conflicts[key]))
+	}
+	return fmt.Errorf("keys already pushed by another InfisicalStaticSecretPush were left unchanged: %s: push each key from only one resource", strings.Join(described, ", "))
 }
 
 func (r *InfisicalStaticSecretPushReconciler) upsertSecrets(restClient *resty.Client, location api.SecretLocation, secrets []api.UpsertSecret, createMissingFolders bool) ([]api.Secret, error) {
@@ -440,18 +534,35 @@ func (r *InfisicalStaticSecretPushReconciler) upsertBatch(restClient *resty.Clie
 // deleteSecrets deletes the given secrets, keyed by ID, from wherever they are stored.
 // Secrets found in listed are located without a request; the others are looked up by
 // ID, and ones that no longer exist are skipped. A secret whose folder and key are in
-// keep is not deleted, because this resource owns that key under a newer ID. It returns
-// the secrets it couldn't delete.
+// keep is not deleted, because this resource owns that key under a newer ID, and a
+// secret that another InfisicalStaticSecretPush owns is left to it. It returns the
+// secrets it couldn't delete.
 //
 // The Infisical API deletes secrets by key, not by ID. listed must therefore come from
 // the same reconcile, which keeps the window in which someone could replace a key with
 // a secret this resource doesn't own short.
-func (r *InfisicalStaticSecretPushReconciler) deleteSecrets(restClient *resty.Client, secrets map[string]string, listed map[string]secretRef, keep map[secretRef]struct{}) (map[string]string, error) {
+func (r *InfisicalStaticSecretPushReconciler) deleteSecrets(
+	restClient *resty.Client,
+	secrets map[string]string,
+	listed map[string]secretRef,
+	keep map[secretRef]struct{},
+	otherOwners func() (map[string]string, error),
+) (map[string]string, error) {
 	failed := make(map[string]string)
 	byLocation := make(map[api.SecretLocation]map[string]string)
 	var errs []error
 
+	owners, err := otherOwners()
+	if err != nil {
+		return maps.Clone(secrets), err
+	}
+
 	for _, id := range slices.Sorted(maps.Keys(secrets)) {
+		if owner, ownedByOther := owners[id]; ownedByOther {
+			r.logger.Info(fmt.Sprintf("Not deleting secret %s, because InfisicalStaticSecretPush %s pushes it too", secrets[id], owner))
+			continue
+		}
+
 		ref, found := listed[id]
 		if !found {
 			secret, err := api.GetSecretByID(restClient, id)

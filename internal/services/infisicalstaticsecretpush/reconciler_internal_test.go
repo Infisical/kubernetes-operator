@@ -42,11 +42,33 @@ var _ = Describe("planTarget", func() {
 
 		Expect(upsertKeys(plan)).To(Equal([]string{"FOREIGN_CHANGED", "NEW", "OWNED_CHANGED"}))
 		Expect(plan.owned).To(Equal(map[string]string{"owned-same": "OWNED_SAME", "foreign-same": "FOREIGN_SAME"}))
+		Expect(plan.claims).To(Equal(map[string]string{
+			"FOREIGN_CHANGED": "foreign-changed",
+			"FOREIGN_SAME":    "foreign-same",
+			"OWNED_CHANGED":   "owned-changed",
+		}))
+		Expect(plan.keptByPolicy).To(BeEmpty())
 	})
 
-	It("leaves keys it doesn't own untouched with the None policy", func() {
+	It("only creates missing keys with the None policy, keeping the ones it owns", func() {
 		plan := planTarget(desired, existing, managed, v1beta1.PushUpdatePolicyNone)
 
+		Expect(upsertKeys(plan)).To(Equal([]string{"NEW"}))
+		Expect(plan.owned).To(Equal(map[string]string{"owned-same": "OWNED_SAME", "owned-changed": "OWNED_CHANGED"}))
+		Expect(plan.claims).To(BeEmpty())
+		Expect(plan.keptByPolicy).To(Equal([]string{"FOREIGN_CHANGED", "OWNED_CHANGED"}))
+	})
+
+	It("drops the overwrites and take-overs of secrets another resource owns", func() {
+		plan := planTarget(desired, existing, managed, v1beta1.PushUpdatePolicyReplace)
+
+		conflicts := plan.dropClaimsOwnedByOthers(map[string]string{
+			"foreign-changed": "default/other",
+			"foreign-same":    "default/other",
+			"unrelated":       "default/other",
+		})
+
+		Expect(conflicts).To(Equal(map[string]string{"FOREIGN_CHANGED": "default/other", "FOREIGN_SAME": "default/other"}))
 		Expect(upsertKeys(plan)).To(Equal([]string{"NEW", "OWNED_CHANGED"}))
 		Expect(plan.owned).To(Equal(map[string]string{"owned-same": "OWNED_SAME"}))
 	})
@@ -161,7 +183,7 @@ var _ = Describe("deleteSecrets", func() {
 		}
 		server.DeleteSecret(secondID)
 
-		failed, err := reconciler.deleteSecrets(restClient, map[string]string{firstID: "FIRST", secondID: "SECOND"}, listed, nil)
+		failed, err := reconciler.deleteSecrets(restClient, map[string]string{firstID: "FIRST", secondID: "SECOND"}, listed, nil, noOtherOwners)
 
 		Expect(err).NotTo(HaveOccurred())
 		Expect(failed).To(BeEmpty())
@@ -171,7 +193,7 @@ var _ = Describe("deleteSecrets", func() {
 	It("looks up secrets that weren't listed and deletes them where they are now", func() {
 		id := server.CreateSecret(projectID, environment, "/elsewhere", "KEY", "value")
 
-		failed, err := reconciler.deleteSecrets(restClient, map[string]string{id: "KEY"}, nil, nil)
+		failed, err := reconciler.deleteSecrets(restClient, map[string]string{id: "KEY"}, nil, nil, noOtherOwners)
 
 		Expect(err).NotTo(HaveOccurred())
 		Expect(failed).To(BeEmpty())
@@ -180,7 +202,7 @@ var _ = Describe("deleteSecrets", func() {
 	})
 
 	It("skips secrets that no longer exist", func() {
-		failed, err := reconciler.deleteSecrets(restClient, map[string]string{"gone": "KEY"}, nil, nil)
+		failed, err := reconciler.deleteSecrets(restClient, map[string]string{"gone": "KEY"}, nil, nil, noOtherOwners)
 
 		Expect(err).NotTo(HaveOccurred())
 		Expect(failed).To(BeEmpty())
@@ -191,7 +213,7 @@ var _ = Describe("deleteSecrets", func() {
 		id := server.CreateSecret(projectID, environment, "/app", "KEY", "value")
 		server.RequireApproval(projectID, environment, "/app")
 
-		failed, err := reconciler.deleteSecrets(restClient, map[string]string{id: "KEY"}, nil, nil)
+		failed, err := reconciler.deleteSecrets(restClient, map[string]string{id: "KEY"}, nil, nil, noOtherOwners)
 
 		Expect(err).To(MatchError(ContainSubstring("require approval")))
 		Expect(failed).To(Equal(map[string]string{id: "KEY"}))
@@ -201,10 +223,26 @@ var _ = Describe("deleteSecrets", func() {
 		id := server.CreateSecret(projectID, environment, "/app", "KEY", "value")
 		keep := map[secretRef]struct{}{{location: location, key: "KEY"}: {}}
 
-		failed, err := reconciler.deleteSecrets(restClient, map[string]string{"stale-id": "KEY"}, map[string]secretRef{"stale-id": {location: location, key: "KEY"}}, keep)
+		failed, err := reconciler.deleteSecrets(restClient, map[string]string{"stale-id": "KEY"}, map[string]secretRef{"stale-id": {location: location, key: "KEY"}}, keep, noOtherOwners)
 
 		Expect(err).NotTo(HaveOccurred())
 		Expect(failed).To(BeEmpty())
 		Expect(server.Secrets(projectID, environment, "/app")["KEY"].ID).To(Equal(id))
 	})
+
+	It("leaves a secret another resource owns to that resource", func() {
+		id := server.CreateSecret(projectID, environment, "/app", "KEY", "value")
+		owners := func() (map[string]string, error) { return map[string]string{id: "default/other"}, nil }
+
+		failed, err := reconciler.deleteSecrets(restClient, map[string]string{id: "KEY"}, nil, nil, owners)
+
+		Expect(err).NotTo(HaveOccurred())
+		Expect(failed).To(BeEmpty())
+		Expect(server.Secrets(projectID, environment, "/app")).To(HaveKey("KEY"))
+		Expect(server.Requests()).To(BeEmpty())
+	})
 })
+
+func noOtherOwners() (map[string]string, error) {
+	return nil, nil
+}

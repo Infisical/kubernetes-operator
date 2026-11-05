@@ -114,8 +114,12 @@ func target(environment, secretPath string) v1beta1.PushTarget {
 
 // createPush stores a push resource with defaulted sync options, as the API server would.
 func (e *testEnv) createPush(sources []string, targets []v1beta1.PushTarget, mutate ...func(*v1beta1.InfisicalStaticSecretPushSpec)) *v1beta1.InfisicalStaticSecretPush {
+	return e.createNamedPush("push", sources, targets, mutate...)
+}
+
+func (e *testEnv) createNamedPush(name string, sources []string, targets []v1beta1.PushTarget, mutate ...func(*v1beta1.InfisicalStaticSecretPushSpec)) *v1beta1.InfisicalStaticSecretPush {
 	push := &v1beta1.InfisicalStaticSecretPush{
-		ObjectMeta: metav1.ObjectMeta{Name: "push", Namespace: namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 		Spec: v1beta1.InfisicalStaticSecretPushSpec{
 			InfisicalAuthRef: v1beta1.NamespacedName{Name: "auth", Namespace: namespace},
 			SyncOptions: v1beta1.PushSyncOptions{
@@ -276,8 +280,8 @@ var _ = Describe("SyncSecrets", func() {
 		Expect(push.Status.ManagedSecrets).To(HaveLen(1))
 	})
 
-	It("keeps keys it pushed in sync with updatePolicy None", func() {
-		source := sourceSecret("source", map[string]string{"KEY": "value"})
+	It("never changes a key that exists with updatePolicy None, including keys it pushed", func() {
+		source := sourceSecret("source", map[string]string{"KEY": "value", "REMOVED": "value"})
 		env := newTestEnv(source)
 		push := env.createPush([]string{"source"}, []v1beta1.PushTarget{target("dev", "/")}, func(spec *v1beta1.InfisicalStaticSecretPushSpec) {
 			spec.SyncOptions.UpdatePolicy = v1beta1.PushUpdatePolicyNone
@@ -286,9 +290,57 @@ var _ = Describe("SyncSecrets", func() {
 
 		source.Data["KEY"] = []byte("changed")
 		env.update(source)
-		env.mustSync(push)
+		push = env.mustSync(push)
 
+		Expect(env.values("dev", "/")).To(Equal(map[string]string{"KEY": "value", "REMOVED": "value"}))
+		Expect(push.Status.ManagedSecrets).To(HaveLen(2))
+
+		By("still creating the key again when it is deleted from Infisical")
+		env.infisical.DeleteSecret(env.infisical.Secrets(projectID, "dev", "/")["KEY"].ID)
+		env.mustSync(push)
+		Expect(env.values("dev", "/")).To(HaveKeyWithValue("KEY", "changed"))
+
+		By("still deleting a key it pushed once it is removed from the sources")
+		delete(source.Data, "REMOVED")
+		env.update(source)
+		env.mustSync(push)
 		Expect(env.values("dev", "/")).To(Equal(map[string]string{"KEY": "changed"}))
+	})
+
+	It("leaves keys another resource pushed to it, and reports them", func() {
+		env := newTestEnv(
+			sourceSecret("first-source", map[string]string{"SHARED": "first"}),
+			sourceSecret("second-source", map[string]string{"SHARED": "second", "OWN": "value"}),
+		)
+		first := env.createNamedPush("first", []string{"first-source"}, []v1beta1.PushTarget{target("dev", "/")})
+		env.mustSync(first)
+		second := env.createNamedPush("second", []string{"second-source"}, []v1beta1.PushTarget{target("dev", "/")})
+
+		second, err := env.sync(second)
+
+		Expect(err).To(MatchError(ContainSubstring("SHARED (pushed by default/first)")))
+		Expect(reconcileStatus(second).Message).To(ContainSubstring("push each key from only one resource"))
+		Expect(env.values("dev", "/")).To(Equal(map[string]string{"SHARED": "first", "OWN": "value"}))
+		Expect(second.Status.ManagedSecrets).To(Equal(map[string]string{env.infisical.Secrets(projectID, "dev", "/")["OWN"].ID: "OWN"}))
+
+		By("not deleting the shared key when the second resource is deleted")
+		Expect(env.handler.DeleteManagedSecrets(env.ctx, second)).To(Succeed())
+		Expect(env.values("dev", "/")).To(Equal(map[string]string{"SHARED": "first"}))
+	})
+
+	It("doesn't delete a key that another resource also recorded", func() {
+		env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value"}))
+		first := env.createNamedPush("first", []string{"source"}, []v1beta1.PushTarget{target("dev", "/")})
+		first = env.mustSync(first)
+		// Two resources can record the same secret when they create it at the same time.
+		second := env.createNamedPush("second", []string{"source"}, []v1beta1.PushTarget{target("dev", "/")})
+		second.Status.ManagedSecrets = first.Status.ManagedSecrets
+		Expect(env.client.Status().Update(env.ctx, second)).To(Succeed())
+
+		Expect(env.handler.DeleteManagedSecrets(env.ctx, env.get(first))).To(Succeed())
+
+		Expect(env.values("dev", "/")).To(Equal(map[string]string{"KEY": "value"}))
+		Expect(env.get(first).Status.ManagedSecrets).To(BeEmpty())
 	})
 
 	It("overwrites and takes over existing keys with updatePolicy Replace", func() {
@@ -548,6 +600,22 @@ var _ = Describe("DeleteManagedSecrets", func() {
 
 		Expect(env.handler.DeleteManagedSecrets(env.ctx, push)).To(Succeed())
 		Expect(env.infisical.Requests()).To(BeEmpty())
+	})
+
+	It("shows on the status that it is deleting while the deletion runs", func() {
+		env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value"}))
+		push := env.mustSync(env.createPush([]string{"source"}, []v1beta1.PushTarget{target("dev", "/")}))
+		release := env.infisical.Stall()
+		DeferCleanup(release)
+
+		done := make(chan error, 1)
+		go func() { done <- env.handler.DeleteManagedSecrets(env.ctx, push) }()
+
+		Eventually(func() string { return reconcileStatus(env.get(push)).Reason }).Should(Equal("Deleting"))
+		Expect(reconcileStatus(env.get(push)).Message).To(Equal("Deleting the pushed secrets from Infisical"))
+		release()
+		Eventually(done).Should(Receive(BeNil()))
+		Expect(env.values("dev", "/")).To(BeEmpty())
 	})
 
 	It("stops calling Infisical when the context ends and still records the outcome", func() {

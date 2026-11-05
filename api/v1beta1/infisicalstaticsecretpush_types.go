@@ -28,15 +28,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// PushUpdatePolicy decides what happens to keys that already exist in Infisical
-// but weren't pushed by this resource.
+// PushUpdatePolicy decides whether keys that already exist in Infisical are updated.
 // +kubebuilder:validation:Enum=Replace;None
 type PushUpdatePolicy string
 
 const (
-	// PushUpdatePolicyReplace overwrites existing keys and takes them over.
+	// PushUpdatePolicyReplace keeps existing keys in sync with the sources, and takes
+	// over keys created outside this resource.
 	PushUpdatePolicyReplace PushUpdatePolicy = "Replace"
-	// PushUpdatePolicyNone leaves existing keys untouched.
+	// PushUpdatePolicyNone only creates missing keys. It never changes a key that
+	// already exists, including the keys this resource created.
 	PushUpdatePolicyNone PushUpdatePolicy = "None"
 )
 
@@ -92,9 +93,11 @@ type PushSyncOptions struct {
 	// +kubebuilder:validation:Optional
 	RefreshInterval string `json:"refreshInterval,omitempty"`
 
-	// What happens to keys that already exist in Infisical but weren't pushed by this
-	// resource. Replace overwrites and takes them over; None leaves them untouched.
-	// Keys this resource pushed are always kept in sync.
+	// Whether keys that already exist in Infisical are updated. Replace keeps them in
+	// sync with the sources and takes over keys created outside this resource. None only
+	// creates missing keys and never changes an existing one, including the keys this
+	// resource created, so later changes to the sources don't reach Infisical. A key
+	// another InfisicalStaticSecretPush pushed is never changed.
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default=Replace
 	UpdatePolicy PushUpdatePolicy `json:"updatePolicy,omitempty"`

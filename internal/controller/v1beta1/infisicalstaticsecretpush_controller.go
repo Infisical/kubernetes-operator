@@ -172,7 +172,7 @@ func (r *InfisicalStaticSecretPushReconciler) reconcileDelete(
 				}
 				retryAfter = min(retryAfter, remaining)
 
-				logger.Error(err, fmt.Sprintf("Unable to delete pushed secrets from Infisical, retrying after %v", retryAfter.Round(time.Second)))
+				logger.Error(err, fmt.Sprintf("Unable to delete pushed secrets from Infisical, retrying after %v", retryAfter.Round(100*time.Millisecond)))
 				return ctrl.Result{RequeueAfter: retryAfter}, nil
 			}
 

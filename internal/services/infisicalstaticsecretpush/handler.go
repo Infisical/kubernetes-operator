@@ -75,7 +75,7 @@ func (h *InfisicalStaticSecretPushHandler) SyncSecrets(ctx context.Context, push
 		return 0, err
 	}
 
-	if err := h.reconciler.PushToTargets(restClient, session, push, desired); err != nil {
+	if err := h.reconciler.PushToTargets(ctx, restClient, session, push, desired); err != nil {
 		return 0, err
 	}
 
@@ -94,7 +94,15 @@ func (h *InfisicalStaticSecretPushHandler) DeleteManagedSecrets(ctx context.Cont
 		return nil
 	}
 
+	// Deleting can take minutes when Infisical is slow or unreachable, so show it on the
+	// status before starting instead of only once it has finished.
 	original := push.DeepCopy()
+	setDeletingCondition(push)
+	if err := h.reconciler.patchStatus(ctx, push, original); err != nil {
+		return err
+	}
+
+	original = push.DeepCopy()
 	defer func() {
 		if err != nil {
 			setReconcileStatusCondition(push, fmt.Errorf("unable to delete pushed secrets: %w", err))
@@ -115,7 +123,7 @@ func (h *InfisicalStaticSecretPushHandler) DeleteManagedSecrets(ctx context.Cont
 		return err
 	}
 
-	if err := h.reconciler.DeleteManagedSecrets(restClient, push); err != nil {
+	if err := h.reconciler.DeleteManagedSecrets(ctx, restClient, push); err != nil {
 		h.reconciler.session.InvalidateOnUnauthorized(session, err)
 		return err
 	}

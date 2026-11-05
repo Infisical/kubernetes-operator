@@ -10,6 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -173,6 +174,20 @@ var _ = Describe("InfisicalStaticSecretPush Controller", func() {
 		Expect(hasFinalizer()).To(BeTrue())
 		Expect(pushedValues()).To(Equal(map[string]string{"KEY": "value"}))
 		Expect(getPush().Status.ManagedSecrets).To(HaveLen(1))
+	})
+
+	It("records error: false on a resource whose first sync succeeds", func() {
+		createPush(secretsv1beta1.PushSyncOptions{})
+		reconcilePush()
+
+		// The typed client reads a missing field as false, so check the stored object.
+		raw := &unstructured.Unstructured{}
+		raw.SetGroupVersionKind(secretsv1beta1.GroupVersion.WithKind("InfisicalStaticSecretPush"))
+		Expect(k8sClient.Get(ctx, pushKey, raw)).To(Succeed())
+		value, found, err := unstructured.NestedBool(raw.Object, "status", "error")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(found).To(BeTrue())
+		Expect(value).To(BeFalse())
 	})
 
 	It("doesn't requeue without a refresh interval", func() {

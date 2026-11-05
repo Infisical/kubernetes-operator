@@ -32,6 +32,7 @@ import (
 	defaultErrors "errors"
 
 	infisicalsecret "github.com/Infisical/infisical/k8-operator/internal/services/infisicalsecret"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -257,7 +258,7 @@ func (r *InfisicalSecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		).
 		For(&secretsv1alpha1.InfisicalSecret{}, builder.WithPredicates(predicate.Funcs{
 			UpdateFunc: func(e event.UpdateEvent) bool {
-				if e.ObjectOld.GetGeneration() == e.ObjectNew.GetGeneration() {
+				if !shouldReconcileInfisicalSecretUpdate(e) {
 					return false // Skip reconciliation for status-only changes
 				}
 
@@ -288,4 +289,9 @@ func (r *InfisicalSecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			},
 		})).Complete(r)
 
+}
+
+func shouldReconcileInfisicalSecretUpdate(e event.UpdateEvent) bool {
+	return e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() ||
+		!equality.Semantic.DeepEqual(e.ObjectOld.GetAnnotations(), e.ObjectNew.GetAnnotations())
 }

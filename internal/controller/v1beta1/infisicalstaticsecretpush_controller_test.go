@@ -226,15 +226,34 @@ var _ = Describe("InfisicalStaticSecretPush Controller", func() {
 		Expect(getPush().Status.Error).To(BeTrue())
 	})
 
-	It("removes the finalizer after the grace period even when the cleanup fails", func() {
+	It("removes the finalizer without contacting Infisical once the grace period has passed", func() {
 		createPush(secretsv1beta1.PushSyncOptions{})
 		reconcilePush()
-		infisical.RequireApproval(projectID, "dev", "/app")
 		reconciler.CleanupGracePeriod = time.Nanosecond
+		infisical.ResetRequests()
 
 		Expect(k8sClient.Delete(ctx, getPush())).To(Succeed())
 		reconcilePush()
 
+		Expect(infisical.Requests()).To(BeEmpty())
+		Expect(pushedValues()).To(Equal(map[string]string{"KEY": "value"}))
+		err := k8sClient.Get(ctx, pushKey, &secretsv1beta1.InfisicalStaticSecretPush{})
+		Expect(k8sErrors.IsNotFound(err)).To(BeTrue())
+	})
+
+	It("stops a stalled cleanup at the end of the grace period and removes the finalizer", func() {
+		createPush(secretsv1beta1.PushSyncOptions{})
+		reconcilePush()
+		reconciler.CleanupGracePeriod = 3 * time.Second
+		DeferCleanup(infisical.Stall())
+
+		Expect(k8sClient.Delete(ctx, getPush())).To(Succeed())
+		start := time.Now()
+		reconcilePush()
+
+		// The deletion timestamp has a precision of one second, so the deadline is two to three seconds away.
+		Expect(time.Since(start)).To(BeNumerically("<", 10*time.Second))
+		Expect(infisical.Requests()).NotTo(BeEmpty())
 		Expect(pushedValues()).To(Equal(map[string]string{"KEY": "value"}))
 		err := k8sClient.Get(ctx, pushKey, &secretsv1beta1.InfisicalStaticSecretPush{})
 		Expect(k8sErrors.IsNotFound(err)).To(BeTrue())

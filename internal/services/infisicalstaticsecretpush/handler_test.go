@@ -2,6 +2,7 @@ package infisicalstaticsecretpush_test
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-logr/logr"
 	infisicalSdk "github.com/infisical/go-sdk"
@@ -547,5 +548,23 @@ var _ = Describe("DeleteManagedSecrets", func() {
 
 		Expect(env.handler.DeleteManagedSecrets(env.ctx, push)).To(Succeed())
 		Expect(env.infisical.Requests()).To(BeEmpty())
+	})
+
+	It("stops calling Infisical when the context ends and still records the outcome", func() {
+		env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value"}))
+		push := env.createPush([]string{"source"}, []v1beta1.PushTarget{target("dev", "/")})
+		managed := env.mustSync(push).Status.ManagedSecrets
+		DeferCleanup(env.infisical.Stall())
+
+		ctx, cancel := context.WithTimeout(env.ctx, 200*time.Millisecond)
+		defer cancel()
+		err := env.handler.DeleteManagedSecrets(ctx, env.get(push))
+
+		Expect(err).To(MatchError(context.DeadlineExceeded))
+		Expect(env.values("dev", "/")).To(Equal(map[string]string{"KEY": "value"}))
+		push = env.get(push)
+		Expect(push.Status.ManagedSecrets).To(Equal(managed))
+		Expect(push.Status.Error).To(BeTrue())
+		Expect(reconcileStatus(push).Message).To(ContainSubstring("unable to delete pushed secrets"))
 	})
 })

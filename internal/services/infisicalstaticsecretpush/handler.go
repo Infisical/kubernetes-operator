@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	"github.com/go-resty/resty/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
@@ -37,9 +38,9 @@ type InfisicalStaticSecretPushHandler struct {
 }
 
 // SyncSecrets pushes the source Secrets to every target, deletes what is no longer
-// pushed, and records the outcome on the status. It returns the number of keys pushed
-// to each target.
-func (h *InfisicalStaticSecretPushHandler) SyncSecrets(ctx context.Context, push *v1beta1.InfisicalStaticSecretPush) (pushed int, err error) {
+// pushed, and records the outcome on the status. It returns the number of keys read
+// from the source Secrets, whether or not they had to be written to Infisical.
+func (h *InfisicalStaticSecretPushHandler) SyncSecrets(ctx context.Context, push *v1beta1.InfisicalStaticSecretPush) (sourceKeys int, err error) {
 	if push == nil {
 		return 0, model.ErrInvalidStaticSecretPushObject
 	}
@@ -69,7 +70,7 @@ func (h *InfisicalStaticSecretPushHandler) SyncSecrets(ctx context.Context, push
 		return 0, err
 	}
 
-	restClient, err := h.reconciler.session.NewAPIClient(ctx, session)
+	restClient, err := h.newAPIClient(ctx, session)
 	if err != nil {
 		return 0, err
 	}
@@ -82,7 +83,8 @@ func (h *InfisicalStaticSecretPushHandler) SyncSecrets(ctx context.Context, push
 }
 
 // DeleteManagedSecrets deletes every secret this resource pushed. Secrets it couldn't
-// delete stay recorded on the status, so a retry only repeats what failed.
+// delete stay recorded on the status, so a retry only repeats what failed. Requests to
+// Infisical stop when ctx is done, and the status is still updated after that.
 func (h *InfisicalStaticSecretPushHandler) DeleteManagedSecrets(ctx context.Context, push *v1beta1.InfisicalStaticSecretPush) (err error) {
 	if push == nil {
 		return model.ErrInvalidStaticSecretPushObject
@@ -97,7 +99,8 @@ func (h *InfisicalStaticSecretPushHandler) DeleteManagedSecrets(ctx context.Cont
 		if err != nil {
 			setReconcileStatusCondition(push, fmt.Errorf("unable to delete pushed secrets: %w", err))
 		}
-		if statusErr := h.reconciler.patchStatus(ctx, push, original); statusErr != nil {
+		// The secrets deleted before ctx ended must still be removed from the status.
+		if statusErr := h.reconciler.patchStatus(context.WithoutCancel(ctx), push, original); statusErr != nil {
 			err = errors.Join(err, statusErr)
 		}
 	}()
@@ -107,7 +110,7 @@ func (h *InfisicalStaticSecretPushHandler) DeleteManagedSecrets(ctx context.Cont
 		return fmt.Errorf("Unable to authenticate: %w", err)
 	}
 
-	restClient, err := h.reconciler.session.NewAPIClient(ctx, session)
+	restClient, err := h.newAPIClient(ctx, session)
 	if err != nil {
 		return err
 	}
@@ -118,4 +121,20 @@ func (h *InfisicalStaticSecretPushHandler) DeleteManagedSecrets(ctx context.Cont
 	}
 
 	return nil
+}
+
+// newAPIClient returns an Infisical API client whose requests are cancelled when ctx is
+// done. The client only waits a bounded time for response headers, so without ctx a
+// stalled response body could block a reconcile indefinitely.
+func (h *InfisicalStaticSecretPushHandler) newAPIClient(ctx context.Context, session infisicalsession.Session) (*resty.Client, error) {
+	restClient, err := h.reconciler.session.NewAPIClient(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+
+	restClient.OnBeforeRequest(func(_ *resty.Client, request *resty.Request) error {
+		request.SetContext(ctx)
+		return nil
+	})
+	return restClient, nil
 }

@@ -113,7 +113,9 @@ func (r *InfisicalStaticSecretPushReconciler) Reconcile(ctx context.Context, req
 		return ctrl.Result{}, err
 	}
 
-	pushed, err := pushHandler.SyncSecrets(ctx, &push)
+	// Writes to Infisical are logged as they happen, so the summary only reports how
+	// many keys the source Secrets hold.
+	sourceKeys, err := pushHandler.SyncSecrets(ctx, &push)
 	if err != nil {
 		if result, ok := requeueOnRateLimit(logger, err); ok {
 			return result, nil
@@ -123,7 +125,7 @@ func (r *InfisicalStaticSecretPushReconciler) Reconcile(ctx context.Context, req
 	}
 
 	if push.Spec.SyncOptions.RefreshInterval == "" {
-		logger.Info(fmt.Sprintf("Reconciliation successful with %d secrets pushed to Infisical, pushing again when a source Secret or this resource changes", pushed))
+		logger.Info(fmt.Sprintf("Reconciliation successful with %d secrets from the source Secrets, syncing again when a source Secret or this resource changes", sourceKeys))
 		return ctrl.Result{}, nil
 	}
 
@@ -132,13 +134,15 @@ func (r *InfisicalStaticSecretPushReconciler) Reconcile(ctx context.Context, req
 		return ctrl.Result{}, fmt.Errorf("invalid refreshInterval %q: %w", push.Spec.SyncOptions.RefreshInterval, err)
 	}
 
-	logger.Info(fmt.Sprintf("Reconciliation successful with %d secrets pushed to Infisical, requeueing after %v", pushed, refreshInterval))
+	logger.Info(fmt.Sprintf("Reconciliation successful with %d secrets from the source Secrets, requeueing after %v", sourceKeys, refreshInterval))
 	return ctrl.Result{RequeueAfter: refreshInterval}, nil
 }
 
 // reconcileDelete deletes the pushed secrets and then removes the finalizer. When the
 // deletion keeps failing, it is retried until StaticSecretPushCleanupGracePeriod has
 // passed since the resource was deleted, and the finalizer is removed anyway after that.
+// Requests to Infisical are cancelled at the end of the grace period, so a slow or
+// stalled Infisical can't hold the deletion longer.
 func (r *InfisicalStaticSecretPushReconciler) reconcileDelete(
 	ctx context.Context,
 	logger logr.Logger,
@@ -149,11 +153,19 @@ func (r *InfisicalStaticSecretPushReconciler) reconcileDelete(
 		return ctrl.Result{}, nil
 	}
 
-	if push.Spec.SyncOptions.GetDeletionPolicy() == secretsv1beta1.PushDeletionPolicyDelete {
-		if err := pushHandler.DeleteManagedSecrets(ctx, push); err != nil {
-			gracePeriod := r.cleanupGracePeriod()
-			remaining := gracePeriod - time.Since(push.DeletionTimestamp.Time)
-			if remaining > 0 {
+	if push.Spec.SyncOptions.GetDeletionPolicy() == secretsv1beta1.PushDeletionPolicyDelete && len(push.Status.ManagedSecrets) > 0 {
+		gracePeriod := r.cleanupGracePeriod()
+		deadline := push.DeletionTimestamp.Add(gracePeriod)
+
+		err := fmt.Errorf("the cleanup grace period of %v has passed", gracePeriod)
+		if time.Now().Before(deadline) {
+			cleanupCtx, cancel := context.WithDeadline(ctx, deadline)
+			err = pushHandler.DeleteManagedSecrets(cleanupCtx, push)
+			cancel()
+		}
+
+		if err != nil {
+			if remaining := time.Until(deadline); remaining > 0 {
 				retryAfter := staticSecretPushCleanupRetryDelay
 				if result, ok := requeueOnRateLimit(logger, err); ok {
 					retryAfter = result.RequeueAfter

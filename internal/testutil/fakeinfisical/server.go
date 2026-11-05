@@ -35,6 +35,7 @@ type Server struct {
 	approvalPaths map[string]bool
 	nextID        int
 	requests      []string
+	stall         chan struct{}
 }
 
 // New starts a fake Infisical in which every given environment of every given project exists.
@@ -134,6 +135,26 @@ func (s *Server) CountRequests(request string) int {
 	return count
 }
 
+// Stall makes every request wait without a response until the client gives up, as an
+// unresponsive Infisical would. It returns a function that ends the stall.
+func (s *Server) Stall() (release func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	stall := make(chan struct{})
+	s.stall = stall
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			s.mu.Lock()
+			s.stall = nil
+			s.mu.Unlock()
+			close(stall)
+		})
+	}
+}
+
 // ResetRequests forgets the recorded requests.
 func (s *Server) ResetRequests() {
 	s.mu.Lock()
@@ -145,7 +166,16 @@ func (s *Server) record(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		s.requests = append(s.requests, r.Method+" "+r.URL.Path)
+		stall := s.stall
 		s.mu.Unlock()
+
+		if stall != nil {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-stall:
+			}
+		}
 		next.ServeHTTP(w, r)
 	})
 }

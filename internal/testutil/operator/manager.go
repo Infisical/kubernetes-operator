@@ -130,6 +130,7 @@ defaultInfisicalConnection:
 		"infisicalconnections.secrets.infisical.com",
 		"infisicalauths.secrets.infisical.com",
 		"infisicalstaticsecrets.secrets.infisical.com",
+		"infisicalstaticsecretpushes.secrets.infisical.com",
 	}); err != nil {
 		return nil, fmt.Errorf("wait for CRDs: %w", err)
 	}

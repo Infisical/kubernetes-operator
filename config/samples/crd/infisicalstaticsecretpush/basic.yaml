@@ -1,0 +1,18 @@
+apiVersion: secrets.infisical.com/v1beta1
+kind: InfisicalStaticSecretPush
+metadata:
+  name: infisicalstaticsecretpush-demo
+spec:
+  infisicalAuthRef:
+    name: infisicalauth-universal-demo
+    namespace: default
+
+  sources:
+    secrets:
+      - name: push-secret-demo
+        namespace: default
+
+  targets:
+    - projectId: <your-project-id>
+      environmentSlug: dev
+      secretPath: /

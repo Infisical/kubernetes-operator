@@ -362,6 +362,26 @@ var _ = Describe("SyncSecrets", func() {
 		Expect(env.get(second).Status.ManagedSecrets).To(BeEmpty())
 	})
 
+	It("doesn't delete a key a live resource recorded when other owners are being deleted", func() {
+		env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value"}))
+		cleaning := env.mustSync(env.createNamedPush("a-cleaning", []string{"source"}, []v1beta1.PushTarget{target("dev", "/")}))
+		// Three resources can record the same secret when they create it at the same time.
+		// The live one is listed before the other one being deleted.
+		for _, name := range []string{"b-live", "c-deleting"} {
+			other := env.createNamedPush(name, []string{"source"}, []v1beta1.PushTarget{target("dev", "/")})
+			other.Status.ManagedSecrets = cleaning.Status.ManagedSecrets
+			Expect(env.client.Status().Update(env.ctx, other)).To(Succeed())
+		}
+		deleting := env.get(&v1beta1.InfisicalStaticSecretPush{ObjectMeta: metav1.ObjectMeta{Name: "c-deleting", Namespace: namespace}})
+		deleting.Finalizers = []string{"test/keep"}
+		env.update(deleting)
+		Expect(env.client.Delete(env.ctx, deleting)).To(Succeed())
+
+		Expect(env.handler.DeleteManagedSecrets(env.ctx, env.get(cleaning))).To(Succeed())
+
+		Expect(env.values("dev", "/")).To(Equal(map[string]string{"KEY": "value"}))
+	})
+
 	It("deletes a key two resources recorded when both are being deleted", func() {
 		env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value"}))
 		first := env.mustSync(env.createNamedPush("first", []string{"source"}, []v1beta1.PushTarget{target("dev", "/")}))

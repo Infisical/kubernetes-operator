@@ -488,6 +488,11 @@ func (r *InfisicalStaticSecretPushReconciler) otherOwners(ctx context.Context, p
 			}
 			owner := otherOwner{name: other.Namespace + "/" + other.Name, deleting: !other.DeletionTimestamp.IsZero()}
 			for id := range other.Status.ManagedSecrets {
+				// Several resources can record the same secret. One that isn't being deleted
+				// wins, because it still pushes the key and cleanup must not delete it.
+				if recorded, exists := owners[id]; exists && !recorded.deleting {
+					continue
+				}
 				owners[id] = owner
 			}
 		}

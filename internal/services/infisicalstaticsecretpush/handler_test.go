@@ -635,6 +635,12 @@ var _ = Describe("SyncSecrets", func() {
 		Entry("an invalid refreshInterval", func(spec *v1beta1.InfisicalStaticSecretPushSpec) {
 			spec.SyncOptions.RefreshInterval = "2s"
 		}, `invalid refreshInterval "2s"`),
+		Entry("a zero refreshInterval in minutes", func(spec *v1beta1.InfisicalStaticSecretPushSpec) {
+			spec.SyncOptions.RefreshInterval = "0m"
+		}, `invalid refreshInterval "0m": must be at least 5s`),
+		Entry("a negative refreshInterval", func(spec *v1beta1.InfisicalStaticSecretPushSpec) {
+			spec.SyncOptions.RefreshInterval = "-5m"
+		}, `invalid refreshInterval "-5m": must be at least 5s`),
 	)
 })
 

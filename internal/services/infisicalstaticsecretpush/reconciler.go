@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/go-logr/logr"
@@ -29,6 +30,9 @@ import (
 const maxBatchBytes = 512 * 1024
 
 const secretTypePersonal = "personal"
+
+// minRefreshInterval is the shortest refreshInterval accepted.
+const minRefreshInterval = 5 * time.Second
 
 type InfisicalStaticSecretPushReconciler struct {
 	client.Client
@@ -63,7 +67,13 @@ func (r *InfisicalStaticSecretPushReconciler) Validate(push *v1beta1.InfisicalSt
 	spec := &push.Spec
 
 	if spec.SyncOptions.RefreshInterval != "" {
-		if _, err := util.ConvertResyncIntervalToDuration(spec.SyncOptions.RefreshInterval, false); err != nil {
+		interval, err := util.ConvertResyncIntervalToDuration(spec.SyncOptions.RefreshInterval, false)
+		// The parser only enforces the minimum for intervals in seconds, so "0m" or "-5m"
+		// would otherwise turn the refresh off without an error.
+		if err == nil && interval < minRefreshInterval {
+			err = fmt.Errorf("must be at least %v", minRefreshInterval)
+		}
+		if err != nil {
 			return fmt.Errorf("invalid refreshInterval %q: %w", spec.SyncOptions.RefreshInterval, err)
 		}
 	}

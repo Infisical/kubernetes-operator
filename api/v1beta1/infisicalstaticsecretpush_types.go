@@ -88,8 +88,8 @@ type InfisicalStaticSecretPushSpec struct {
 }
 
 type PushSyncOptions struct {
-	// How often to push again, e.g. 60s, 5m, 1h. When omitted, the operator pushes only
-	// when a source Secret or this resource changes.
+	// How often to push again, e.g. 60s, 5m, 1h. The minimum is 5s. When omitted, the
+	// operator pushes only when a source Secret or this resource changes.
 	// +kubebuilder:validation:Optional
 	RefreshInterval string `json:"refreshInterval,omitempty"`
 

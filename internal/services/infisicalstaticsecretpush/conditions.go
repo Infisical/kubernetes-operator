@@ -3,100 +3,40 @@ package infisicalstaticsecretpush
 import (
 	"context"
 	"fmt"
-	"time"
-	"unicode/utf8"
 
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
+	"github.com/Infisical/infisical/k8-operator/internal/conditions"
 )
 
 const (
-	ConditionLastSuccessfulReconcileAt = "secrets.infisical.com/LastSuccessfulReconcileAt"
-	ConditionLastReconcileStatus       = "secrets.infisical.com/LastReconcileStatus"
-	ConditionLastReconcileAuthMethod   = "secrets.infisical.com/LastReconcileAuthMethod"
+	ConditionLastSuccessfulReconcileAt = conditions.LastSuccessfulReconcileAt
+	ConditionLastReconcileStatus       = conditions.LastReconcileStatus
+	ConditionLastReconcileAuthMethod   = conditions.LastReconcileAuthMethod
 )
 
-func initConditions(push *v1beta1.InfisicalStaticSecretPush) {
-	if push.Status.Conditions == nil {
-		push.Status.Conditions = []metav1.Condition{}
-	}
-}
-
 func setLastSuccessfulReconcileAtCondition(push *v1beta1.InfisicalStaticSecretPush) {
-	initConditions(push)
-	meta.SetStatusCondition(&push.Status.Conditions, metav1.Condition{
-		Type:               ConditionLastSuccessfulReconcileAt,
-		Status:             metav1.ConditionTrue,
-		Reason:             "OK",
-		Message:            time.Now().UTC().Format(time.RFC3339),
-		ObservedGeneration: push.Generation,
-	})
+	conditions.SetLastSuccessfulReconcileAt(&push.Status.Conditions, push.Generation)
 }
 
 func setAuthMethodCondition(push *v1beta1.InfisicalStaticSecretPush, authMethod string) {
-	initConditions(push)
-	meta.SetStatusCondition(&push.Status.Conditions, metav1.Condition{
-		Type:               ConditionLastReconcileAuthMethod,
-		Status:             metav1.ConditionTrue,
-		Reason:             "OK",
-		Message:            authMethod,
-		ObservedGeneration: push.Generation,
-	})
+	conditions.SetAuthMethod(&push.Status.Conditions, push.Generation, authMethod)
 }
 
 // setReconcileStatusCondition records the outcome of a reconciliation on status.error, the LastReconcileStatus
 // condition and status.observedGeneration. A nil error marks the resource as healthy.
 func setReconcileStatusCondition(push *v1beta1.InfisicalStaticSecretPush, errorToConditionOn error) {
-	initConditions(push)
 	push.Status.ObservedGeneration = push.Generation
 	push.Status.Error = errorToConditionOn != nil
-
-	if errorToConditionOn == nil {
-		meta.SetStatusCondition(&push.Status.Conditions, metav1.Condition{
-			Type:               ConditionLastReconcileStatus,
-			Status:             metav1.ConditionTrue,
-			Reason:             "OK",
-			Message:            "Reconciliation successful",
-			ObservedGeneration: push.Generation,
-		})
-	} else {
-		meta.SetStatusCondition(&push.Status.Conditions, metav1.Condition{
-			Type:               ConditionLastReconcileStatus,
-			Status:             metav1.ConditionFalse,
-			Reason:             "Error",
-			Message:            truncateConditionMessage(fmt.Sprintf("Reconciliation failed: %v", errorToConditionOn)),
-			ObservedGeneration: push.Generation,
-		})
-	}
-}
-
-// maxConditionMessageLength is the longest message, in bytes, the API server accepts for
-// a status condition. A longer one would make it reject the whole status update,
-// including the IDs of the secrets pushed during the same sync.
-const maxConditionMessageLength = 32768
-
-// truncateConditionMessage shortens a message to maxConditionMessageLength bytes,
-// cutting at a character boundary so the message stays valid UTF-8.
-func truncateConditionMessage(message string) string {
-	if len(message) <= maxConditionMessageLength {
-		return message
-	}
-	const suffix = "... (truncated)"
-	cut := maxConditionMessageLength - len(suffix)
-	for cut > 0 && !utf8.RuneStart(message[cut]) {
-		cut--
-	}
-	return message[:cut] + suffix
+	conditions.SetReconcileStatus(&push.Status.Conditions, push.Generation, errorToConditionOn)
 }
 
 // setDeletingCondition records on the LastReconcileStatus condition that the pushed
 // secrets are being deleted from Infisical.
 func setDeletingCondition(push *v1beta1.InfisicalStaticSecretPush) {
-	initConditions(push)
-	meta.SetStatusCondition(&push.Status.Conditions, metav1.Condition{
+	conditions.Set(&push.Status.Conditions, metav1.Condition{
 		Type:               ConditionLastReconcileStatus,
 		Status:             metav1.ConditionFalse,
 		Reason:             "Deleting",

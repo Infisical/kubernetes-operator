@@ -333,6 +333,12 @@ func (r *InfisicalStaticSecretPushReconciler) syncTarget(
 	}
 	maps.Copy(result.owned, plan.owned)
 
+	// Taking over a secret that already has the source value doesn't write to Infisical,
+	// so this is the only record that the resource now owns it and may delete it.
+	if len(plan.takenOver) > 0 {
+		r.logger.Info(fmt.Sprintf("Taking over %d existing secrets at %s:%s because updatePolicy is Replace: %s",
+			len(plan.takenOver), location.Environment, location.SecretPath, summarize(plan.takenOver)))
+	}
 	if len(plan.keptByPolicy) > 0 {
 		r.logger.Info(fmt.Sprintf("Left %d existing secrets at %s:%s unchanged because updatePolicy is None: %s",
 			len(plan.keptByPolicy), location.Environment, location.SecretPath, summarize(plan.keptByPolicy)))
@@ -389,6 +395,9 @@ type targetPlan struct {
 	// claims maps the key of every existing secret the plan overwrites or takes over to
 	// that secret's ID.
 	claims map[string]string
+	// takenOver holds the keys of the existing secrets this resource didn't push that the
+	// plan takes over, whether or not their value has to be written.
+	takenOver []string
 	// keptByPolicy holds the keys whose value in Infisical differs from the source but
 	// that are left unchanged because the update policy is None.
 	keptByPolicy []string
@@ -428,14 +437,14 @@ func planTarget(desired map[string]string, existing []api.Secret, managed map[st
 			continue
 		}
 
+		if !isOwned {
+			plan.claims[key] = current.ID
+			plan.takenOver = append(plan.takenOver, key)
+		}
 		if !upToDate {
 			plan.upserts = append(plan.upserts, api.UpsertSecret{SecretKey: key, SecretValue: value})
 			plan.claims[key] = current.ID
 			continue
-		}
-
-		if !isOwned {
-			plan.claims[key] = current.ID
 		}
 		plan.owned[current.ID] = key
 	}
@@ -461,6 +470,10 @@ func (p *targetPlan) dropClaimsOwnedByOthers(owners map[string]otherOwner) map[s
 
 	p.upserts = slices.DeleteFunc(p.upserts, func(upsert api.UpsertSecret) bool {
 		_, conflicting := conflicts[upsert.SecretKey]
+		return conflicting
+	})
+	p.takenOver = slices.DeleteFunc(p.takenOver, func(key string) bool {
+		_, conflicting := conflicts[key]
 		return conflicting
 	})
 	return conflicts

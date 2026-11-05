@@ -50,6 +50,7 @@ var _ = Describe("planTarget", func() {
 			"FOREIGN_SAME":    "foreign-same",
 			"OWNED_CHANGED":   "owned-changed",
 		}))
+		Expect(plan.takenOver).To(Equal([]string{"FOREIGN_CHANGED", "FOREIGN_SAME"}))
 		Expect(plan.keptByPolicy).To(BeEmpty())
 	})
 
@@ -59,6 +60,7 @@ var _ = Describe("planTarget", func() {
 		Expect(upsertKeys(plan)).To(Equal([]string{"NEW"}))
 		Expect(plan.owned).To(Equal(map[string]string{"owned-same": "OWNED_SAME", "owned-changed": "OWNED_CHANGED"}))
 		Expect(plan.claims).To(BeEmpty())
+		Expect(plan.takenOver).To(BeEmpty())
 		Expect(plan.keptByPolicy).To(Equal([]string{"FOREIGN_CHANGED", "OWNED_CHANGED"}))
 	})
 
@@ -69,13 +71,19 @@ var _ = Describe("planTarget", func() {
 		deleting := otherOwner{name: "default/deleting", deleting: true}
 		conflicts := plan.dropClaimsOwnedByOthers(map[string]otherOwner{
 			"foreign-changed": other,
-			"foreign-same":    deleting,
 			"unrelated":       other,
 		})
 
-		Expect(conflicts).To(Equal(map[string]otherOwner{"FOREIGN_CHANGED": other, "FOREIGN_SAME": deleting}))
+		Expect(conflicts).To(Equal(map[string]otherOwner{"FOREIGN_CHANGED": other}))
 		Expect(upsertKeys(plan)).To(Equal([]string{"NEW", "OWNED_CHANGED"}))
+		Expect(plan.owned).To(Equal(map[string]string{"owned-same": "OWNED_SAME", "foreign-same": "FOREIGN_SAME"}))
+		Expect(plan.takenOver).To(Equal([]string{"FOREIGN_SAME"}))
+
+		conflicts = plan.dropClaimsOwnedByOthers(map[string]otherOwner{"foreign-same": deleting})
+
+		Expect(conflicts).To(Equal(map[string]otherOwner{"FOREIGN_SAME": deleting}))
 		Expect(plan.owned).To(Equal(map[string]string{"owned-same": "OWNED_SAME"}))
+		Expect(plan.takenOver).To(BeEmpty())
 	})
 
 	It("compares values the way Infisical stores them", func() {

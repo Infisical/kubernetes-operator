@@ -15,6 +15,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
@@ -80,6 +81,15 @@ func newTestEnv(objects ...client.Object) *testEnv {
 		WithScheme(scheme).
 		WithObjects(append(objects, connection, infisicalAuth)...).
 		WithStatusSubresource(&v1beta1.InfisicalStaticSecretPush{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			// The fake client ignores the context, but a real one fails once it has ended.
+			SubResourcePatch: func(ctx context.Context, c client.Client, subResource string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				return c.SubResource(subResource).Patch(ctx, obj, patch, opts...)
+			},
+		}).
 		Build()
 
 	authCache, err := cache.NewAuthCache()
@@ -577,6 +587,23 @@ var _ = Describe("SyncSecrets", func() {
 		Expect(err).To(MatchError(ContainSubstring("targets[1]")))
 		Expect(env.values("dev", "/")).To(Equal(map[string]string{"KEEP": "value", "REMOVE": "value", "ADDED": "value"}))
 		Expect(push.Status.ManagedSecrets).To(Equal(mergeMaps(previouslyManaged, env.ids("dev", "/"))))
+	})
+
+	It("stops calling Infisical when the context ends and still records the outcome", func() {
+		env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value"}))
+		push := env.createPush([]string{"source"}, []v1beta1.PushTarget{target("dev", "/")})
+		managed := env.mustSync(push).Status.ManagedSecrets
+		DeferCleanup(env.infisical.Stall())
+
+		ctx, cancel := context.WithTimeout(env.ctx, 200*time.Millisecond)
+		defer cancel()
+		_, err := env.handler.SyncSecrets(ctx, env.get(push))
+
+		Expect(err).To(MatchError(context.DeadlineExceeded))
+		push = env.get(push)
+		Expect(push.Status.ManagedSecrets).To(Equal(managed))
+		Expect(push.Status.Error).To(BeTrue())
+		Expect(reconcileStatus(push).Message).To(ContainSubstring("context deadline exceeded"))
 	})
 
 	DescribeTable("rejects invalid specs",

@@ -51,7 +51,9 @@ func (h *InfisicalStaticSecretPushHandler) SyncSecrets(ctx context.Context, push
 		if err == nil {
 			setLastSuccessfulReconcileAtCondition(push)
 		}
-		if statusErr := h.reconciler.patchStatus(ctx, push, original); statusErr != nil {
+		// The IDs of the secrets pushed before ctx ended must still be recorded, or the
+		// next sync wouldn't recognize them as pushed by this resource.
+		if statusErr := h.reconciler.patchStatus(context.WithoutCancel(ctx), push, original); statusErr != nil {
 			err = errors.Join(err, statusErr)
 		}
 	}()

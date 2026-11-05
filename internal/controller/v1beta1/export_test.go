@@ -5,5 +5,4 @@ var (
 	IndexStaticSecretPushBySourceSecret = indexStaticSecretPushBySourceSecret
 	IndexStaticSecretPushByAuth         = indexStaticSecretPushByAuth
 	SecretDataChangedPredicate          = secretDataChangedPredicate
-	DeletionStartedPredicate            = deletionStartedPredicate
 )

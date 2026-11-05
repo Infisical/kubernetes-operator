@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	secretsv1beta1 "github.com/Infisical/infisical/k8-operator/api/v1beta1"
@@ -255,6 +256,20 @@ var _ = Describe("InfisicalStaticSecretPush Controller", func() {
 		Expect(k8sErrors.IsNotFound(err)).To(BeTrue())
 	})
 
+	It("is reconciled when deletion starts, because deleting it changes its generation", func() {
+		createPush(secretsv1beta1.PushSyncOptions{})
+		reconcilePush()
+		before := getPush()
+		Expect(controllerutil.ContainsFinalizer(before, constants.INFISICAL_STATIC_SECRET_PUSH_FINALIZER_NAME)).To(BeTrue())
+
+		Expect(k8sClient.Delete(ctx, before)).To(Succeed())
+		after := getPush()
+
+		// The controller only watches generation and annotation changes on the resource.
+		Expect(after.DeletionTimestamp).NotTo(BeNil())
+		Expect(predicate.GenerationChangedPredicate{}.Update(event.UpdateEvent{ObjectOld: before, ObjectNew: after})).To(BeTrue())
+	})
+
 	It("keeps the finalizer and retries while the cleanup fails within the grace period", func() {
 		createPush(secretsv1beta1.PushSyncOptions{})
 		reconcilePush()
@@ -352,14 +367,5 @@ var _ = Describe("InfisicalStaticSecretPush watches", func() {
 
 		Expect(predicate.Create(event.CreateEvent{Object: original})).To(BeTrue())
 		Expect(predicate.Delete(event.DeleteEvent{Object: original})).To(BeTrue())
-	})
-
-	It("reacts when deletion starts", func() {
-		predicate := controllerv1beta1.DeletionStartedPredicate()
-		deleting := push.DeepCopy()
-		deleting.DeletionTimestamp = &metav1.Time{Time: time.Now()}
-
-		Expect(predicate.Update(event.UpdateEvent{ObjectOld: push, ObjectNew: deleting})).To(BeTrue())
-		Expect(predicate.Update(event.UpdateEvent{ObjectOld: push, ObjectNew: push.DeepCopy()})).To(BeFalse())
 	})
 })

@@ -223,10 +223,11 @@ func (r *InfisicalStaticSecretPushReconciler) SetupWithManager(mgr ctrl.Manager)
 
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{MaxConcurrentReconciles: r.MaxConcurrentReconciles}).
+		// Deleting a resource that has a finalizer changes its generation, so the
+		// generation predicate also admits the start of a deletion.
 		For(&secretsv1beta1.InfisicalStaticSecretPush{}, builder.WithPredicates(predicate.Or[client.Object](
 			predicate.GenerationChangedPredicate{},
 			predicate.AnnotationChangedPredicate{},
-			deletionStartedPredicate(),
 		))).
 		Watches(
 			&corev1.Secret{},
@@ -285,19 +286,6 @@ func indexStaticSecretPushByAuth(obj client.Object) []string {
 
 	ref := infisicalsession.ResolveAuthRef(push.Spec.InfisicalAuthRef)
 	return []string{namespacedKey(ref.Namespace, ref.Name)}
-}
-
-// deletionStartedPredicate admits the update that sets the deletion timestamp, so the
-// pushed secrets are cleaned up as soon as the resource is deleted.
-func deletionStartedPredicate() predicate.Funcs {
-	return predicate.Funcs{
-		CreateFunc:  func(event.CreateEvent) bool { return false },
-		DeleteFunc:  func(event.DeleteEvent) bool { return false },
-		GenericFunc: func(event.GenericEvent) bool { return false },
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			return e.ObjectOld.GetDeletionTimestamp().IsZero() && !e.ObjectNew.GetDeletionTimestamp().IsZero()
-		},
-	}
 }
 
 // secretDataChangedPredicate admits Secret events that can change what is pushed.

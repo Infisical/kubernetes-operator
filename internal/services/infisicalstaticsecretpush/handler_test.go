@@ -343,6 +343,25 @@ var _ = Describe("SyncSecrets", func() {
 		Expect(env.get(first).Status.ManagedSecrets).To(BeEmpty())
 	})
 
+	It("doesn't take over a key whose owner is being deleted until that owner is gone", func() {
+		env := newTestEnv(
+			sourceSecret("first-source", map[string]string{"SHARED": "first"}),
+			sourceSecret("second-source", map[string]string{"SHARED": "second"}),
+		)
+		first := env.mustSync(env.createNamedPush("first", []string{"first-source"}, []v1beta1.PushTarget{target("dev", "/")}))
+		// The finalizer keeps the first resource around while its cleanup is pending.
+		first.Finalizers = []string{"test/keep"}
+		env.update(first)
+		Expect(env.client.Delete(env.ctx, env.get(first))).To(Succeed())
+		second := env.createNamedPush("second", []string{"second-source"}, []v1beta1.PushTarget{target("dev", "/")})
+
+		_, err := env.sync(second)
+
+		Expect(err).To(MatchError(ContainSubstring("SHARED (pushed by default/first, which is being deleted)")))
+		Expect(env.values("dev", "/")).To(Equal(map[string]string{"SHARED": "first"}))
+		Expect(env.get(second).Status.ManagedSecrets).To(BeEmpty())
+	})
+
 	It("deletes a key two resources recorded when both are being deleted", func() {
 		env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value"}))
 		first := env.mustSync(env.createNamedPush("first", []string{"source"}, []v1beta1.PushTarget{target("dev", "/")}))

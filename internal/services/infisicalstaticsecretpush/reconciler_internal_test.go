@@ -65,13 +65,15 @@ var _ = Describe("planTarget", func() {
 	It("drops the overwrites and take-overs of secrets another resource owns", func() {
 		plan := planTarget(desired, existing, managed, v1beta1.PushUpdatePolicyReplace)
 
-		conflicts := plan.dropClaimsOwnedByOthers(map[string]string{
-			"foreign-changed": "default/other",
-			"foreign-same":    "default/other",
-			"unrelated":       "default/other",
+		other := otherOwner{name: "default/other"}
+		deleting := otherOwner{name: "default/deleting", deleting: true}
+		conflicts := plan.dropClaimsOwnedByOthers(map[string]otherOwner{
+			"foreign-changed": other,
+			"foreign-same":    deleting,
+			"unrelated":       other,
 		})
 
-		Expect(conflicts).To(Equal(map[string]string{"FOREIGN_CHANGED": "default/other", "FOREIGN_SAME": "default/other"}))
+		Expect(conflicts).To(Equal(map[string]otherOwner{"FOREIGN_CHANGED": other, "FOREIGN_SAME": deleting}))
 		Expect(upsertKeys(plan)).To(Equal([]string{"NEW", "OWNED_CHANGED"}))
 		Expect(plan.owned).To(Equal(map[string]string{"owned-same": "OWNED_SAME"}))
 	})
@@ -235,7 +237,9 @@ var _ = Describe("deleteSecrets", func() {
 
 	It("leaves a secret another resource owns to that resource", func() {
 		id := server.CreateSecret(projectID, environment, "/app", "KEY", "value")
-		owners := func() (map[string]string, error) { return map[string]string{id: "default/other"}, nil }
+		owners := func() (map[string]otherOwner, error) {
+			return map[string]otherOwner{id: {name: "default/other"}}, nil
+		}
 
 		failed, err := reconciler.deleteSecrets(restClient, map[string]string{id: "KEY"}, nil, nil, owners)
 
@@ -246,7 +250,7 @@ var _ = Describe("deleteSecrets", func() {
 	})
 })
 
-func noOtherOwners() (map[string]string, error) {
+func noOtherOwners() (map[string]otherOwner, error) {
 	return nil, nil
 }
 

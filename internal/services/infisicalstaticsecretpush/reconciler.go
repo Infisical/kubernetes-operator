@@ -285,7 +285,7 @@ func (r *InfisicalStaticSecretPushReconciler) syncTarget(
 	push *v1beta1.InfisicalStaticSecretPush,
 	target v1beta1.PushTarget,
 	desired map[string]string,
-	otherOwners func() (map[string]string, error),
+	otherOwners func() (map[string]otherOwner, error),
 	targetIndexByLocation map[api.SecretLocation]int,
 	index int,
 ) (targetResult, error) {
@@ -435,9 +435,10 @@ func planTarget(desired map[string]string, existing []api.Secret, managed map[st
 
 // dropClaimsOwnedByOthers removes the overwrites and take-overs of secrets that another
 // InfisicalStaticSecretPush owns, given the owner of each secret ID, and returns the
-// keys it removed mapped to their owner.
-func (p *targetPlan) dropClaimsOwnedByOthers(owners map[string]string) map[string]string {
-	conflicts := make(map[string]string)
+// keys it removed mapped to their owner. An owner that is being deleted still counts:
+// its pending cleanup would delete a key right after this resource claimed it.
+func (p *targetPlan) dropClaimsOwnedByOthers(owners map[string]otherOwner) map[string]otherOwner {
+	conflicts := make(map[string]otherOwner)
 	for key, id := range p.claims {
 		if owner, ownedByOther := owners[id]; ownedByOther {
 			conflicts[key] = owner
@@ -455,38 +456,46 @@ func (p *targetPlan) dropClaimsOwnedByOthers(owners map[string]string) map[strin
 	return conflicts
 }
 
+// otherOwner is another InfisicalStaticSecretPush that recorded a secret.
+type otherOwner struct {
+	name     string
+	deleting bool
+}
+
+func (o otherOwner) String() string {
+	if o.deleting {
+		return o.name + ", which is being deleted"
+	}
+	return o.name
+}
+
 // otherOwners returns a function that maps the ID of every secret recorded by another
 // InfisicalStaticSecretPush to that resource. Two resources pushing the same key would
 // overwrite each other on every sync, and deleting one would delete the key the other
 // pushed, so the operator leaves such keys alone. The resources are listed at most once,
 // and only when a sync is about to overwrite, take over or delete an existing secret.
-func (r *InfisicalStaticSecretPushReconciler) otherOwners(ctx context.Context, push *v1beta1.InfisicalStaticSecretPush) func() (map[string]string, error) {
-	return sync.OnceValues(func() (map[string]string, error) {
+func (r *InfisicalStaticSecretPushReconciler) otherOwners(ctx context.Context, push *v1beta1.InfisicalStaticSecretPush) func() (map[string]otherOwner, error) {
+	return sync.OnceValues(func() (map[string]otherOwner, error) {
 		var pushes v1beta1.InfisicalStaticSecretPushList
 		if err := r.List(ctx, &pushes, client.UnsafeDisableDeepCopy); err != nil {
 			return nil, fmt.Errorf("unable to list InfisicalStaticSecretPushes to find keys pushed by another resource: %w", err)
 		}
 
-		owners := make(map[string]string)
+		owners := make(map[string]otherOwner)
 		for _, other := range pushes.Items {
 			if other.Namespace == push.Namespace && other.Name == push.Name {
 				continue
 			}
-			// A resource that is being deleted no longer protects its keys. Otherwise two
-			// resources that recorded the same secret and are deleted together would each
-			// leave it to the other, and it would stay in Infisical.
-			if !other.DeletionTimestamp.IsZero() {
-				continue
-			}
+			owner := otherOwner{name: other.Namespace + "/" + other.Name, deleting: !other.DeletionTimestamp.IsZero()}
 			for id := range other.Status.ManagedSecrets {
-				owners[id] = other.Namespace + "/" + other.Name
+				owners[id] = owner
 			}
 		}
 		return owners, nil
 	})
 }
 
-func conflictError(conflicts map[string]string) error {
+func conflictError(conflicts map[string]otherOwner) error {
 	described := make([]string, 0, len(conflicts))
 	for _, key := range slices.Sorted(maps.Keys(conflicts)) {
 		described = append(described, fmt.Sprintf("%s (pushed by %s)", key, conflicts[key]))
@@ -564,7 +573,7 @@ func (r *InfisicalStaticSecretPushReconciler) deleteSecrets(
 	secrets map[string]string,
 	listed map[string]secretRef,
 	keep map[secretRef]struct{},
-	otherOwners func() (map[string]string, error),
+	otherOwners func() (map[string]otherOwner, error),
 ) (map[string]string, error) {
 	failed := make(map[string]string)
 	byLocation := make(map[api.SecretLocation]map[string]string)
@@ -576,7 +585,9 @@ func (r *InfisicalStaticSecretPushReconciler) deleteSecrets(
 	}
 
 	for _, id := range slices.Sorted(maps.Keys(secrets)) {
-		if owner, ownedByOther := owners[id]; ownedByOther {
+		// An owner that is being deleted doesn't keep the secret: otherwise two resources
+		// that recorded it and are deleted together would each leave it to the other.
+		if owner, ownedByOther := owners[id]; ownedByOther && !owner.deleting {
 			r.logger.Info(fmt.Sprintf("Not deleting secret %s, because InfisicalStaticSecretPush %s pushes it too", secrets[id], owner))
 			continue
 		}

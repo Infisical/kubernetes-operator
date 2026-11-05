@@ -343,6 +343,23 @@ var _ = Describe("SyncSecrets", func() {
 		Expect(env.get(first).Status.ManagedSecrets).To(BeEmpty())
 	})
 
+	It("deletes a key two resources recorded when both are being deleted", func() {
+		env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value"}))
+		first := env.mustSync(env.createNamedPush("first", []string{"source"}, []v1beta1.PushTarget{target("dev", "/")}))
+		second := env.createNamedPush("second", []string{"source"}, []v1beta1.PushTarget{target("dev", "/")})
+		second.Status.ManagedSecrets = first.Status.ManagedSecrets
+		Expect(env.client.Status().Update(env.ctx, second)).To(Succeed())
+		// The finalizer keeps the second resource around while it is being deleted.
+		second = env.get(second)
+		second.Finalizers = []string{"test/keep"}
+		env.update(second)
+		Expect(env.client.Delete(env.ctx, second)).To(Succeed())
+
+		Expect(env.handler.DeleteManagedSecrets(env.ctx, env.get(first))).To(Succeed())
+
+		Expect(env.values("dev", "/")).To(BeEmpty())
+	})
+
 	It("overwrites and takes over existing keys with updatePolicy Replace", func() {
 		env := newTestEnv(sourceSecret("source", map[string]string{"EXISTING": "pushed"}))
 		existingID := env.infisical.CreateSecret(projectID, "dev", "/", "EXISTING", "manual")

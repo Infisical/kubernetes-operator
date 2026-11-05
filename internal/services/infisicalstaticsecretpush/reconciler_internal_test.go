@@ -1,7 +1,10 @@
 package infisicalstaticsecretpush
 
 import (
+	"errors"
+	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/go-logr/logr"
 	"github.com/go-resty/resty/v2"
@@ -246,3 +249,42 @@ var _ = Describe("deleteSecrets", func() {
 func noOtherOwners() (map[string]string, error) {
 	return nil, nil
 }
+
+var _ = Describe("summarize", func() {
+	It("names every item up to the limit", func() {
+		Expect(summarize([]string{"A", "B"})).To(Equal("A, B"))
+	})
+
+	It("names the first items and counts the rest", func() {
+		items := make([]string, 0, maxListedItems+2)
+		for i := range maxListedItems + 2 {
+			items = append(items, fmt.Sprintf("K%d", i))
+		}
+
+		Expect(summarize(items)).To(Equal("K0, K1, K2, K3, K4, K5, K6, K7, K8, K9 and 2 more"))
+	})
+})
+
+var _ = Describe("setReconcileStatusCondition", func() {
+	It("cuts a message the API server would reject to the bytes it accepts, keeping it valid UTF-8", func() {
+		push := &v1beta1.InfisicalStaticSecretPush{}
+
+		// "é" takes two bytes, so cutting at an exact byte count could split one.
+		setReconcileStatusCondition(push, errors.New("x"+strings.Repeat("é", maxConditionMessageLength)))
+
+		message := push.Status.Conditions[0].Message
+		Expect(len(message)).To(BeNumerically("<=", maxConditionMessageLength))
+		Expect(len(message)).To(BeNumerically(">", maxConditionMessageLength-4))
+		Expect(utf8.ValidString(message)).To(BeTrue())
+		Expect(message).To(HavePrefix("Reconciliation failed: xéé"))
+		Expect(message).To(HaveSuffix("é... (truncated)"))
+	})
+
+	It("keeps a message that fits", func() {
+		push := &v1beta1.InfisicalStaticSecretPush{}
+
+		setReconcileStatusCondition(push, errors.New("boom"))
+
+		Expect(push.Status.Conditions[0].Message).To(Equal("Reconciliation failed: boom"))
+	})
+})

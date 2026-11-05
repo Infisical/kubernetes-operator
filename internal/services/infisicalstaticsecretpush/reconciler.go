@@ -157,7 +157,7 @@ func (r *InfisicalStaticSecretPushReconciler) ReadSources(ctx context.Context, p
 		}
 		if len(invalidKeys) > 0 {
 			slices.Sort(invalidKeys)
-			return nil, fmt.Errorf("source Secret %s has values that are not valid UTF-8 in keys [%s]: Infisical stores text, so base64-encode binary values in the source Secret", name, strings.Join(invalidKeys, ", "))
+			return nil, fmt.Errorf("source Secret %s has values that are not valid UTF-8 in keys [%s]: Infisical stores text, so base64-encode binary values in the source Secret", name, summarize(invalidKeys))
 		}
 
 		for key, value := range secret.Data {
@@ -325,7 +325,7 @@ func (r *InfisicalStaticSecretPushReconciler) syncTarget(
 
 	if len(plan.keptByPolicy) > 0 {
 		r.logger.Info(fmt.Sprintf("Left %d existing secrets at %s:%s unchanged because updatePolicy is None: %s",
-			len(plan.keptByPolicy), location.Environment, location.SecretPath, strings.Join(plan.keptByPolicy, ", ")))
+			len(plan.keptByPolicy), location.Environment, location.SecretPath, summarize(plan.keptByPolicy)))
 	}
 
 	if len(plan.upserts) == 0 {
@@ -472,6 +472,12 @@ func (r *InfisicalStaticSecretPushReconciler) otherOwners(ctx context.Context, p
 			if other.Namespace == push.Namespace && other.Name == push.Name {
 				continue
 			}
+			// A resource that is being deleted no longer protects its keys. Otherwise two
+			// resources that recorded the same secret and are deleted together would each
+			// leave it to the other, and it would stay in Infisical.
+			if !other.DeletionTimestamp.IsZero() {
+				continue
+			}
 			for id := range other.Status.ManagedSecrets {
 				owners[id] = other.Namespace + "/" + other.Name
 			}
@@ -485,7 +491,19 @@ func conflictError(conflicts map[string]string) error {
 	for _, key := range slices.Sorted(maps.Keys(conflicts)) {
 		described = append(described, fmt.Sprintf("%s (pushed by %s)", key, conflicts[key]))
 	}
-	return fmt.Errorf("keys already pushed by another InfisicalStaticSecretPush were left unchanged: %s: push each key from only one resource", strings.Join(described, ", "))
+	return fmt.Errorf("keys already pushed by another InfisicalStaticSecretPush were left unchanged: %s: push each key from only one resource", summarize(described))
+}
+
+// maxListedItems bounds how many keys a message names, so it stays readable and fits
+// in a status condition however many keys are affected.
+const maxListedItems = 10
+
+// summarize joins items for a message, naming at most maxListedItems of them.
+func summarize(items []string) string {
+	if len(items) <= maxListedItems {
+		return strings.Join(items, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(items[:maxListedItems], ", "), len(items)-maxListedItems)
 }
 
 func (r *InfisicalStaticSecretPushReconciler) upsertSecrets(restClient *resty.Client, location api.SecretLocation, secrets []api.UpsertSecret, createMissingFolders bool) ([]api.Secret, error) {

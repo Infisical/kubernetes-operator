@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
@@ -107,7 +108,7 @@ var _ = Describe("InfisicalStaticSecretPush Controller", func() {
 		}
 	})
 
-	createPush := func(syncOptions secretsv1beta1.PushSyncOptions) {
+	createPush := func(syncOptions secretsv1beta1.PushSyncOptions, mutate ...func(*secretsv1beta1.InfisicalStaticSecretPushSpec)) {
 		suffix := pushKey.Name[len(pushName)+1:]
 		push := &secretsv1beta1.InfisicalStaticSecretPush{
 			ObjectMeta: metav1.ObjectMeta{Name: pushKey.Name, Namespace: pushKey.Namespace},
@@ -119,6 +120,9 @@ var _ = Describe("InfisicalStaticSecretPush Controller", func() {
 				}},
 				Targets: []secretsv1beta1.PushTarget{{ProjectId: projectID, EnvironmentSlug: "dev", SecretPath: "/app"}},
 			},
+		}
+		for _, fn := range mutate {
+			fn(&push.Spec)
 		}
 		Expect(k8sClient.Create(ctx, push)).To(Succeed())
 		DeferCleanup(func() {
@@ -188,6 +192,30 @@ var _ = Describe("InfisicalStaticSecretPush Controller", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(found).To(BeTrue())
 		Expect(value).To(BeFalse())
+	})
+
+	It("saves the status when the error is longer than a condition message allows", func() {
+		// Every target fails because its environment doesn't exist, and together their
+		// errors are far longer than the 32768 characters a condition message may have.
+		createPush(secretsv1beta1.PushSyncOptions{}, func(spec *secretsv1beta1.InfisicalStaticSecretPushSpec) {
+			spec.Targets = nil
+			for i := range 150 {
+				spec.Targets = append(spec.Targets, secretsv1beta1.PushTarget{
+					ProjectId: projectID, EnvironmentSlug: "missing", SecretPath: fmt.Sprintf("/path-%d", i),
+				})
+			}
+		})
+
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: pushKey})
+
+		Expect(err).To(HaveOccurred())
+		Expect(err).NotTo(MatchError(ContainSubstring("unable to update status")))
+		push := getPush()
+		Expect(push.Status.Error).To(BeTrue())
+		condition := meta.FindStatusCondition(push.Status.Conditions, "secrets.infisical.com/LastReconcileStatus")
+		Expect(condition).NotTo(BeNil())
+		Expect(len(condition.Message)).To(BeNumerically("<=", 32768))
+		Expect(condition.Message).To(HaveSuffix("... (truncated)"))
 	})
 
 	It("doesn't requeue without a refresh interval", func() {

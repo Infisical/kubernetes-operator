@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -66,10 +67,29 @@ func setReconcileStatusCondition(push *v1beta1.InfisicalStaticSecretPush, errorT
 			Type:               ConditionLastReconcileStatus,
 			Status:             metav1.ConditionFalse,
 			Reason:             "Error",
-			Message:            fmt.Sprintf("Reconciliation failed: %v", errorToConditionOn),
+			Message:            truncateConditionMessage(fmt.Sprintf("Reconciliation failed: %v", errorToConditionOn)),
 			ObservedGeneration: push.Generation,
 		})
 	}
+}
+
+// maxConditionMessageLength is the longest message, in bytes, the API server accepts for
+// a status condition. A longer one would make it reject the whole status update,
+// including the IDs of the secrets pushed during the same sync.
+const maxConditionMessageLength = 32768
+
+// truncateConditionMessage shortens a message to maxConditionMessageLength bytes,
+// cutting at a character boundary so the message stays valid UTF-8.
+func truncateConditionMessage(message string) string {
+	if len(message) <= maxConditionMessageLength {
+		return message
+	}
+	const suffix = "... (truncated)"
+	cut := maxConditionMessageLength - len(suffix)
+	for cut > 0 && !utf8.RuneStart(message[cut]) {
+		cut--
+	}
+	return message[:cut] + suffix
 }
 
 // setDeletingCondition records on the LastReconcileStatus condition that the pushed

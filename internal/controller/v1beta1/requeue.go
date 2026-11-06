@@ -18,14 +18,25 @@ const maxRateLimitJitter = 1500 * time.Millisecond
 // requeueOnRateLimit reports whether err is an Infisical rate-limit error and, if so,
 // returns a result that retries after the server's Retry-After delay plus jitter.
 func requeueOnRateLimit(logger logr.Logger, err error) (ctrl.Result, bool) {
-	var rateLimitErr *api.TooManyRequestsError
-	if !errors.As(err, &rateLimitErr) {
+	retryAfter, rateLimited := rateLimitDelay(err)
+	if !rateLimited {
 		return ctrl.Result{}, false
 	}
 
-	retryAfter := time.Duration(rateLimitErr.RetryAfter) * time.Second
-	jitter := time.Duration(rand.Int64N(int64(maxRateLimitJitter)))
-
 	logger.Info(fmt.Sprintf("Rate limited, retrying after %v", retryAfter))
-	return ctrl.Result{RequeueAfter: retryAfter + jitter}, true
+	return ctrl.Result{RequeueAfter: withRateLimitJitter(retryAfter)}, true
+}
+
+// rateLimitDelay reports whether err is an Infisical rate-limit error and, if so,
+// returns the server's Retry-After delay.
+func rateLimitDelay(err error) (time.Duration, bool) {
+	var rateLimitErr *api.TooManyRequestsError
+	if !errors.As(err, &rateLimitErr) {
+		return 0, false
+	}
+	return time.Duration(rateLimitErr.RetryAfter) * time.Second, true
+}
+
+func withRateLimitJitter(delay time.Duration) time.Duration {
+	return delay + time.Duration(rand.Int64N(int64(maxRateLimitJitter)))
 }

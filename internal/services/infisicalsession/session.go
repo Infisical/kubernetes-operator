@@ -19,12 +19,11 @@ import (
 	"github.com/Infisical/infisical/k8-operator/internal/api"
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
 	"github.com/Infisical/infisical/k8-operator/internal/cache"
+	"github.com/Infisical/infisical/k8-operator/internal/conditions"
 	"github.com/Infisical/infisical/k8-operator/internal/constants"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
 )
-
-const conditionIsReady = "secrets.infisical.com/IsReady"
 
 // ResolveAuthRef returns the given auth reference, or the default InfisicalAuth
 // in the operator namespace if no reference was provided.
@@ -39,9 +38,9 @@ func ResolveAuthRef(authRef v1beta1.NamespacedName) v1beta1.NamespacedName {
 	}
 }
 
-// ResolveConnectionRef returns the given connection reference, or the default
+// resolveConnectionRef returns the given connection reference, or the default
 // InfisicalConnection in the operator namespace if no reference was provided.
-func ResolveConnectionRef(connectionRef v1beta1.NamespacedName) v1beta1.NamespacedName {
+func resolveConnectionRef(connectionRef v1beta1.NamespacedName) v1beta1.NamespacedName {
 	if connectionRef.Name != "" {
 		return connectionRef
 	}
@@ -52,8 +51,8 @@ func ResolveConnectionRef(connectionRef v1beta1.NamespacedName) v1beta1.Namespac
 	}
 }
 
-// GetInfisicalAuth fetches the referenced InfisicalAuth and returns an error unless it is ready.
-func GetInfisicalAuth(ctx context.Context, c client.Client, isNamespaceScoped bool, authRef v1beta1.NamespacedName) (*v1beta1.InfisicalAuth, error) {
+// getInfisicalAuth fetches the referenced InfisicalAuth and returns an error unless it is ready.
+func getInfisicalAuth(ctx context.Context, c client.Client, isNamespaceScoped bool, authRef v1beta1.NamespacedName) (*v1beta1.InfisicalAuth, error) {
 	resolved := ResolveAuthRef(authRef)
 
 	infisicalAuth := v1beta1.InfisicalAuth{}
@@ -74,7 +73,7 @@ func GetInfisicalAuth(ctx context.Context, c client.Client, isNamespaceScoped bo
 
 // GetInfisicalConnection fetches the referenced InfisicalConnection and returns an error unless it is ready.
 func GetInfisicalConnection(ctx context.Context, c client.Client, isNamespaceScoped bool, connectionRef v1beta1.NamespacedName) (*v1beta1.InfisicalConnection, error) {
-	resolved := ResolveConnectionRef(connectionRef)
+	resolved := resolveConnectionRef(connectionRef)
 
 	conn := v1beta1.InfisicalConnection{}
 	err := c.Get(ctx, types.NamespacedName{Name: resolved.Name, Namespace: resolved.Namespace}, &conn)
@@ -92,8 +91,8 @@ func GetInfisicalConnection(ctx context.Context, c client.Client, isNamespaceSco
 	return &conn, nil
 }
 
-func isReady(conditions []metav1.Condition) bool {
-	readyCond := meta.FindStatusCondition(conditions, conditionIsReady)
+func isReady(statusConditions []metav1.Condition) bool {
+	readyCond := meta.FindStatusCondition(statusConditions, conditions.IsReady)
 	return readyCond != nil && readyCond.Status == metav1.ConditionTrue
 }
 
@@ -130,12 +129,9 @@ func NewResolver(c client.Client, isNamespaceScoped bool, authResolver *auth.Aut
 // as soon as the InfisicalAuth was found, even when a later step fails, so callers
 // can report the auth method alongside the error.
 func (r *Resolver) Authenticate(ctx context.Context, authRef v1beta1.NamespacedName) (Session, error) {
-	infisicalAuth, err := GetInfisicalAuth(ctx, r.client, r.isNamespaceScoped, authRef)
+	infisicalAuth, err := getInfisicalAuth(ctx, r.client, r.isNamespaceScoped, authRef)
 	if err != nil {
 		return Session{}, err
-	}
-	if infisicalAuth == nil {
-		return Session{}, model.ErrInvalidAuthObject
 	}
 
 	session := Session{Auth: infisicalAuth}
@@ -143,9 +139,6 @@ func (r *Resolver) Authenticate(ctx context.Context, authRef v1beta1.NamespacedN
 	conn, err := GetInfisicalConnection(ctx, r.client, r.isNamespaceScoped, infisicalAuth.Spec.InfisicalConnectionRef)
 	if err != nil {
 		return session, err
-	}
-	if conn == nil {
-		return session, model.ErrInvalidConnectionObject
 	}
 	session.Connection = conn
 
@@ -167,6 +160,8 @@ func (r *Resolver) Authenticate(ctx context.Context, authRef v1beta1.NamespacedN
 
 // NewAPIClient returns a REST client authenticated with the session's access token,
 // trusting the connection's CA certificate and pointed at the connection's address.
+// ctx is only used to read the CA certificate: requests made with the client are not
+// bound to it.
 func (r *Resolver) NewAPIClient(ctx context.Context, session Session) (*resty.Client, error) {
 	if session.Connection == nil || session.Credentials == nil {
 		return nil, model.ErrInvalidConnectionObject

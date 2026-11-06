@@ -1,6 +1,7 @@
 package v1beta1
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"maps"
@@ -9,7 +10,6 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -41,12 +41,12 @@ const (
 	// of the InfisicalAuth they use, after defaulting.
 	staticSecretPushAuthIndex = ".spec.infisicalAuthRef"
 
-	// StaticSecretPushCleanupGracePeriod bounds how long the deletion of an
+	// staticSecretPushCleanupGracePeriod bounds how long the deletion of an
 	// InfisicalStaticSecretPush waits for its pushed secrets to be deleted from
 	// Infisical. After it, the finalizer is removed and the remaining secrets are left
 	// in Infisical, so a broken InfisicalAuth or an unreachable Infisical can't block
 	// a namespace deletion or an uninstall indefinitely.
-	StaticSecretPushCleanupGracePeriod = 5 * time.Minute
+	staticSecretPushCleanupGracePeriod = 5 * time.Minute
 	staticSecretPushCleanupRetryDelay  = 15 * time.Second
 )
 
@@ -60,7 +60,7 @@ type InfisicalStaticSecretPushReconciler struct {
 	// MaxConcurrentReconciles is the number of InfisicalStaticSecretPushes reconciled in parallel.
 	// The workqueue guarantees a single resource is never reconciled by two workers at once.
 	MaxConcurrentReconciles int
-	// CleanupGracePeriod overrides StaticSecretPushCleanupGracePeriod when set.
+	// CleanupGracePeriod overrides the default grace period for deleting the pushed secrets when set.
 	CleanupGracePeriod time.Duration
 }
 
@@ -68,7 +68,7 @@ func (r *InfisicalStaticSecretPushReconciler) cleanupGracePeriod() time.Duration
 	if r.CleanupGracePeriod > 0 {
 		return r.CleanupGracePeriod
 	}
-	return StaticSecretPushCleanupGracePeriod
+	return staticSecretPushCleanupGracePeriod
 }
 
 func (r *InfisicalStaticSecretPushReconciler) GetLogger(req ctrl.Request) logr.Logger {
@@ -124,25 +124,23 @@ func (r *InfisicalStaticSecretPushReconciler) Reconcile(ctx context.Context, req
 		return ctrl.Result{}, err
 	}
 
-	if push.Spec.SyncOptions.RefreshInterval == "" {
-		logger.Info(fmt.Sprintf("Reconciliation successful with %d secrets from the source Secrets, syncing again when a source Secret or this resource changes", sourceKeys))
-		return ctrl.Result{}, nil
+	refreshInterval, err := infisicalstaticsecretpush.RefreshInterval(&push)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
-	refreshInterval, err := util.ConvertResyncIntervalToDuration(push.Spec.SyncOptions.RefreshInterval, false)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("invalid refreshInterval %q: %w", push.Spec.SyncOptions.RefreshInterval, err)
+	if refreshInterval == 0 {
+		logger.Info(fmt.Sprintf("Reconciliation successful with %d secrets from the source Secrets, syncing again when a source Secret or this resource changes", sourceKeys))
+		return ctrl.Result{}, nil
 	}
 
 	logger.Info(fmt.Sprintf("Reconciliation successful with %d secrets from the source Secrets, requeueing after %v", sourceKeys, refreshInterval))
 	return ctrl.Result{RequeueAfter: refreshInterval}, nil
 }
 
-// reconcileDelete deletes the pushed secrets and then removes the finalizer. When the
-// deletion keeps failing, it is retried until StaticSecretPushCleanupGracePeriod has
-// passed since the resource was deleted, and the finalizer is removed anyway after that.
-// Requests to Infisical are cancelled at the end of the grace period, so a slow or
-// stalled Infisical can't hold the deletion longer.
+// reconcileDelete deletes the pushed secrets, retrying until the cleanup grace period has
+// passed, and then removes the finalizer. Requests to Infisical are cancelled when the
+// grace period ends.
 func (r *InfisicalStaticSecretPushReconciler) reconcileDelete(
 	ctx context.Context,
 	logger logr.Logger,
@@ -157,18 +155,20 @@ func (r *InfisicalStaticSecretPushReconciler) reconcileDelete(
 		gracePeriod := r.cleanupGracePeriod()
 		deadline := push.DeletionTimestamp.Add(gracePeriod)
 
-		err := fmt.Errorf("the cleanup grace period of %v has passed", gracePeriod)
+		var err error
 		if time.Now().Before(deadline) {
 			cleanupCtx, cancel := context.WithDeadline(ctx, deadline)
 			err = pushHandler.DeleteManagedSecrets(cleanupCtx, push)
 			cancel()
+		} else {
+			err = fmt.Errorf("the cleanup grace period of %v has passed", gracePeriod)
 		}
 
 		if err != nil {
 			if remaining := time.Until(deadline); remaining > 0 {
 				retryAfter := staticSecretPushCleanupRetryDelay
-				if result, ok := requeueOnRateLimit(logger, err); ok {
-					retryAfter = result.RequeueAfter
+				if delay, rateLimited := rateLimitDelay(err); rateLimited {
+					retryAfter = withRateLimitJitter(delay)
 				}
 				retryAfter = min(retryAfter, remaining)
 
@@ -240,27 +240,25 @@ func (r *InfisicalStaticSecretPushReconciler) SetupWithManager(mgr ctrl.Manager)
 
 // FindStaticSecretPushesReferencingSecret returns the InfisicalStaticSecretPushes that use the Secret as a source.
 func (r *InfisicalStaticSecretPushReconciler) FindStaticSecretPushesReferencingSecret(ctx context.Context, obj client.Object) []reconcile.Request {
-	return r.findStaticSecretPushes(ctx, staticSecretPushSourceSecretIndex, namespacedKey(obj.GetNamespace(), obj.GetName()))
+	return r.findStaticSecretPushes(ctx, staticSecretPushSourceSecretIndex, client.ObjectKeyFromObject(obj).String())
 }
 
 // FindStaticSecretPushesReferencingAuth returns the InfisicalStaticSecretPushes that use the
 // InfisicalAuth, including the ones without an explicit auth ref when it is the default InfisicalAuth.
 func (r *InfisicalStaticSecretPushReconciler) FindStaticSecretPushesReferencingAuth(ctx context.Context, obj client.Object) []reconcile.Request {
-	return r.findStaticSecretPushes(ctx, staticSecretPushAuthIndex, namespacedKey(obj.GetNamespace(), obj.GetName()))
+	return r.findStaticSecretPushes(ctx, staticSecretPushAuthIndex, client.ObjectKeyFromObject(obj).String())
 }
 
 func (r *InfisicalStaticSecretPushReconciler) findStaticSecretPushes(ctx context.Context, index, key string) []reconcile.Request {
 	var pushList secretsv1beta1.InfisicalStaticSecretPushList
-	if err := r.List(ctx, &pushList, client.MatchingFields{index: key}); err != nil {
+	if err := r.List(ctx, &pushList, client.MatchingFields{index: key}, client.UnsafeDisableDeepCopy); err != nil {
 		r.BaseLogger.Error(err, "Unable to list InfisicalStaticSecretPushes", "index", index, "key", key)
 		return nil
 	}
 
 	requests := make([]reconcile.Request, 0, len(pushList.Items))
-	for _, push := range pushList.Items {
-		requests = append(requests, reconcile.Request{
-			NamespacedName: types.NamespacedName{Name: push.Name, Namespace: push.Namespace},
-		})
+	for i := range pushList.Items {
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&pushList.Items[i])})
 	}
 	return requests
 }
@@ -273,7 +271,7 @@ func indexStaticSecretPushBySourceSecret(obj client.Object) []string {
 
 	keys := make([]string, 0, len(push.Spec.Sources.Secrets))
 	for _, source := range push.Spec.Sources.Secrets {
-		keys = append(keys, namespacedKey(source.Namespace, source.Name))
+		keys = append(keys, types.NamespacedName{Namespace: source.Namespace, Name: source.Name}.String())
 	}
 	return keys
 }
@@ -285,26 +283,21 @@ func indexStaticSecretPushByAuth(obj client.Object) []string {
 	}
 
 	ref := infisicalsession.ResolveAuthRef(push.Spec.InfisicalAuthRef)
-	return []string{namespacedKey(ref.Namespace, ref.Name)}
+	return []string{types.NamespacedName{Namespace: ref.Namespace, Name: ref.Name}.String()}
 }
 
 // secretDataChangedPredicate admits Secret events that can change what is pushed.
 func secretDataChangedPredicate() predicate.Funcs {
 	return predicate.Funcs{
-		CreateFunc:  func(event.CreateEvent) bool { return true },
-		DeleteFunc:  func(event.DeleteEvent) bool { return true },
-		GenericFunc: func(event.GenericEvent) bool { return false },
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldSecret, oldOk := e.ObjectOld.(*corev1.Secret)
 			newSecret, newOk := e.ObjectNew.(*corev1.Secret)
 			if !oldOk || !newOk {
 				return true
 			}
-			return !equality.Semantic.DeepEqual(oldSecret.Data, newSecret.Data)
+			// This runs for every Secret update in the cluster, so the values are compared
+			// directly instead of through reflection.
+			return !maps.EqualFunc(oldSecret.Data, newSecret.Data, bytes.Equal)
 		},
 	}
-}
-
-func namespacedKey(namespace, name string) string {
-	return namespace + "/" + name
 }

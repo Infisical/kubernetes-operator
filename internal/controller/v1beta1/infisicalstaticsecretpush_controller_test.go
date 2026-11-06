@@ -23,6 +23,7 @@ import (
 	secretsv1beta1 "github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
 	"github.com/Infisical/infisical/k8-operator/internal/cache"
+	"github.com/Infisical/infisical/k8-operator/internal/conditions"
 	"github.com/Infisical/infisical/k8-operator/internal/constants"
 	controllerv1beta1 "github.com/Infisical/infisical/k8-operator/internal/controller/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/services/infisicalsession"
@@ -39,13 +40,14 @@ var _ = Describe("InfisicalStaticSecretPush Controller", func() {
 		ctx        context.Context
 		infisical  *fakeinfisical.Server
 		reconciler *controllerv1beta1.InfisicalStaticSecretPushReconciler
+		suffix     string
 		pushKey    types.NamespacedName
 		authRef    secretsv1beta1.NamespacedName
 	)
 
-	markReady := func(obj client.Object, conditions *[]metav1.Condition) {
-		*conditions = []metav1.Condition{{
-			Type:               "secrets.infisical.com/IsReady",
+	markReady := func(obj client.Object, statusConditions *[]metav1.Condition) {
+		*statusConditions = []metav1.Condition{{
+			Type:               conditions.IsReady,
 			Status:             metav1.ConditionTrue,
 			Reason:             "OK",
 			LastTransitionTime: metav1.Now(),
@@ -65,14 +67,11 @@ var _ = Describe("InfisicalStaticSecretPush Controller", func() {
 		infisical = fakeinfisical.New([]string{projectID}, []string{"dev"})
 		DeferCleanup(infisical.Close)
 
-		suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+		suffix = fmt.Sprintf("%d", time.Now().UnixNano())
 		pushKey = types.NamespacedName{Name: pushName + "-" + suffix, Namespace: "default"}
 
-		connection := &secretsv1beta1.InfisicalConnection{
-			ObjectMeta: metav1.ObjectMeta{Name: "push-connection-" + suffix, Namespace: "default"},
-			Spec:       secretsv1beta1.InfisicalConnectionSpec{Address: infisical.URL},
-		}
-		createAndCleanup(connection)
+		connection := createInfisicalConnection(ctx, WithName("push-connection-"+suffix), WithAddress(infisical.URL))
+		DeferCleanup(func() { _ = client.IgnoreNotFound(k8sClient.Delete(ctx, connection)) })
 		markReady(connection, &connection.Status.Conditions)
 
 		infisicalAuth := &secretsv1beta1.InfisicalAuth{
@@ -110,7 +109,6 @@ var _ = Describe("InfisicalStaticSecretPush Controller", func() {
 	})
 
 	createPush := func(syncOptions secretsv1beta1.PushSyncOptions, mutate ...func(*secretsv1beta1.InfisicalStaticSecretPushSpec)) {
-		suffix := pushKey.Name[len(pushName)+1:]
 		push := &secretsv1beta1.InfisicalStaticSecretPush{
 			ObjectMeta: metav1.ObjectMeta{Name: pushKey.Name, Namespace: pushKey.Namespace},
 			Spec: secretsv1beta1.InfisicalStaticSecretPushSpec{
@@ -213,7 +211,7 @@ var _ = Describe("InfisicalStaticSecretPush Controller", func() {
 		Expect(err).NotTo(MatchError(ContainSubstring("unable to update status")))
 		push := getPush()
 		Expect(push.Status.Error).To(BeTrue())
-		condition := meta.FindStatusCondition(push.Status.Conditions, "secrets.infisical.com/LastReconcileStatus")
+		condition := meta.FindStatusCondition(push.Status.Conditions, conditions.LastReconcileStatus)
 		Expect(condition).NotTo(BeNil())
 		Expect(len(condition.Message)).To(BeNumerically("<=", 32768))
 		Expect(condition.Message).To(HaveSuffix("... (truncated)"))

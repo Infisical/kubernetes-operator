@@ -76,8 +76,10 @@ func (h *InfisicalStaticSecretPushHandler) SyncSecrets(ctx context.Context, push
 	if err != nil {
 		return 0, err
 	}
+	defer restClient.GetClient().CloseIdleConnections()
 
-	if err := h.reconciler.PushToTargets(ctx, restClient, session, push, desired); err != nil {
+	if err := h.reconciler.PushToTargets(ctx, restClient, push, desired); err != nil {
+		h.reconciler.session.InvalidateOnUnauthorized(session, err)
 		return 0, err
 	}
 
@@ -124,6 +126,7 @@ func (h *InfisicalStaticSecretPushHandler) DeleteManagedSecrets(ctx context.Cont
 	if err != nil {
 		return err
 	}
+	defer restClient.GetClient().CloseIdleConnections()
 
 	if err := h.reconciler.DeleteManagedSecrets(ctx, restClient, push); err != nil {
 		h.reconciler.session.InvalidateOnUnauthorized(session, err)
@@ -135,7 +138,8 @@ func (h *InfisicalStaticSecretPushHandler) DeleteManagedSecrets(ctx context.Cont
 
 // newAPIClient returns an Infisical API client whose requests are cancelled when ctx is
 // done. The client only waits a bounded time for response headers, so without ctx a
-// stalled response body could block a reconcile indefinitely.
+// stalled response body could block a reconcile indefinitely. Each client has its own
+// connections, so callers close them when they are done with the client.
 func (h *InfisicalStaticSecretPushHandler) newAPIClient(ctx context.Context, session infisicalsession.Session) (*resty.Client, error) {
 	restClient, err := h.reconciler.session.NewAPIClient(ctx, session)
 	if err != nil {

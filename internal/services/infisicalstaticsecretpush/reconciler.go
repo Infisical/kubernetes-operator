@@ -53,8 +53,8 @@ type targetResult struct {
 	// owned holds the ID and key of every secret this resource owns at the target
 	// after the sync, whether it was pushed now or was already up to date.
 	owned map[string]string
-	// listed holds where every secret found at the target lives, keyed by ID, so
-	// cleanup can locate stale secrets without looking each one up.
+	// listed holds where the secrets this resource recorded before the sync were found at
+	// the target, keyed by ID, so cleanup can locate stale ones without looking them up.
 	listed map[string]secretRef
 }
 
@@ -66,16 +66,8 @@ func (r *InfisicalStaticSecretPushReconciler) Validate(push *v1beta1.InfisicalSt
 
 	spec := &push.Spec
 
-	if spec.SyncOptions.RefreshInterval != "" {
-		interval, err := util.ConvertResyncIntervalToDuration(spec.SyncOptions.RefreshInterval, false)
-		// The parser only enforces the minimum for intervals in seconds, so "0m" or "-5m"
-		// would otherwise turn the refresh off without an error.
-		if err == nil && interval < minRefreshInterval {
-			err = fmt.Errorf("must be at least %v", minRefreshInterval)
-		}
-		if err != nil {
-			return fmt.Errorf("invalid refreshInterval %q: %w", spec.SyncOptions.RefreshInterval, err)
-		}
+	if _, err := RefreshInterval(push); err != nil {
+		return err
 	}
 
 	if len(spec.Sources.Secrets) == 0 {
@@ -91,7 +83,7 @@ func (r *InfisicalStaticSecretPushReconciler) Validate(push *v1beta1.InfisicalSt
 			return fmt.Errorf("sources.secrets[%d].namespace is required", i)
 		}
 
-		key := source.Namespace + "/" + source.Name
+		key := types.NamespacedName{Namespace: source.Namespace, Name: source.Name}.String()
 		if _, exists := sources[key]; exists {
 			return fmt.Errorf("duplicate source secret %q", key)
 		}
@@ -127,6 +119,26 @@ func (r *InfisicalStaticSecretPushReconciler) Validate(push *v1beta1.InfisicalSt
 	return nil
 }
 
+// RefreshInterval returns how often the resource is pushed again, or 0 when it is only
+// pushed when a source Secret or the resource changes.
+func RefreshInterval(push *v1beta1.InfisicalStaticSecretPush) (time.Duration, error) {
+	refreshInterval := push.Spec.SyncOptions.RefreshInterval
+	if refreshInterval == "" {
+		return 0, nil
+	}
+
+	interval, err := util.ConvertResyncIntervalToDuration(refreshInterval, false)
+	if err != nil {
+		return 0, fmt.Errorf("invalid refreshInterval %q: %w", refreshInterval, err)
+	}
+	// The parser only enforces the minimum for intervals in seconds, so "0m" or "-5m"
+	// would otherwise turn the refresh off without an error.
+	if interval < minRefreshInterval {
+		return 0, fmt.Errorf("invalid refreshInterval %q: must be at least %v", refreshInterval, minRefreshInterval)
+	}
+	return interval, nil
+}
+
 // Authenticate logs in through the InfisicalAuth the resource references and records
 // the auth method on the status as soon as the InfisicalAuth is found.
 func (r *InfisicalStaticSecretPushReconciler) Authenticate(ctx context.Context, push *v1beta1.InfisicalStaticSecretPush) (infisicalsession.Session, error) {
@@ -144,9 +156,9 @@ func (r *InfisicalStaticSecretPushReconciler) ReadSources(ctx context.Context, p
 	merged := make(map[string]string)
 
 	for _, source := range push.Spec.Sources.Secrets {
-		name := source.Namespace + "/" + source.Name
+		name := types.NamespacedName{Namespace: source.Namespace, Name: source.Name}
 
-		secret, err := util.GetKubeSecretByNamespacedName(ctx, r.Client, types.NamespacedName{Name: source.Name, Namespace: source.Namespace})
+		secret, err := util.GetKubeSecretByNamespacedName(ctx, r.Client, name)
 		if err != nil {
 			if util.IsNamespaceScopedError(err, r.IsNamespaceScoped) {
 				return nil, model.NewNamespaceScopedError(err, fmt.Sprintf("Secret %s", name))
@@ -163,17 +175,15 @@ func (r *InfisicalStaticSecretPushReconciler) ReadSources(ctx context.Context, p
 		for key, value := range secret.Data {
 			if !utf8.Valid(value) {
 				invalidKeys = append(invalidKeys, key)
+				continue
+			}
+			if _, exists := merged[key]; !exists {
+				merged[key] = string(value)
 			}
 		}
 		if len(invalidKeys) > 0 {
 			slices.Sort(invalidKeys)
 			return nil, fmt.Errorf("source Secret %s has values that are not valid UTF-8 in keys [%s]: Infisical stores text, so base64-encode binary values in the source Secret", name, summarize(invalidKeys))
-		}
-
-		for key, value := range secret.Data {
-			if _, exists := merged[key]; !exists {
-				merged[key] = string(value)
-			}
 		}
 	}
 
@@ -183,7 +193,7 @@ func (r *InfisicalStaticSecretPushReconciler) ReadSources(ctx context.Context, p
 // PushToTargets pushes the desired secrets to every target and deletes the secrets this
 // resource pushed earlier but no longer pushes. It updates status.managedSecrets with
 // everything the resource owns afterwards. A failing target doesn't stop the others.
-func (r *InfisicalStaticSecretPushReconciler) PushToTargets(ctx context.Context, restClient *resty.Client, session infisicalsession.Session, push *v1beta1.InfisicalStaticSecretPush, desired map[string]string) error {
+func (r *InfisicalStaticSecretPushReconciler) PushToTargets(ctx context.Context, restClient *resty.Client, push *v1beta1.InfisicalStaticSecretPush, desired map[string]string) error {
 	previouslyManaged := push.Status.ManagedSecrets
 	owned := make(map[string]string)
 	listed := make(map[string]secretRef)
@@ -202,7 +212,6 @@ func (r *InfisicalStaticSecretPushReconciler) PushToTargets(ctx context.Context,
 		}
 
 		if err != nil {
-			r.session.InvalidateOnUnauthorized(session, err)
 			targetErrs = append(targetErrs, fmt.Errorf("%s: %w", describeTarget(i, target), err))
 		}
 	}
@@ -210,12 +219,7 @@ func (r *InfisicalStaticSecretPushReconciler) PushToTargets(ctx context.Context,
 	if len(targetErrs) > 0 {
 		// A failed target returns no IDs, so its secrets would look stale. Keep every
 		// recorded ID until all targets succeed, and record the new ones too.
-		merged := maps.Clone(previouslyManaged)
-		if merged == nil {
-			merged = make(map[string]string, len(owned))
-		}
-		maps.Copy(merged, owned)
-		push.Status.ManagedSecrets = nilIfEmpty(merged)
+		push.Status.ManagedSecrets = union(previouslyManaged, owned)
 		return errors.Join(targetErrs...)
 	}
 
@@ -226,7 +230,7 @@ func (r *InfisicalStaticSecretPushReconciler) PushToTargets(ctx context.Context,
 		}
 	}
 
-	remaining := map[string]string{}
+	var remaining map[string]string
 	var cleanupErr error
 	if len(stale) > 0 {
 		if push.Spec.SyncOptions.GetDeletionPolicy() == v1beta1.PushDeletionPolicyDelete {
@@ -236,45 +240,54 @@ func (r *InfisicalStaticSecretPushReconciler) PushToTargets(ctx context.Context,
 		}
 	}
 
-	maps.Copy(remaining, owned)
-	push.Status.ManagedSecrets = nilIfEmpty(remaining)
+	push.Status.ManagedSecrets = union(remaining, owned)
 
 	if cleanupErr != nil {
-		r.session.InvalidateOnUnauthorized(session, cleanupErr)
 		return fmt.Errorf("unable to delete secrets that are no longer pushed: %w", cleanupErr)
 	}
 
 	return nil
 }
 
-// DeleteManagedSecrets deletes every secret recorded in status.managedSecrets and keeps
-// the ones it couldn't delete recorded, so a retry only repeats what failed.
+// DeleteManagedSecrets deletes every secret recorded in status.managedSecrets and
+// records the ones it couldn't delete.
 func (r *InfisicalStaticSecretPushReconciler) DeleteManagedSecrets(ctx context.Context, restClient *resty.Client, push *v1beta1.InfisicalStaticSecretPush) error {
-	managed := push.Status.ManagedSecrets
-	if len(managed) == 0 {
-		return nil
-	}
-
 	// Listing the configured targets locates most secrets in one request per target.
 	// Secrets at targets that were removed earlier are looked up by ID instead.
 	listed := make(map[string]secretRef)
 	for i, target := range push.Spec.Targets {
-		location, err := r.resolveLocation(restClient, push, target)
-		if err == nil {
-			var existing []api.Secret
-			existing, err = r.listSecrets(restClient, location)
-			for _, secret := range existing {
-				listed[secret.ID] = secretRef{location: location, key: secret.SecretKey}
-			}
-		}
-		if err != nil {
+		if err := r.locateManagedSecrets(restClient, push, target, listed); err != nil {
 			r.logger.Error(err, "Unable to list target, looking up its secrets by ID instead", "target", describeTarget(i, target))
 		}
 	}
 
-	remaining, err := r.deleteSecrets(restClient, managed, listed, nil, r.otherOwners(ctx, push))
+	remaining, err := r.deleteSecrets(restClient, push.Status.ManagedSecrets, listed, nil, r.otherOwners(ctx, push))
 	push.Status.ManagedSecrets = nilIfEmpty(remaining)
 	return err
+}
+
+// locateManagedSecrets lists a target and adds where the secrets this resource recorded
+// are stored there to listed.
+func (r *InfisicalStaticSecretPushReconciler) locateManagedSecrets(restClient *resty.Client, push *v1beta1.InfisicalStaticSecretPush, target v1beta1.PushTarget, listed map[string]secretRef) error {
+	location, err := r.resolveLocation(restClient, push, target)
+	if err != nil {
+		return err
+	}
+	existing, err := r.listSecrets(restClient, location)
+	if err != nil {
+		return err
+	}
+	recordListed(listed, push.Status.ManagedSecrets, location, existing)
+	return nil
+}
+
+// recordListed adds where each of the managed secrets among the listed ones is stored to listed.
+func recordListed(listed map[string]secretRef, managed map[string]string, location api.SecretLocation, secrets []api.Secret) {
+	for _, secret := range secrets {
+		if _, recorded := managed[secret.ID]; recorded {
+			listed[secret.ID] = secretRef{location: location, key: secret.SecretKey}
+		}
+	}
 }
 
 func (r *InfisicalStaticSecretPushReconciler) resolveLocation(restClient *resty.Client, push *v1beta1.InfisicalStaticSecretPush, target v1beta1.PushTarget) (api.SecretLocation, error) {
@@ -315,9 +328,7 @@ func (r *InfisicalStaticSecretPushReconciler) syncTarget(
 	if err != nil {
 		return result, err
 	}
-	for _, secret := range existing {
-		result.listed[secret.ID] = secretRef{location: location, key: secret.SecretKey}
-	}
+	recordListed(result.listed, push.Status.ManagedSecrets, location, existing)
 
 	plan := planTarget(desired, existing, push.Status.ManagedSecrets, push.Spec.SyncOptions.GetUpdatePolicy())
 
@@ -378,13 +389,9 @@ func (r *InfisicalStaticSecretPushReconciler) listSecrets(restClient *resty.Clie
 		return nil, err
 	}
 
-	secrets := make([]api.Secret, 0, len(response.Secrets))
-	for _, secret := range response.Secrets {
-		if secret.Type != secretTypePersonal {
-			secrets = append(secrets, secret)
-		}
-	}
-	return secrets, nil
+	return slices.DeleteFunc(response.Secrets, func(secret api.Secret) bool {
+		return secret.Type == secretTypePersonal
+	}), nil
 }
 
 // targetPlan is what a sync must change at one target.
@@ -437,16 +444,17 @@ func planTarget(desired map[string]string, existing []api.Secret, managed map[st
 			continue
 		}
 
-		if !isOwned {
+		if !isOwned || !upToDate {
 			plan.claims[key] = current.ID
+		}
+		if !isOwned {
 			plan.takenOver = append(plan.takenOver, key)
 		}
-		if !upToDate {
+		if upToDate {
+			plan.owned[current.ID] = key
+		} else {
 			plan.upserts = append(plan.upserts, api.UpsertSecret{SecretKey: key, SecretValue: value})
-			plan.claims[key] = current.ID
-			continue
 		}
-		plan.owned[current.ID] = key
 	}
 
 	return plan
@@ -504,12 +512,15 @@ func (r *InfisicalStaticSecretPushReconciler) otherOwners(ctx context.Context, p
 			return nil, fmt.Errorf("unable to list InfisicalStaticSecretPushes to find keys pushed by another resource: %w", err)
 		}
 
+		self := client.ObjectKeyFromObject(push)
 		owners := make(map[string]otherOwner)
-		for _, other := range pushes.Items {
-			if other.Namespace == push.Namespace && other.Name == push.Name {
+		for i := range pushes.Items {
+			other := &pushes.Items[i]
+			name := client.ObjectKeyFromObject(other)
+			if name == self {
 				continue
 			}
-			owner := otherOwner{name: other.Namespace + "/" + other.Name, deleting: !other.DeletionTimestamp.IsZero()}
+			owner := otherOwner{name: name.String(), deleting: !other.DeletionTimestamp.IsZero()}
 			for id := range other.Status.ManagedSecrets {
 				// Several resources can record the same secret. One that isn't being deleted
 				// wins, because it still pushes the key and cleanup must not delete it.
@@ -766,6 +777,14 @@ func describeTarget(index int, target v1beta1.PushTarget) string {
 		project = target.ProjectSlug
 	}
 	return fmt.Sprintf("targets[%d] (project %s, %s:%s)", index, project, target.EnvironmentSlug, normalizeSecretPath(target.SecretPath))
+}
+
+// union returns the entries of both maps, or nil when both are empty. Entries of b win.
+func union(a, b map[string]string) map[string]string {
+	merged := make(map[string]string, len(a)+len(b))
+	maps.Copy(merged, a)
+	maps.Copy(merged, b)
+	return nilIfEmpty(merged)
 }
 
 func nilIfEmpty(m map[string]string) map[string]string {

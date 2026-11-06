@@ -1,5 +1,5 @@
 // Package conditions records reconciliation outcomes on the status conditions that the
-// v1beta1 secret resources share.
+// v1beta1 resources share.
 package conditions
 
 import (
@@ -12,6 +12,10 @@ import (
 )
 
 const (
+	// IsReady is set by InfisicalAuth and InfisicalConnection, and resources that use
+	// them wait for it to be true.
+	IsReady = "secrets.infisical.com/IsReady"
+
 	LastSuccessfulReconcileAt = "secrets.infisical.com/LastSuccessfulReconcileAt"
 	LastReconcileStatus       = "secrets.infisical.com/LastReconcileStatus"
 	LastReconcileAuthMethod   = "secrets.infisical.com/LastReconcileAuthMethod"

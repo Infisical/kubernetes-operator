@@ -240,24 +240,13 @@ func (s *Server) upsertSecrets(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid upsert request")
 		return
 	}
-	secretPath := cleanPath(body.SecretPath)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	key := folderKey(body.ProjectID, body.Environment, secretPath)
-	if s.approvalPaths[key] {
-		writeJSON(w, http.StatusOK, map[string]any{"approval": map[string]any{"id": "approval-1"}})
+	secretPath, existing, ok := s.batchFolderLocked(w, body.locationBody)
+	if !ok {
 		return
-	}
-	if !s.folders[key] {
-		writeError(w, http.StatusNotFound, fmt.Sprintf("Folder with path '%s' in environment '%s' not found", secretPath, body.Environment))
-		return
-	}
-
-	existing := map[string]*Secret{}
-	for _, secret := range s.secretsAtLocked(body.ProjectID, body.Environment, secretPath) {
-		existing[secret.Key] = secret
 	}
 
 	stored := []secretJSON{}
@@ -284,24 +273,13 @@ func (s *Server) deleteSecrets(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid delete request")
 		return
 	}
-	secretPath := cleanPath(body.SecretPath)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	key := folderKey(body.ProjectID, body.Environment, secretPath)
-	if s.approvalPaths[key] {
-		writeJSON(w, http.StatusOK, map[string]any{"approval": map[string]any{"id": "approval-1"}})
+	_, existing, ok := s.batchFolderLocked(w, body.locationBody)
+	if !ok {
 		return
-	}
-	if !s.folders[key] {
-		writeError(w, http.StatusNotFound, fmt.Sprintf("Folder with path '%s' in environment '%s' not found", secretPath, body.Environment))
-		return
-	}
-
-	existing := map[string]*Secret{}
-	for _, secret := range s.secretsAtLocked(body.ProjectID, body.Environment, secretPath) {
-		existing[secret.Key] = secret
 	}
 
 	var missing []string
@@ -322,6 +300,28 @@ func (s *Server) deleteSecrets(w http.ResponseWriter, r *http.Request) {
 		delete(s.secrets, secret.ID)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"secrets": deleted})
+}
+
+// batchFolderLocked returns the cleaned path of the folder a batch change targets and its
+// secrets by key. When the change can't be applied there, because an approval policy
+// covers the folder or the folder doesn't exist, it writes the response and returns false.
+func (s *Server) batchFolderLocked(w http.ResponseWriter, location locationBody) (string, map[string]*Secret, bool) {
+	secretPath := cleanPath(location.SecretPath)
+	key := folderKey(location.ProjectID, location.Environment, secretPath)
+	if s.approvalPaths[key] {
+		writeJSON(w, http.StatusOK, map[string]any{"approval": map[string]any{"id": "approval-1"}})
+		return "", nil, false
+	}
+	if !s.folders[key] {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("Folder with path '%s' in environment '%s' not found", secretPath, location.Environment))
+		return "", nil, false
+	}
+
+	existing := map[string]*Secret{}
+	for _, secret := range s.secretsAtLocked(location.ProjectID, location.Environment, secretPath) {
+		existing[secret.Key] = secret
+	}
+	return secretPath, existing, true
 }
 
 func (s *Server) getSecretByID(w http.ResponseWriter, r *http.Request) {

@@ -2,6 +2,7 @@ package infisicalstaticsecretpush_test
 
 import (
 	"context"
+	"maps"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -20,6 +21,7 @@ import (
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
 	"github.com/Infisical/infisical/k8-operator/internal/cache"
+	"github.com/Infisical/infisical/k8-operator/internal/conditions"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
 	svc "github.com/Infisical/infisical/k8-operator/internal/services/infisicalstaticsecretpush"
 	"github.com/Infisical/infisical/k8-operator/internal/testutil/fakeinfisical"
@@ -54,7 +56,7 @@ func newTestEnv(objects ...client.Object) *testEnv {
 	DeferCleanup(server.Close)
 
 	ready := []metav1.Condition{{
-		Type:               "secrets.infisical.com/IsReady",
+		Type:               conditions.IsReady,
 		Status:             metav1.ConditionTrue,
 		Reason:             "OK",
 		LastTransitionTime: metav1.Now(),
@@ -194,12 +196,10 @@ func reconcileStatus(push *v1beta1.InfisicalStaticSecretPush) *metav1.Condition 
 	return meta.FindStatusCondition(push.Status.Conditions, svc.ConditionLastReconcileStatus)
 }
 
-func mergeMaps(maps ...map[string]string) map[string]string {
+func mergeMaps(all ...map[string]string) map[string]string {
 	merged := map[string]string{}
-	for _, m := range maps {
-		for key, value := range m {
-			merged[key] = value
-		}
+	for _, m := range all {
+		maps.Copy(merged, m)
 	}
 	return merged
 }

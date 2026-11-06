@@ -10,20 +10,17 @@ import (
 	"github.com/Infisical/infisical/k8-operator/api/v1alpha1"
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/api"
-	"github.com/Infisical/infisical/k8-operator/internal/auth"
-	"github.com/Infisical/infisical/k8-operator/internal/cache"
 	"github.com/Infisical/infisical/k8-operator/internal/constants"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
+	"github.com/Infisical/infisical/k8-operator/internal/services/infisicalsession"
 	templatev1 "github.com/Infisical/infisical/k8-operator/internal/template/v1"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
 	"github.com/Infisical/infisical/k8-operator/internal/util/drift"
 
 	"github.com/go-logr/logr"
-	"github.com/go-resty/resty/v2"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8Errors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -171,30 +168,8 @@ type InfisicalStaticSecretReconciler struct {
 	client.Client
 	Scheme            *runtime.Scheme
 	IsNamespaceScoped bool
-	authResolver      *auth.AuthStrategyResolver
-	projectIDCache    *cache.ResourceCache[string]
+	session           *infisicalsession.Resolver
 	logger            logr.Logger
-}
-
-func (r *InfisicalStaticSecretReconciler) getProjectIDBySlug(restClient *resty.Client, authRef v1beta1.NamespacedName, slug string) (string, error) {
-	authRef = ResolveAuthRef(authRef)
-	cacheKey := cache.ProjectBySlugCacheKey(authRef.Namespace, authRef.Name, slug)
-	if r.projectIDCache != nil {
-		if cached, ok := r.projectIDCache.Get(cacheKey); ok {
-			return cached, nil
-		}
-	}
-
-	project, err := api.FindProjectBySlug(restClient, slug)
-	if err != nil {
-		return "", err
-	}
-
-	if r.projectIDCache != nil {
-		r.projectIDCache.Set(cacheKey, project.ID)
-	}
-
-	return project.ID, nil
 }
 
 func (r *InfisicalStaticSecretReconciler) Validate(infisicalStaticSecret *v1beta1.InfisicalStaticSecret) error {
@@ -269,157 +244,36 @@ func NewReconcilerForTest(c client.Client, scheme *runtime.Scheme) *InfisicalSta
 	}
 }
 
-// ResolveAuthRef returns the given auth reference, or the default InfisicalAuth
-// in the operator namespace if no reference was provided.
-func ResolveAuthRef(authRef v1beta1.NamespacedName) v1beta1.NamespacedName {
-	if authRef.Name != "" {
-		return authRef
-	}
-
-	return v1beta1.NamespacedName{
-		Name:      constants.DEFAULT_INFISICAL_AUTH_NAME,
-		Namespace: constants.GetOperatorNamespace(),
-	}
-}
-
-func (r *InfisicalStaticSecretReconciler) getInfisicalAuth(ctx context.Context, authRef v1beta1.NamespacedName) (*v1beta1.InfisicalAuth, error) {
-	resolved := ResolveAuthRef(authRef)
-
-	auth := v1beta1.InfisicalAuth{}
-
-	err := r.Client.Get(ctx, types.NamespacedName{
-		Name:      resolved.Name,
-		Namespace: resolved.Namespace,
-	}, &auth)
-	if err != nil {
-		if util.IsNamespaceScopedError(err, r.IsNamespaceScoped) {
-			return nil, model.NewNamespaceScopedError(err, "InfisicalAuth")
-		}
-		return nil, fmt.Errorf("Unable to fetch Infisical Auth CRD from cluster: %w", err)
-	}
-
-	readyCond := meta.FindStatusCondition(auth.Status.Conditions, "secrets.infisical.com/IsReady")
-	if readyCond == nil || readyCond.Status != metav1.ConditionTrue {
-		return nil, fmt.Errorf("InfisicalAuth is not ready")
-	}
-
-	return &auth, nil
-}
-
-func resolveConnectionRef(connectionRef v1beta1.NamespacedName) v1beta1.NamespacedName {
-	if connectionRef.Name != "" {
-		return connectionRef
-	}
-
-	return v1beta1.NamespacedName{
-		Name:      constants.DEFAULT_INFISICAL_CONNECTION_NAME,
-		Namespace: constants.GetOperatorNamespace(),
-	}
-}
-
-func (r *InfisicalStaticSecretReconciler) getInfisicalConnection(ctx context.Context, connectionRef v1beta1.NamespacedName) (*v1beta1.InfisicalConnection, error) {
-	resolved := resolveConnectionRef(connectionRef)
-
-	conn := v1beta1.InfisicalConnection{}
-
-	err := r.Client.Get(ctx, types.NamespacedName{
-		Name:      resolved.Name,
-		Namespace: resolved.Namespace,
-	}, &conn)
-	if err != nil {
-		if util.IsNamespaceScopedError(err, r.IsNamespaceScoped) {
-			return nil, model.NewNamespaceScopedError(err, "InfisicalConnection")
-		}
-		return nil, fmt.Errorf("Unable to fetch Infisical Connection CRD from cluster: %w", err)
-	}
-
-	readyCond := meta.FindStatusCondition(conn.Status.Conditions, "secrets.infisical.com/IsReady")
-	if readyCond == nil || readyCond.Status != metav1.ConditionTrue {
-		return nil, fmt.Errorf("InfisicalConnection is not ready")
-	}
-
-	return &conn, nil
-}
-
-type AuthenticateResult struct {
-	Connection  *v1beta1.InfisicalConnection
-	Auth        *v1beta1.InfisicalAuth
-	Credentials *model.AuthenticationResult
-}
-
-func (r *InfisicalStaticSecretReconciler) Authenticate(ctx context.Context, infisicalStaticSecret *v1beta1.InfisicalStaticSecret) (AuthenticateResult, error) {
+// Authenticate logs in through the InfisicalAuth the static secret references and
+// records the auth method on the status as soon as the InfisicalAuth is found.
+func (r *InfisicalStaticSecretReconciler) Authenticate(ctx context.Context, infisicalStaticSecret *v1beta1.InfisicalStaticSecret) (infisicalsession.Session, error) {
 	if infisicalStaticSecret == nil {
-		return AuthenticateResult{}, model.ErrInvalidStaticSecretObject
+		return infisicalsession.Session{}, model.ErrInvalidStaticSecretObject
 	}
 
-	auth, err := r.getInfisicalAuth(ctx, infisicalStaticSecret.Spec.InfisicalAuthRef)
-	if err != nil {
-		return AuthenticateResult{}, err
+	session, err := r.session.Authenticate(ctx, infisicalStaticSecret.Spec.InfisicalAuthRef)
+	if session.Auth != nil {
+		setAuthMethodCondition(infisicalStaticSecret, string(session.Auth.Spec.Method))
 	}
 
-	if auth == nil {
-		return AuthenticateResult{}, model.ErrInvalidAuthObject
-	}
-
-	setAuthMethodCondition(infisicalStaticSecret, string(auth.Spec.Method))
-
-	conn, err := r.getInfisicalConnection(ctx, auth.Spec.InfisicalConnectionRef)
-	if err != nil {
-		return AuthenticateResult{}, err
-	}
-
-	if conn == nil {
-		return AuthenticateResult{}, model.ErrInvalidConnectionObject
-	}
-
-	if err := r.authResolver.Validate(ctx, auth); err != nil {
-		return AuthenticateResult{}, err
-	}
-
-	authResult, err := r.authResolver.Authenticate(ctx, conn, auth)
-	if err != nil {
-		return AuthenticateResult{}, err
-	}
-
-	if authResult == nil {
-		return AuthenticateResult{}, fmt.Errorf("unable to get authentication credentials")
-	}
-
-	return AuthenticateResult{
-		Connection:  conn,
-		Auth:        auth,
-		Credentials: authResult,
-	}, nil
+	return session, err
 }
 
-func (r *InfisicalStaticSecretReconciler) ListSecretsFromSources(ctx context.Context, infisicalStaticSecret *v1beta1.InfisicalStaticSecret, authenticationResult AuthenticateResult) ([]api.Secret, []api.Secret, error) {
+func (r *InfisicalStaticSecretReconciler) ListSecretsFromSources(ctx context.Context, infisicalStaticSecret *v1beta1.InfisicalStaticSecret, session infisicalsession.Session) ([]api.Secret, []api.Secret, error) {
 	if infisicalStaticSecret == nil {
 		return nil, nil, model.ErrInvalidStaticSecretObject
 	}
 
-	caCertificate, err := util.ResolveTLSCaCertificate(ctx, r.Client, authenticationResult.Connection.Spec.TLS)
+	restClient, err := r.session.NewAPIClient(ctx, session)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	restClient, err := util.CreateRestyClient(model.CreateRestyClientOptions{
-		AccessToken:   authenticationResult.Credentials.MachineIdentity.AccessToken,
-		CaCertificate: caCertificate,
-	})
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get REST client: %w", err)
-	}
-
-	restClient = restClient.SetBaseURL(authenticationResult.Connection.Address())
 	requests := make([]api.ListSecretsRequest, 0, len(infisicalStaticSecret.Spec.Sources))
 	for _, source := range infisicalStaticSecret.Spec.Sources {
-		projectID := source.ProjectId
-		if source.ProjectSlug != "" {
-			resolvedID, err := r.getProjectIDBySlug(restClient, infisicalStaticSecret.Spec.InfisicalAuthRef, source.ProjectSlug)
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to list secrets: %w", err)
-			}
-			projectID = resolvedID
+		projectID, err := r.session.ResolveProjectID(restClient, infisicalStaticSecret.Spec.InfisicalAuthRef, source.ProjectId, source.ProjectSlug)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to list secrets: %w", err)
 		}
 
 		requests = append(requests, api.ListSecretsRequest{
@@ -436,10 +290,7 @@ func (r *InfisicalStaticSecretReconciler) ListSecretsFromSources(ctx context.Con
 	for _, request := range requests {
 		response, err := api.ListSecrets(restClient, request)
 		if err != nil {
-			if errors.Is(err, api.ErrUnauthorized) {
-				r.authResolver.DeleteCacheEntry(authenticationResult.Auth)
-			}
-
+			r.session.InvalidateOnUnauthorized(session, err)
 			return nil, nil, fmt.Errorf("unable to fetch all secret sources: %w", err)
 		}
 

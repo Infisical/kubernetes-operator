@@ -31,6 +31,7 @@ const DEFAULT_INFISICAL_AUTH_NAME = "default"
 
 const INFISICAL_PUSH_SECRET_FINALIZER_NAME = "pushsecret.secrets.infisical.com/finalizer"
 const INFISICAL_DYNAMIC_SECRET_FINALIZER_NAME = "dynamicsecret.secrets.infisical.com/finalizer"
+const INFISICAL_STATIC_SECRET_PUSH_FINALIZER_NAME = "staticsecretpush.secrets.infisical.com/finalizer"
 
 type PushSecretReplacePolicy string
 type PushSecretDeletionPolicy string

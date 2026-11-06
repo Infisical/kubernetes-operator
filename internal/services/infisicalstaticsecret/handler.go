@@ -13,6 +13,7 @@ import (
 	"github.com/Infisical/infisical/k8-operator/internal/cache"
 	"github.com/Infisical/infisical/k8-operator/internal/metrics"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
+	"github.com/Infisical/infisical/k8-operator/internal/services/infisicalsession"
 	templatev1 "github.com/Infisical/infisical/k8-operator/internal/template/v1"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
 	"github.com/Infisical/infisical/k8-operator/internal/util/sse"
@@ -40,8 +41,7 @@ func NewInfisicalStaticSecretHandler(
 			Client:            client,
 			Scheme:            scheme,
 			IsNamespaceScoped: isNamespaceScoped,
-			authResolver:      authResolver,
-			projectIDCache:    projectIDCache,
+			session:           infisicalsession.NewResolver(client, isNamespaceScoped, authResolver, projectIDCache),
 			logger:            logger,
 		},
 	}
@@ -129,19 +129,10 @@ func (h *InfisicalStaticSecretHandler) OpenInstantUpdatesStreams(
 	token := auth.Credentials.MachineIdentity.AccessToken
 	baseURL := util.AppendAPIEndpoint(auth.Connection.Address())
 
-	caCertificate, err := util.ResolveTLSCaCertificate(ctx, h.Client, auth.Connection.Spec.TLS)
+	restClient, err := h.reconciler.session.NewAPIClient(ctx, auth)
 	if err != nil {
 		return registries, err
 	}
-
-	restClient, err := util.CreateRestyClient(model.CreateRestyClientOptions{
-		AccessToken:   token,
-		CaCertificate: caCertificate,
-	})
-	if err != nil {
-		return registries, fmt.Errorf("failed to get REST client: %w", err)
-	}
-	restClient = restClient.SetBaseURL(auth.Connection.Address())
 
 	if registries == nil {
 		registries = make(map[string]*sse.ConnectionRegistry)
@@ -168,7 +159,7 @@ func (h *InfisicalStaticSecretHandler) OpenInstantUpdatesStreams(
 
 		projectID := source.ProjectId
 		if source.ProjectSlug != "" {
-			resolvedID, err := h.reconciler.getProjectIDBySlug(restClient, infisicalStaticSecret.Spec.InfisicalAuthRef, source.ProjectSlug)
+			resolvedID, err := h.reconciler.session.ResolveProjectID(restClient, infisicalStaticSecret.Spec.InfisicalAuthRef, "", source.ProjectSlug)
 			if err != nil {
 				h.logger.Error(err, "Failed to resolve project slug", "projectSlug", source.ProjectSlug)
 				// A transient resolution failure must not tear down an already-established

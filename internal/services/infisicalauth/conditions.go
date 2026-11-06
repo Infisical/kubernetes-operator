@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
+	"github.com/Infisical/infisical/k8-operator/internal/conditions"
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -17,7 +18,7 @@ func (r *InfisicalAuthReconciler) SetReconcileConditionStatus(ctx context.Contex
 
 	if errorToConditionOn == nil {
 		meta.SetStatusCondition(&infisicalAuth.Status.Conditions, metav1.Condition{
-			Type:               "secrets.infisical.com/IsReady",
+			Type:               conditions.IsReady,
 			Status:             metav1.ConditionTrue,
 			Reason:             "Ok",
 			Message:            "InfisicalAuth is ready to be used.",
@@ -33,7 +34,7 @@ func (r *InfisicalAuthReconciler) SetReconcileConditionStatus(ctx context.Contex
 		})
 	} else {
 		meta.SetStatusCondition(&infisicalAuth.Status.Conditions, metav1.Condition{
-			Type:               "secrets.infisical.com/IsReady",
+			Type:               conditions.IsReady,
 			Status:             metav1.ConditionFalse,
 			Reason:             "Error",
 			Message:            fmt.Sprintf("infisicalAuth is not ready to be used due to an error: %v", errorToConditionOn),

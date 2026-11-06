@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -400,6 +401,45 @@ type CreateSecretOpts struct {
 	Metadata []SecretMetadataEntry
 	TagIDs   []string
 	Type     string
+}
+
+// ListSecrets returns the values of the shared secrets stored directly in a folder,
+// keyed by secret key. A folder that doesn't exist has no secrets.
+func (n *NodeJSService) ListSecrets(t TestingT, projectID, environment, secretPath string) map[string]string {
+	t.Helper()
+
+	var resp struct {
+		Secrets []struct {
+			SecretKey   string `json:"secretKey"`
+			SecretValue string `json:"secretValue"`
+		} `json:"secrets"`
+	}
+	r, err := n.client.R().
+		SetAuthToken(n.identityToken).
+		SetQueryParams(map[string]string{
+			"projectId":              projectID,
+			"environment":            environment,
+			"secretPath":             secretPath,
+			"includeImports":         "false",
+			"expandSecretReferences": "false",
+		}).
+		SetResult(&resp).
+		Get("/api/v4/secrets")
+	if err != nil {
+		t.Fatalf("infra.ListSecrets: request failed: %v", err)
+	}
+	if r.StatusCode() == http.StatusNotFound {
+		return map[string]string{}
+	}
+	if r.IsError() {
+		t.Fatalf("infra.ListSecrets: returned %d: %s", r.StatusCode(), r.String())
+	}
+
+	secrets := make(map[string]string, len(resp.Secrets))
+	for _, secret := range resp.Secrets {
+		secrets[secret.SecretKey] = secret.SecretValue
+	}
+	return secrets
 }
 
 func (n *NodeJSService) CreateFolder(t TestingT, projectID, environment, path, name string) *FolderSeed {

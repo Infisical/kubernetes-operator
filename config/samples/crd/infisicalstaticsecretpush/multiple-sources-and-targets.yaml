@@ -1,0 +1,31 @@
+apiVersion: secrets.infisical.com/v1beta1
+kind: InfisicalStaticSecretPush
+metadata:
+  name: infisicalstaticsecretpush-multi-demo
+spec:
+  infisicalAuthRef:
+    name: infisicalauth-kubernetes-demo
+    namespace: default
+
+  syncOptions:
+    refreshInterval: 60s # optional, if omitted pushes only when a source Secret or this resource changes
+    updatePolicy: Replace # Replace | None, default Replace
+    deletionPolicy: Delete # Delete | None, default Delete
+    createMissingFolders: true # default true
+
+  sources:
+    # When several Secrets contain the same key, the Secret listed first wins.
+    secrets:
+      - name: db-credentials
+        namespace: default
+      - name: api-keys
+        namespace: default
+
+  # Every key from every source is pushed to every target.
+  targets:
+    - projectId: <your-project-id>
+      environmentSlug: dev
+      secretPath: /app
+    - projectSlug: <your-project-slug>
+      environmentSlug: staging
+      secretPath: /app/backend

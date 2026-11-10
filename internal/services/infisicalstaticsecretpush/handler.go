@@ -64,7 +64,7 @@ func (h *InfisicalStaticSecretPushHandler) SyncSecrets(ctx context.Context, push
 
 	session, err := h.reconciler.Authenticate(ctx, push)
 	if err != nil {
-		return 0, fmt.Errorf("Unable to authenticate: %w", err)
+		return 0, fmt.Errorf("unable to authenticate: %w", err)
 	}
 
 	desired, err := h.reconciler.ReadSources(ctx, push)
@@ -119,7 +119,7 @@ func (h *InfisicalStaticSecretPushHandler) DeleteManagedSecrets(ctx context.Cont
 
 	session, err := h.reconciler.Authenticate(ctx, push)
 	if err != nil {
-		return fmt.Errorf("Unable to authenticate: %w", err)
+		return fmt.Errorf("unable to authenticate: %w", err)
 	}
 
 	restClient, err := h.newAPIClient(ctx, session)

@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	"github.com/go-resty/resty/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
@@ -72,14 +71,14 @@ func (h *InfisicalStaticSecretPushHandler) SyncSecrets(ctx context.Context, push
 		return 0, err
 	}
 
-	restClient, err := h.newAPIClient(ctx, session)
+	restClient, err := h.reconciler.NewAPIClient(ctx, session)
 	if err != nil {
 		return 0, err
 	}
 	defer restClient.GetClient().CloseIdleConnections()
 
 	if err := h.reconciler.PushToTargets(ctx, restClient, push, desired); err != nil {
-		h.reconciler.session.InvalidateOnUnauthorized(session, err)
+		h.reconciler.InvalidateOnUnauthorized(session, err)
 		return 0, err
 	}
 
@@ -122,33 +121,16 @@ func (h *InfisicalStaticSecretPushHandler) DeleteManagedSecrets(ctx context.Cont
 		return fmt.Errorf("unable to authenticate: %w", err)
 	}
 
-	restClient, err := h.newAPIClient(ctx, session)
+	restClient, err := h.reconciler.NewAPIClient(ctx, session)
 	if err != nil {
 		return err
 	}
 	defer restClient.GetClient().CloseIdleConnections()
 
 	if err := h.reconciler.DeleteManagedSecrets(ctx, restClient, push); err != nil {
-		h.reconciler.session.InvalidateOnUnauthorized(session, err)
+		h.reconciler.InvalidateOnUnauthorized(session, err)
 		return err
 	}
 
 	return nil
-}
-
-// newAPIClient returns an Infisical API client whose requests are cancelled when ctx is
-// done. The client only waits a bounded time for response headers, so without ctx a
-// stalled response body could block a reconcile indefinitely. Each client has its own
-// connections, so callers close them when they are done with the client.
-func (h *InfisicalStaticSecretPushHandler) newAPIClient(ctx context.Context, session infisicalsession.Session) (*resty.Client, error) {
-	restClient, err := h.reconciler.session.NewAPIClient(ctx, session)
-	if err != nil {
-		return nil, err
-	}
-
-	restClient.OnBeforeRequest(func(_ *resty.Client, request *resty.Request) error {
-		request.SetContext(ctx)
-		return nil
-	})
-	return restClient, nil
 }

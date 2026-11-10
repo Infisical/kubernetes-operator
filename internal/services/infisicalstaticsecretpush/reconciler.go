@@ -149,6 +149,30 @@ func (r *InfisicalStaticSecretPushReconciler) Authenticate(ctx context.Context, 
 	return session, err
 }
 
+// NewAPIClient returns an Infisical API client for the session whose requests are
+// cancelled when ctx is done. The client only waits a bounded time for response
+// headers, so without ctx a stalled response body could block a reconcile
+// indefinitely. Each client has its own connections, so callers close them when they
+// are done with the client.
+func (r *InfisicalStaticSecretPushReconciler) NewAPIClient(ctx context.Context, session infisicalsession.Session) (*resty.Client, error) {
+	restClient, err := r.session.NewAPIClient(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+
+	restClient.OnBeforeRequest(func(_ *resty.Client, request *resty.Request) error {
+		request.SetContext(ctx)
+		return nil
+	})
+	return restClient, nil
+}
+
+// InvalidateOnUnauthorized drops the session's cached credentials when err reports
+// that they were rejected, so the next reconcile logs in again.
+func (r *InfisicalStaticSecretPushReconciler) InvalidateOnUnauthorized(session infisicalsession.Session, err error) {
+	r.session.InvalidateOnUnauthorized(session, err)
+}
+
 // ReadSources reads every source Secret and merges their keys. When several Secrets
 // contain the same key, the Secret listed first wins. A missing Secret fails the whole
 // read, so it is never mistaken for a Secret whose keys were all removed.

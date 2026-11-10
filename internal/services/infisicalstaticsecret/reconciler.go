@@ -18,6 +18,7 @@ import (
 	"github.com/Infisical/infisical/k8-operator/internal/util/drift"
 
 	"github.com/go-logr/logr"
+	"github.com/go-resty/resty/v2"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8Errors "k8s.io/apimachinery/pkg/api/errors"
@@ -259,19 +260,30 @@ func (r *InfisicalStaticSecretReconciler) Authenticate(ctx context.Context, infi
 	return session, err
 }
 
+// NewAPIClient returns an Infisical API client authenticated with the session.
+func (r *InfisicalStaticSecretReconciler) NewAPIClient(ctx context.Context, session infisicalsession.Session) (*resty.Client, error) {
+	return r.session.NewAPIClient(ctx, session)
+}
+
+// ResolveProjectID returns the ID of the project a source reads from: its projectId,
+// or the ID its projectSlug resolves to.
+func (r *InfisicalStaticSecretReconciler) ResolveProjectID(restClient *resty.Client, infisicalStaticSecret *v1beta1.InfisicalStaticSecret, source v1beta1.SecretSource) (string, error) {
+	return r.session.ResolveProjectID(restClient, infisicalStaticSecret.Spec.InfisicalAuthRef, source.ProjectId, source.ProjectSlug)
+}
+
 func (r *InfisicalStaticSecretReconciler) ListSecretsFromSources(ctx context.Context, infisicalStaticSecret *v1beta1.InfisicalStaticSecret, session infisicalsession.Session) ([]api.Secret, []api.Secret, error) {
 	if infisicalStaticSecret == nil {
 		return nil, nil, model.ErrInvalidStaticSecretObject
 	}
 
-	restClient, err := r.session.NewAPIClient(ctx, session)
+	restClient, err := r.NewAPIClient(ctx, session)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	requests := make([]api.ListSecretsRequest, 0, len(infisicalStaticSecret.Spec.Sources))
 	for _, source := range infisicalStaticSecret.Spec.Sources {
-		projectID, err := r.session.ResolveProjectID(restClient, infisicalStaticSecret.Spec.InfisicalAuthRef, source.ProjectId, source.ProjectSlug)
+		projectID, err := r.ResolveProjectID(restClient, infisicalStaticSecret, source)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to list secrets: %w", err)
 		}

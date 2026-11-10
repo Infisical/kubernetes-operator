@@ -129,7 +129,7 @@ func (h *InfisicalStaticSecretHandler) OpenInstantUpdatesStreams(
 	token := auth.Credentials.MachineIdentity.AccessToken
 	baseURL := util.AppendAPIEndpoint(auth.Connection.Address())
 
-	restClient, err := h.reconciler.session.NewAPIClient(ctx, auth)
+	restClient, err := h.reconciler.NewAPIClient(ctx, auth)
 	if err != nil {
 		return registries, err
 	}
@@ -157,21 +157,17 @@ func (h *InfisicalStaticSecretHandler) OpenInstantUpdatesStreams(
 			secretsPath = path.Join(secretsPath, "**")
 		}
 
-		projectID := source.ProjectId
-		if source.ProjectSlug != "" {
-			resolvedID, err := h.reconciler.session.ResolveProjectID(restClient, infisicalStaticSecret.Spec.InfisicalAuthRef, "", source.ProjectSlug)
-			if err != nil {
-				h.logger.Error(err, "Failed to resolve project slug", "projectSlug", source.ProjectSlug)
-				// A transient resolution failure must not tear down an already-established
-				// stream for this source, so keep its existing registry key active.
-				for existingKey, registry := range registries {
-					if params, ok := registry.GetParams(); ok && params.EnvSlug == source.EnvironmentSlug && params.SecretsPath == secretsPath {
-						activeKeys[existingKey] = struct{}{}
-					}
+		projectID, err := h.reconciler.ResolveProjectID(restClient, infisicalStaticSecret, source)
+		if err != nil {
+			h.logger.Error(err, "Failed to resolve project slug", "projectSlug", source.ProjectSlug)
+			// A transient resolution failure must not tear down an already-established
+			// stream for this source, so keep its existing registry key active.
+			for existingKey, registry := range registries {
+				if params, ok := registry.GetParams(); ok && params.EnvSlug == source.EnvironmentSlug && params.SecretsPath == secretsPath {
+					activeKeys[existingKey] = struct{}{}
 				}
-				continue
 			}
-			projectID = resolvedID
+			continue
 		}
 
 		key := sourceSSEKey(projectID, source)
@@ -213,7 +209,7 @@ func (h *InfisicalStaticSecretHandler) OpenInstantUpdatesStreams(
 			registries[key] = registry
 		}
 
-		err := registry.SubscribeWithParams(currentParams, func() (*http.Response, error) {
+		err = registry.SubscribeWithParams(currentParams, func() (*http.Response, error) {
 			var tlsConfig *v1beta1.TLSConfig
 			if auth.Connection != nil {
 				tlsConfig = auth.Connection.Spec.TLS

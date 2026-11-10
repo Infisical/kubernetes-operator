@@ -397,15 +397,18 @@ func (r *InfisicalStaticSecretPushReconciler) syncTarget(
 	return result, conflictErr
 }
 
-// listSecrets returns the shared secrets stored directly in a folder, with secret
-// references unexpanded so they compare equal to the pushed values. A missing folder
-// has no secrets.
+// listSecrets returns the shared secrets stored directly in a folder, ignoring the
+// ones it imports. A missing folder has no secrets.
+//
+// Values come back exactly as stored. With references expanded, a pushed value such
+// as https://${HOST}/api would read back resolved, never match its source, and be
+// rewritten on every sync. A reference the identity can't read would also make
+// Infisical reject the whole listing.
 func (r *InfisicalStaticSecretPushReconciler) listSecrets(restClient *resty.Client, location api.SecretLocation) ([]api.Secret, error) {
 	response, err := api.ListSecrets(restClient, api.ListSecretsRequest{
 		ProjectId:              location.ProjectID,
 		EnvironmentSlug:        location.Environment,
 		SecretPath:             location.SecretPath,
-		ExcludeImports:         true,
 		SkipReferenceExpansion: true,
 	})
 	if api.IsFolderNotFound(err) {

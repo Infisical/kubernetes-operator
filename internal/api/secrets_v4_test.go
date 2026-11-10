@@ -41,7 +41,7 @@ func newFakeInfisical() (*fakeinfisical.Server, *resty.Client) {
 }
 
 var _ = Describe("ListSecrets", func() {
-	It("only sends includeImports and expandSecretReferences when they are turned off", func() {
+	It("only sends expandSecretReferences when expansion is skipped", func() {
 		var queries []url.Values
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			queries = append(queries, r.URL.Query())
@@ -52,12 +52,10 @@ var _ = Describe("ListSecrets", func() {
 
 		_, err := api.ListSecrets(client, api.ListSecretsRequest{ProjectId: projectID, EnvironmentSlug: environment, SecretPath: "/"})
 		Expect(err).NotTo(HaveOccurred())
-		_, err = api.ListSecrets(client, api.ListSecretsRequest{ProjectId: projectID, EnvironmentSlug: environment, SecretPath: "/", ExcludeImports: true, SkipReferenceExpansion: true})
+		_, err = api.ListSecrets(client, api.ListSecretsRequest{ProjectId: projectID, EnvironmentSlug: environment, SecretPath: "/", SkipReferenceExpansion: true})
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(queries[0].Has("includeImports")).To(BeFalse())
 		Expect(queries[0].Has("expandSecretReferences")).To(BeFalse())
-		Expect(queries[1].Get("includeImports")).To(Equal("false"))
 		Expect(queries[1].Get("expandSecretReferences")).To(Equal("false"))
 	})
 

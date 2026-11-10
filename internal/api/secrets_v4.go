@@ -17,10 +17,10 @@ type ListSecretsRequest struct {
 	Tags            []string `json:"tags,omitempty"`
 	Recursive       bool     `json:"recursive,omitempty"`
 
-	// ExcludeImports leaves out secrets imported into the path. Imports are included by default.
-	ExcludeImports bool `json:"-"`
-	// SkipReferenceExpansion returns secret references such as ${KEY} as written
-	// instead of their resolved values. References are expanded by default.
+	// SkipReferenceExpansion returns values exactly as stored, with references such as
+	// ${KEY} left as written. It isn't a user option: no CRD exposes it. Only
+	// InfisicalStaticSecretPush sets it, always, because it compares stored values with
+	// the ones it pushes. InfisicalStaticSecret leaves it unset, so references are expanded.
 	SkipReferenceExpansion bool `json:"-"`
 }
 
@@ -56,10 +56,6 @@ func ListSecrets(httpClient *resty.Client, request ListSecretsRequest) (ListSecr
 
 	if len(request.Tags) > 0 {
 		queryParams["tagSlugs"] = strings.Join(request.Tags, ",")
-	}
-
-	if request.ExcludeImports {
-		queryParams["includeImports"] = "false"
 	}
 
 	if request.SkipReferenceExpansion {

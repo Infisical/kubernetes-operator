@@ -90,7 +90,7 @@ func main() {
 
 	var tlsOpts []func(*tls.Config)
 	flag.IntVar(&maxConcurrency, "max-concurrency", 1,
-		"Maximum number of InfisicalStaticSecret resources, and separately of InfisicalStaticSecretPush resources, reconciled concurrently. Must be at least 1.")
+		"Max concurrent reconciles for each of InfisicalStaticSecret and InfisicalStaticSecretPush. Must be at least 1.")
 	flag.StringVar(&namespaces, "namespaces", "", "Comma-separated list of namespaces to watch. If empty, watches all namespaces (cluster-scoped)")
 	flag.BoolVar(&deprecatedScopedNamespaceWarning, "deprecated-scoped-namespace-warning", false, "If true, logs a deprecation warning for the scopedNamespace field")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+

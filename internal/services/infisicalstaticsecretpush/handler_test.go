@@ -224,6 +224,21 @@ var _ = Describe("SyncSecrets", func() {
 		Expect(meta.FindStatusCondition(push.Status.Conditions, svc.ConditionLastSuccessfulReconcileAt)).NotTo(BeNil())
 	})
 
+	It("records the auth method when the InfisicalConnection isn't ready", func() {
+		env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value"}))
+		connection := &v1beta1.InfisicalConnection{}
+		Expect(env.client.Get(env.ctx, client.ObjectKey{Name: "connection", Namespace: namespace}, connection)).To(Succeed())
+		connection.Status.Conditions = nil
+		env.update(connection)
+		push := env.createPush([]string{"source"}, []v1beta1.PushTarget{target("dev", "/")})
+
+		push, err := env.sync(push)
+
+		Expect(err).To(MatchError(ContainSubstring("InfisicalConnection is not ready")))
+		Expect(meta.FindStatusCondition(push.Status.Conditions, svc.ConditionLastReconcileAuthMethod).Message).To(Equal("universal"))
+		Expect(env.values("dev", "/")).To(BeEmpty())
+	})
+
 	It("doesn't write to Infisical when nothing changed", func() {
 		env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value", "PADDED": "  value \n\n"}))
 		push := env.createPush([]string{"source"}, []v1beta1.PushTarget{target("dev", "/")})

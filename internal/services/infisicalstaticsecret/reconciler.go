@@ -252,12 +252,13 @@ func (r *InfisicalStaticSecretReconciler) Authenticate(ctx context.Context, infi
 		return infisicalsession.Session{}, model.ErrInvalidStaticSecretObject
 	}
 
-	session, err := r.session.Authenticate(ctx, infisicalStaticSecret.Spec.InfisicalAuthRef)
-	if session.Auth != nil {
-		setAuthMethodCondition(infisicalStaticSecret, string(session.Auth.Spec.Method))
+	infisicalAuth, err := r.session.GetInfisicalAuth(ctx, infisicalStaticSecret.Spec.InfisicalAuthRef)
+	if err != nil {
+		return infisicalsession.Session{}, err
 	}
+	setAuthMethodCondition(infisicalStaticSecret, string(infisicalAuth.Spec.Method))
 
-	return session, err
+	return r.session.Authenticate(ctx, infisicalAuth)
 }
 
 // NewAPIClient returns an Infisical API client authenticated with the session.

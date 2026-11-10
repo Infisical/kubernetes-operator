@@ -103,9 +103,9 @@ type Session struct {
 	Credentials *model.AuthenticationResult
 }
 
-// Resolver turns an InfisicalAuth reference into an authenticated Session.
-// Credentials are cached per InfisicalAuth by the AuthStrategyResolver, so
-// resources that share an InfisicalAuth share a single login.
+// Resolver fetches the InfisicalAuth a resource references and turns it into an
+// authenticated Session. Credentials are cached per InfisicalAuth by the
+// AuthStrategyResolver, so resources that share an InfisicalAuth share a single login.
 type Resolver struct {
 	client            client.Client
 	isNamespaceScoped bool
@@ -124,38 +124,33 @@ func NewResolver(c client.Client, isNamespaceScoped bool, authResolver *auth.Aut
 	}
 }
 
-// Authenticate resolves the referenced InfisicalAuth and its InfisicalConnection and
-// logs in, reusing cached credentials when possible. The returned Session has Auth set
-// as soon as the InfisicalAuth was found, even when a later step fails, so callers
-// can report the auth method alongside the error.
-func (r *Resolver) Authenticate(ctx context.Context, authRef v1beta1.NamespacedName) (Session, error) {
-	infisicalAuth, err := getInfisicalAuth(ctx, r.client, r.isNamespaceScoped, authRef)
+// GetInfisicalAuth fetches the referenced InfisicalAuth, or the default one when no
+// reference was provided, and returns an error unless it is ready.
+func (r *Resolver) GetInfisicalAuth(ctx context.Context, authRef v1beta1.NamespacedName) (*v1beta1.InfisicalAuth, error) {
+	return getInfisicalAuth(ctx, r.client, r.isNamespaceScoped, authRef)
+}
+
+// Authenticate fetches the InfisicalConnection the InfisicalAuth references and logs
+// in, reusing cached credentials when possible.
+func (r *Resolver) Authenticate(ctx context.Context, infisicalAuth *v1beta1.InfisicalAuth) (Session, error) {
+	conn, err := GetInfisicalConnection(ctx, r.client, r.isNamespaceScoped, infisicalAuth.Spec.InfisicalConnectionRef)
 	if err != nil {
 		return Session{}, err
 	}
 
-	session := Session{Auth: infisicalAuth}
-
-	conn, err := GetInfisicalConnection(ctx, r.client, r.isNamespaceScoped, infisicalAuth.Spec.InfisicalConnectionRef)
-	if err != nil {
-		return session, err
-	}
-	session.Connection = conn
-
 	if err := r.authResolver.Validate(ctx, infisicalAuth); err != nil {
-		return session, err
+		return Session{}, err
 	}
 
 	credentials, err := r.authResolver.Authenticate(ctx, conn, infisicalAuth)
 	if err != nil {
-		return session, err
+		return Session{}, err
 	}
 	if credentials == nil {
-		return session, fmt.Errorf("unable to get authentication credentials")
+		return Session{}, fmt.Errorf("unable to get authentication credentials")
 	}
-	session.Credentials = credentials
 
-	return session, nil
+	return Session{Connection: conn, Auth: infisicalAuth, Credentials: credentials}, nil
 }
 
 // NewAPIClient returns a REST client authenticated with the session's access token,

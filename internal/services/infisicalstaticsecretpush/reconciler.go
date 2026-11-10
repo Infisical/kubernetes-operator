@@ -142,11 +142,13 @@ func RefreshInterval(push *v1beta1.InfisicalStaticSecretPush) (time.Duration, er
 // Authenticate logs in through the InfisicalAuth the resource references and records
 // the auth method on the status as soon as the InfisicalAuth is found.
 func (r *InfisicalStaticSecretPushReconciler) Authenticate(ctx context.Context, push *v1beta1.InfisicalStaticSecretPush) (infisicalsession.Session, error) {
-	session, err := r.session.Authenticate(ctx, push.Spec.InfisicalAuthRef)
-	if session.Auth != nil {
-		setAuthMethodCondition(push, string(session.Auth.Spec.Method))
+	infisicalAuth, err := r.session.GetInfisicalAuth(ctx, push.Spec.InfisicalAuthRef)
+	if err != nil {
+		return infisicalsession.Session{}, err
 	}
-	return session, err
+	setAuthMethodCondition(push, string(infisicalAuth.Spec.Method))
+
+	return r.session.Authenticate(ctx, infisicalAuth)
 }
 
 // NewAPIClient returns an Infisical API client for the session whose requests are

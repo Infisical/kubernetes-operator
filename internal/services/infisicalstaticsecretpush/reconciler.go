@@ -724,7 +724,7 @@ func (r *InfisicalStaticSecretPushReconciler) deleteBatches(restClient *resty.Cl
 }
 
 func approvalRequiredError(location api.SecretLocation) error {
-	return fmt.Errorf("changes to %s:%s require approval: an approval request was created in Infisical, and the operator will take over the secrets once it is approved", location.Environment, location.SecretPath)
+	return fmt.Errorf("changes to %s:%s require approval: an approval request was created in Infisical, and the operator will take over the secrets once it is approved. To apply changes without approval, enable Bypass Approval for Machine Identities in the Change Policy", location.Environment, location.SecretPath)
 }
 
 // chunkByJSONSize splits items into batches whose encoded size stays under maxBytes.

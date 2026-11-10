@@ -565,6 +565,7 @@ var _ = Describe("SyncSecrets", func() {
 		push, err := env.sync(push)
 
 		Expect(err).To(MatchError(ContainSubstring("changes to prod:/ require approval")))
+		Expect(err).To(MatchError(ContainSubstring("enable Bypass Approval for Machine Identities in the Change Policy")))
 		Expect(env.values("dev", "/")).To(Equal(map[string]string{"KEY": "value"}))
 		Expect(push.Status.ManagedSecrets).To(Equal(env.ids("dev", "/")))
 	})

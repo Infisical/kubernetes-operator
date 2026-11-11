@@ -678,6 +678,21 @@ var _ = Describe("SyncSecrets", func() {
 			Expect(push.Status.ManagedSecrets).To(Equal(env.ids("dev", "/")))
 		})
 
+		It("rejects a template with only whitespace and keeps what it pushed", func() {
+			env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value"}))
+			push := env.createPush([]string{"source"}, []v1beta1.PushTarget{target("dev", "/")})
+			env.mustSync(push)
+
+			push = env.get(push)
+			push.Spec.Targets[0].Template = &v1beta1.SecretTemplate{EngineVersion: "v1", Data: v1beta1.SecretTemplateData{Raw: " \n"}}
+			env.update(push)
+			_, err := env.sync(push)
+
+			Expect(err).To(MatchError(ContainSubstring("targets[0].template.data must not be empty")))
+			Expect(env.values("dev", "/")).To(Equal(map[string]string{"KEY": "value"}))
+			Expect(env.infisical.CountRequests(deleteReq)).To(Equal(0))
+		})
+
 		It("fails only the target whose template fails, and deletes nothing", func() {
 			source := sourceSecret("source", map[string]string{"KEEP": "value", "REMOVE": "value"})
 			env := newTestEnv(source)

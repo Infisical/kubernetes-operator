@@ -110,7 +110,7 @@ func (r *InfisicalStaticSecretPushReconciler) Validate(push *v1beta1.InfisicalSt
 			return fmt.Errorf("targets[%d].secretPath must start with /", i)
 		}
 		// An empty template renders no keys, which would delete everything pushed to the target.
-		if target.Template != nil && !target.Template.Data.IsRaw() && len(target.Template.Data.Map) == 0 {
+		if target.Template != nil && len(target.Template.Data.Map) == 0 && strings.TrimSpace(target.Template.Data.Raw) == "" {
 			return fmt.Errorf("targets[%d].template.data must not be empty", i)
 		}
 

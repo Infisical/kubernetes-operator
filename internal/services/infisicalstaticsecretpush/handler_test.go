@@ -234,9 +234,43 @@ var _ = Describe("SyncSecrets", func() {
 
 		push, err := env.sync(push)
 
-		Expect(err).To(MatchError(ContainSubstring("InfisicalConnection is not ready")))
+		Expect(err).To(MatchError(ContainSubstring("InfisicalConnection " + namespace + "/connection is not ready yet")))
 		Expect(meta.FindStatusCondition(push.Status.Conditions, svc.ConditionLastReconcileAuthMethod).Message).To(Equal("universal"))
 		Expect(env.values("dev", "/")).To(BeEmpty())
+	})
+
+	It("records the auth method and reports why when the InfisicalAuth isn't ready", func() {
+		env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value"}))
+		infisicalAuth := &v1beta1.InfisicalAuth{}
+		Expect(env.client.Get(env.ctx, client.ObjectKey{Name: "auth", Namespace: namespace}, infisicalAuth)).To(Succeed())
+		infisicalAuth.Status.Conditions = []metav1.Condition{{
+			Type:               conditions.IsReady,
+			Status:             metav1.ConditionFalse,
+			Reason:             "Error",
+			Message:            "infisicalAuth is not ready to be used due to an error: Invalid credentials",
+			LastTransitionTime: metav1.Now(),
+		}}
+		env.update(infisicalAuth)
+		push := env.createPush([]string{"source"}, []v1beta1.PushTarget{target("dev", "/")})
+
+		push, err := env.sync(push)
+
+		Expect(err).To(MatchError("unable to authenticate: InfisicalAuth " + namespace + "/auth: infisicalAuth is not ready to be used due to an error: Invalid credentials"))
+		Expect(meta.FindStatusCondition(push.Status.Conditions, svc.ConditionLastReconcileAuthMethod).Message).To(Equal("universal"))
+		Expect(env.values("dev", "/")).To(BeEmpty())
+	})
+
+	It("reports an InfisicalAuth that hasn't been reconciled yet", func() {
+		env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value"}))
+		infisicalAuth := &v1beta1.InfisicalAuth{}
+		Expect(env.client.Get(env.ctx, client.ObjectKey{Name: "auth", Namespace: namespace}, infisicalAuth)).To(Succeed())
+		infisicalAuth.Status.Conditions = nil
+		env.update(infisicalAuth)
+		push := env.createPush([]string{"source"}, []v1beta1.PushTarget{target("dev", "/")})
+
+		_, err := env.sync(push)
+
+		Expect(err).To(MatchError("unable to authenticate: InfisicalAuth " + namespace + "/auth is not ready yet"))
 	})
 
 	It("doesn't write to Infisical when nothing changed", func() {

@@ -51,7 +51,7 @@ func resolveConnectionRef(connectionRef v1beta1.NamespacedName) v1beta1.Namespac
 	}
 }
 
-// getInfisicalAuth fetches the referenced InfisicalAuth and returns an error unless it is ready.
+// getInfisicalAuth fetches the referenced InfisicalAuth, ready or not.
 func getInfisicalAuth(ctx context.Context, c client.Client, isNamespaceScoped bool, authRef v1beta1.NamespacedName) (*v1beta1.InfisicalAuth, error) {
 	resolved := ResolveAuthRef(authRef)
 
@@ -62,10 +62,6 @@ func getInfisicalAuth(ctx context.Context, c client.Client, isNamespaceScoped bo
 			return nil, model.NewNamespaceScopedError(err, "InfisicalAuth")
 		}
 		return nil, fmt.Errorf("Unable to fetch Infisical Auth CRD from cluster: %w", err)
-	}
-
-	if !isReady(infisicalAuth.Status.Conditions) {
-		return nil, fmt.Errorf("InfisicalAuth is not ready")
 	}
 
 	return &infisicalAuth, nil
@@ -84,16 +80,31 @@ func GetInfisicalConnection(ctx context.Context, c client.Client, isNamespaceSco
 		return nil, fmt.Errorf("Unable to fetch Infisical Connection CRD from cluster: %w", err)
 	}
 
-	if !isReady(conn.Status.Conditions) {
-		return nil, fmt.Errorf("InfisicalConnection is not ready")
+	if err := checkReadiness("InfisicalConnection", &conn); err != nil {
+		return nil, err
 	}
 
 	return &conn, nil
 }
 
-func isReady(statusConditions []metav1.Condition) bool {
-	readyCond := meta.FindStatusCondition(statusConditions, conditions.IsReady)
-	return readyCond != nil && readyCond.Status == metav1.ConditionTrue
+// checkReadiness returns nil when the resource is ready. Otherwise its error names the
+// resource and repeats its IsReady message, which holds the actual cause, such as
+// rejected credentials or an unreachable address, so callers don't have to look it up.
+func checkReadiness(resourceName string, resource readinessReporter) error {
+	readyCond := meta.FindStatusCondition(resource.GetConditions(), conditions.IsReady)
+	if readyCond != nil && readyCond.Status == metav1.ConditionTrue {
+		return nil
+	}
+	if readyCond == nil || readyCond.Message == "" {
+		return fmt.Errorf("%s %s/%s is not ready yet", resourceName, resource.GetNamespace(), resource.GetName())
+	}
+	return fmt.Errorf("%s %s/%s: %s", resourceName, resource.GetNamespace(), resource.GetName(), readyCond.Message)
+}
+
+// readinessReporter is a resource that reports whether it is ready through an IsReady condition.
+type readinessReporter interface {
+	metav1.Object
+	GetConditions() []metav1.Condition
 }
 
 // Session is an authenticated session against an Infisical instance.
@@ -125,14 +136,19 @@ func NewResolver(c client.Client, isNamespaceScoped bool, authResolver *auth.Aut
 }
 
 // GetInfisicalAuth fetches the referenced InfisicalAuth, or the default one when no
-// reference was provided, and returns an error unless it is ready.
+// reference was provided. It doesn't check that the InfisicalAuth is ready, so callers
+// can record its auth method even when authentication then fails; Authenticate does.
 func (r *Resolver) GetInfisicalAuth(ctx context.Context, authRef v1beta1.NamespacedName) (*v1beta1.InfisicalAuth, error) {
 	return getInfisicalAuth(ctx, r.client, r.isNamespaceScoped, authRef)
 }
 
-// Authenticate fetches the InfisicalConnection the InfisicalAuth references and logs
-// in, reusing cached credentials when possible.
+// Authenticate checks that the InfisicalAuth is ready, fetches the InfisicalConnection
+// it references and logs in, reusing cached credentials when possible.
 func (r *Resolver) Authenticate(ctx context.Context, infisicalAuth *v1beta1.InfisicalAuth) (Session, error) {
+	if err := checkReadiness("InfisicalAuth", infisicalAuth); err != nil {
+		return Session{}, err
+	}
+
 	conn, err := GetInfisicalConnection(ctx, r.client, r.isNamespaceScoped, infisicalAuth.Spec.InfisicalConnectionRef)
 	if err != nil {
 		return Session{}, err

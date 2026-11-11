@@ -350,12 +350,7 @@ func (r *InfisicalStaticSecretReconciler) RenderTargetOutput(renderCtx templatev
 		return data, nil
 	}
 
-	templateCtx := templatev1.NewTemplateContext(renderCtx)
-	if target.Template.Data.IsRaw() {
-		return templatev1.RenderBulkTemplate(target.Template.Data.Raw, templateCtx)
-	}
-
-	return templatev1.RenderPerKeyTemplates(target.Template.Data.Map, templateCtx)
+	return templatev1.Render(target.Template.Data, renderCtx)
 }
 
 // SyncKubeSecret creates or updates a Kubernetes Secret with the secrets content.

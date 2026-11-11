@@ -7,6 +7,7 @@ import (
 	"strings"
 	tpl "text/template"
 
+	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/api"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
 	"github.com/Infisical/infisical/k8-operator/internal/template"
@@ -40,6 +41,16 @@ func NewTemplateContext(renderCtx RenderContext) TemplateContext {
 	}
 
 	return ctx
+}
+
+// Render renders template data, given either as a single template whose output is a
+// YAML map of keys to values, or as one template per key.
+func Render(data v1beta1.SecretTemplateData, renderCtx RenderContext) (map[string][]byte, error) {
+	ctx := NewTemplateContext(renderCtx)
+	if data.IsRaw() {
+		return RenderBulkTemplate(data.Raw, ctx)
+	}
+	return RenderPerKeyTemplates(data.Map, ctx)
 }
 
 func RenderPerKeyTemplates(tmpls map[string]string, ctx TemplateContext) (map[string][]byte, error) {

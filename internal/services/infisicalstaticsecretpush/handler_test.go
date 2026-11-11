@@ -124,6 +124,12 @@ func target(environment, secretPath string) v1beta1.PushTarget {
 	return v1beta1.PushTarget{ProjectId: projectID, EnvironmentSlug: environment, SecretPath: secretPath}
 }
 
+// templated returns the target with a template of one Go template per key.
+func templated(target v1beta1.PushTarget, data map[string]string) v1beta1.PushTarget {
+	target.Template = &v1beta1.SecretTemplate{EngineVersion: "v1", Data: v1beta1.SecretTemplateData{Map: data}}
+	return target
+}
+
 // createPush stores a push resource with defaulted sync options, as the API server would.
 func (e *testEnv) createPush(sources []string, targets []v1beta1.PushTarget, mutate ...func(*v1beta1.InfisicalStaticSecretPushSpec)) *v1beta1.InfisicalStaticSecretPush {
 	return e.createNamedPush("push", sources, targets, mutate...)
@@ -594,16 +600,102 @@ var _ = Describe("SyncSecrets", func() {
 		Expect(push.Status.ManagedSecrets).To(Equal(managed))
 	})
 
-	It("rejects source values that are not valid UTF-8", func() {
-		source := sourceSecret("source", map[string]string{"TEXT": "value"})
+	It("rejects values that are not valid UTF-8, from a source or from a template", func() {
+		source := sourceSecret("source", map[string]string{"TEXT": "value", "ENCODED": "//4A"})
 		source.Data["BINARY"] = []byte{0xff, 0xfe, 0x00}
 		env := newTestEnv(source)
-		push := env.createPush([]string{"source"}, []v1beta1.PushTarget{target("dev", "/")})
+		push := env.createPush([]string{"source"}, []v1beta1.PushTarget{
+			target("dev", "/"),
+			templated(target("prod", "/"), map[string]string{"DECODED": "{{ .ENCODED.Value | decodeBase64ToBytes }}"}),
+		})
 
 		_, err := env.sync(push)
 
-		Expect(err).To(MatchError(ContainSubstring("source Secret default/source has values that are not valid UTF-8 in keys [BINARY]")))
+		Expect(err).To(MatchError(ContainSubstring("targets[0] (project project-1, dev:/): keys [BINARY] have values that are not valid UTF-8")))
+		Expect(err).To(MatchError(ContainSubstring("targets[1] (project project-1, prod:/): keys [DECODED] have values that are not valid UTF-8")))
 		Expect(env.infisical.CountRequests(upsertReq)).To(Equal(0))
+	})
+
+	Context("with a template", func() {
+		It("pushes what the template renders instead of the source keys, at that target only", func() {
+			env := newTestEnv(sourceSecret("source", map[string]string{"DB_USER": "admin", "DB_PASS": "secret"}))
+			push := env.createPush([]string{"source"}, []v1beta1.PushTarget{
+				target("dev", "/"),
+				templated(target("prod", "/app/"), map[string]string{
+					"DATABASE_URL": "postgres://{{ .DB_USER.Value }}:{{ .DB_PASS.Value }}@db:5432",
+					"PUSHED_TO":    "{{ .DB_USER.SecretPath }}",
+				}),
+			})
+
+			push = env.mustSync(push)
+
+			Expect(env.values("dev", "/")).To(Equal(map[string]string{"DB_USER": "admin", "DB_PASS": "secret"}))
+			Expect(env.values("prod", "/app")).To(Equal(map[string]string{"DATABASE_URL": "postgres://admin:secret@db:5432", "PUSHED_TO": "/app"}))
+			Expect(push.Status.ManagedSecrets).To(Equal(mergeMaps(env.ids("dev", "/"), env.ids("prod", "/app"))))
+		})
+
+		It("pushes the keys a single template renders", func() {
+			env := newTestEnv(sourceSecret("source", map[string]string{"A": "1", "B": "2"}))
+			push := env.createPush([]string{"source"}, []v1beta1.PushTarget{target("dev", "/")}, func(spec *v1beta1.InfisicalStaticSecretPushSpec) {
+				spec.Targets[0].Template = &v1beta1.SecretTemplate{EngineVersion: "v1", Data: v1beta1.SecretTemplateData{
+					Raw: "{{ range $key, $secret := . }}{{ $key }}_COPY: \"{{ $secret.Value }}\"\n{{ end }}",
+				}}
+			})
+
+			env.mustSync(push)
+
+			Expect(env.values("dev", "/")).To(Equal(map[string]string{"A_COPY": "1", "B_COPY": "2"}))
+		})
+
+		It("leaves out or encodes binary source values", func() {
+			source := sourceSecret("source", map[string]string{"TEXT": "value"})
+			source.Data["BINARY"] = []byte{0xff, 0xfe, 0x00}
+			env := newTestEnv(source)
+			push := env.createPush([]string{"source"}, []v1beta1.PushTarget{
+				templated(target("dev", "/"), map[string]string{"TEXT": "{{ .TEXT.Value }}"}),
+				templated(target("prod", "/"), map[string]string{"BINARY_BASE64": "{{ .BINARY.Value | encodeBase64 }}"}),
+			})
+
+			env.mustSync(push)
+
+			Expect(env.values("dev", "/")).To(Equal(map[string]string{"TEXT": "value"}))
+			Expect(env.values("prod", "/")).To(Equal(map[string]string{"BINARY_BASE64": "//4A"}))
+		})
+
+		It("deletes a key the template no longer renders", func() {
+			env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value"}))
+			push := env.createPush([]string{"source"}, []v1beta1.PushTarget{
+				templated(target("dev", "/"), map[string]string{"KEEP": "{{ .KEY.Value }}", "REMOVE": "{{ .KEY.Value }}"}),
+			})
+			env.mustSync(push)
+
+			push = env.get(push)
+			delete(push.Spec.Targets[0].Template.Data.Map, "REMOVE")
+			env.update(push)
+			push = env.mustSync(push)
+
+			Expect(env.values("dev", "/")).To(Equal(map[string]string{"KEEP": "value"}))
+			Expect(push.Status.ManagedSecrets).To(Equal(env.ids("dev", "/")))
+		})
+
+		It("fails only the target whose template fails, and deletes nothing", func() {
+			source := sourceSecret("source", map[string]string{"KEEP": "value", "REMOVE": "value"})
+			env := newTestEnv(source)
+			push := env.createPush([]string{"source"}, []v1beta1.PushTarget{target("dev", "/"), target("prod", "/")})
+			env.mustSync(push)
+
+			delete(source.Data, "REMOVE")
+			source.Data["ADDED"] = []byte("value")
+			env.update(source)
+			push = env.get(push)
+			push.Spec.Targets[1] = templated(push.Spec.Targets[1], map[string]string{"BROKEN": "{{ .KEEP.Value "})
+			env.update(push)
+			_, err := env.sync(push)
+
+			Expect(err).To(MatchError(ContainSubstring("targets[1] (project project-1, prod:/): unable to render template")))
+			Expect(env.values("dev", "/")).To(Equal(map[string]string{"KEEP": "value", "REMOVE": "value", "ADDED": "value"}))
+			Expect(env.values("prod", "/")).To(Equal(map[string]string{"KEEP": "value", "REMOVE": "value"}))
+		})
 	})
 
 	It("reports a target that requires approval without blocking the others", func() {
@@ -691,6 +783,9 @@ var _ = Describe("SyncSecrets", func() {
 		Entry("a negative refreshInterval", func(spec *v1beta1.InfisicalStaticSecretPushSpec) {
 			spec.SyncOptions.RefreshInterval = "-5m"
 		}, `invalid refreshInterval "-5m": must be at least 5s`),
+		Entry("an empty template", func(spec *v1beta1.InfisicalStaticSecretPushSpec) {
+			spec.Targets[0] = templated(spec.Targets[0], map[string]string{})
+		}, "targets[0].template.data must not be empty"),
 	)
 })
 

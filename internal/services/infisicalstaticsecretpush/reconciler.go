@@ -23,6 +23,7 @@ import (
 	"github.com/Infisical/infisical/k8-operator/internal/api"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
 	"github.com/Infisical/infisical/k8-operator/internal/services/infisicalsession"
+	templatev1 "github.com/Infisical/infisical/k8-operator/internal/template/v1"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
 )
 
@@ -107,6 +108,10 @@ func (r *InfisicalStaticSecretPushReconciler) Validate(push *v1beta1.InfisicalSt
 		}
 		if !strings.HasPrefix(target.SecretPath, "/") {
 			return fmt.Errorf("targets[%d].secretPath must start with /", i)
+		}
+		// An empty template renders no keys, which would delete everything pushed to the target.
+		if target.Template != nil && !target.Template.Data.IsRaw() && len(target.Template.Data.Map) == 0 {
+			return fmt.Errorf("targets[%d].template.data must not be empty", i)
 		}
 
 		key := fmt.Sprintf("%s%s/%s:%s", target.ProjectId, target.ProjectSlug, target.EnvironmentSlug, normalizeSecretPath(target.SecretPath))
@@ -195,31 +200,59 @@ func (r *InfisicalStaticSecretPushReconciler) ReadSources(ctx context.Context, p
 			return nil, fmt.Errorf("unable to fetch source Secret %s: %w", name, err)
 		}
 
-		// Infisical stores text, and invalid UTF-8 would be silently replaced while
-		// encoding the request, so binary values are rejected instead of corrupted.
-		var invalidKeys []string
 		for key, value := range secret.Data {
-			if !utf8.Valid(value) {
-				invalidKeys = append(invalidKeys, key)
-				continue
-			}
 			if _, exists := merged[key]; !exists {
 				merged[key] = string(value)
 			}
-		}
-		if len(invalidKeys) > 0 {
-			slices.Sort(invalidKeys)
-			return nil, fmt.Errorf("source Secret %s has values that are not valid UTF-8 in keys [%s]: Infisical stores text, so base64-encode binary values in the source Secret", name, summarize(invalidKeys))
 		}
 	}
 
 	return merged, nil
 }
 
-// PushToTargets pushes the desired secrets to every target and deletes the secrets this
-// resource pushed earlier but no longer pushes. It updates status.managedSecrets with
-// everything the resource owns afterwards. A failing target doesn't stop the others.
-func (r *InfisicalStaticSecretPushReconciler) PushToTargets(ctx context.Context, restClient *resty.Client, push *v1beta1.InfisicalStaticSecretPush, desired map[string]string) error {
+// desiredSecrets returns the secrets to push to a target: the source secrets, or what
+// the target's template renders from them.
+func desiredSecrets(target v1beta1.PushTarget, sources map[string]string) (map[string]string, error) {
+	desired := sources
+	if target.Template != nil {
+		secrets := make([]api.Secret, 0, len(sources))
+		for key, value := range sources {
+			secrets = append(secrets, api.Secret{SecretKey: key, SecretValue: value, SecretPath: normalizeSecretPath(target.SecretPath)})
+		}
+
+		rendered, err := templatev1.Render(target.Template.Data, templatev1.RenderContext{MergedSecrets: secrets})
+		if err != nil {
+			return nil, fmt.Errorf("unable to render template: %w", err)
+		}
+
+		desired = make(map[string]string, len(rendered))
+		for key, value := range rendered {
+			desired[key] = string(value)
+		}
+	}
+
+	// Infisical stores text, and invalid UTF-8 would be silently replaced while encoding
+	// the request, so binary values are rejected instead of corrupted. Only the values
+	// pushed are checked, so a template can leave out or encode a binary source value.
+	var invalidKeys []string
+	for key, value := range desired {
+		if !utf8.ValidString(value) {
+			invalidKeys = append(invalidKeys, key)
+		}
+	}
+	if len(invalidKeys) > 0 {
+		slices.Sort(invalidKeys)
+		return nil, fmt.Errorf("keys [%s] have values that are not valid UTF-8: Infisical stores text, so base64-encode binary values, in the source Secret or with encodeBase64 in a template", summarize(invalidKeys))
+	}
+
+	return desired, nil
+}
+
+// PushToTargets pushes the source secrets, or what a target's template renders from
+// them, to every target and deletes the secrets this resource pushed earlier but no
+// longer pushes. It updates status.managedSecrets with everything the resource owns
+// afterwards. A failing target doesn't stop the others.
+func (r *InfisicalStaticSecretPushReconciler) PushToTargets(ctx context.Context, restClient *resty.Client, push *v1beta1.InfisicalStaticSecretPush, sources map[string]string) error {
 	previouslyManaged := push.Status.ManagedSecrets
 	owned := make(map[string]string)
 	listed := make(map[string]secretRef)
@@ -229,7 +262,7 @@ func (r *InfisicalStaticSecretPushReconciler) PushToTargets(ctx context.Context,
 
 	var targetErrs []error
 	for i, target := range push.Spec.Targets {
-		result, err := r.syncTarget(restClient, push, target, desired, otherOwners, targetIndexByLocation, i)
+		result, err := r.syncTarget(restClient, push, target, sources, otherOwners, targetIndexByLocation, i)
 
 		maps.Copy(owned, result.owned)
 		maps.Copy(listed, result.listed)
@@ -333,11 +366,16 @@ func (r *InfisicalStaticSecretPushReconciler) syncTarget(
 	restClient *resty.Client,
 	push *v1beta1.InfisicalStaticSecretPush,
 	target v1beta1.PushTarget,
-	desired map[string]string,
+	sources map[string]string,
 	otherOwners func() (map[string]otherOwner, error),
 	targetIndexByLocation map[api.SecretLocation]int,
 	index int,
 ) (targetResult, error) {
+	desired, err := desiredSecrets(target, sources)
+	if err != nil {
+		return targetResult{}, err
+	}
+
 	location, err := r.resolveLocation(restClient, push, target)
 	if err != nil {
 		return targetResult{}, err

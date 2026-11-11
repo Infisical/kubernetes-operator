@@ -197,6 +197,22 @@ var _ = Describe("InfisicalStaticSecretPush", Ordered, ContinueOnFailure, func()
 		expectPushed(otherEnvSlug, "/push-merge", expected)
 	})
 
+	It("should push what a target's template renders instead of the source keys", func() {
+		createSource("e2e-push-template-source", map[string]string{"DB_USER": "admin", "DB_PASS": "secret"})
+
+		templated := target(project.EnvSlug, "/push-template")
+		templated.Template = &secretsv1beta1.SecretTemplate{EngineVersion: "v1", Data: secretsv1beta1.SecretTemplateData{
+			Map: map[string]string{"DATABASE_URL": "postgres://{{ .DB_USER.Value }}:{{ .DB_PASS.Value | upper }}@db:5432"},
+		}}
+		createPush("e2e-push-template", secretsv1beta1.InfisicalStaticSecretPushSpec{
+			Sources: source("e2e-push-template-source"),
+			Targets: []secretsv1beta1.PushTarget{templated},
+		})
+
+		expectSynced("e2e-push-template")
+		expectPushed(project.EnvSlug, "/push-template", map[string]string{"DATABASE_URL": "postgres://admin:SECRET@db:5432"})
+	})
+
 	It("should leave existing keys untouched with updatePolicy None", func() {
 		api.CreateFolder(GinkgoT(), project.ID, project.EnvSlug, "/", "push-none")
 		api.CreateSecret(GinkgoT(), project.ID, project.EnvSlug, "/push-none", "EXISTING", "manual", nil)

@@ -1,0 +1,23 @@
+apiVersion: secrets.infisical.com/v1beta1
+kind: InfisicalStaticSecretPush
+metadata:
+  name: infisicalstaticsecretpush-template-demo
+spec:
+  infisicalAuthRef:
+    name: infisicalauth-universal-demo
+    namespace: default
+
+  sources:
+    secrets:
+      - name: push-secret-demo
+        namespace: default
+
+  targets:
+    - projectId: <your-project-id>
+      environmentSlug: dev
+      secretPath: /
+      template:
+        engineVersion: v1
+        data:
+          DATABASE_URL: "postgres://{{ .DB_USER.Value }}:{{ .DB_PASS.Value }}@{{ .DB_HOST.Value }}:5432/{{ .DB_NAME.Value }}"
+          REDIS_URL: "redis://{{ .REDIS_HOST.Value }}:6379"

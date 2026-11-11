@@ -66,7 +66,7 @@ func (h *InfisicalStaticSecretPushHandler) SyncSecrets(ctx context.Context, push
 		return 0, fmt.Errorf("unable to authenticate: %w", err)
 	}
 
-	desired, err := h.reconciler.ReadSources(ctx, push)
+	sources, err := h.reconciler.ReadSources(ctx, push)
 	if err != nil {
 		return 0, err
 	}
@@ -77,12 +77,12 @@ func (h *InfisicalStaticSecretPushHandler) SyncSecrets(ctx context.Context, push
 	}
 	defer restClient.GetClient().CloseIdleConnections()
 
-	if err := h.reconciler.PushToTargets(ctx, restClient, push, desired); err != nil {
+	if err := h.reconciler.PushToTargets(ctx, restClient, push, sources); err != nil {
 		h.reconciler.InvalidateOnUnauthorized(session, err)
 		return 0, err
 	}
 
-	return len(desired), nil
+	return len(sources), nil
 }
 
 // DeleteManagedSecrets deletes every secret this resource pushed. Secrets it couldn't

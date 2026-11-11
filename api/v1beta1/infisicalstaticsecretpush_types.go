@@ -77,7 +77,8 @@ type InfisicalStaticSecretPushSpec struct {
 	// +kubebuilder:default={}
 	SyncOptions PushSyncOptions `json:"syncOptions,omitempty"`
 
-	// The Kubernetes Secrets to push. Every key of every source is pushed to every target.
+	// The Kubernetes Secrets to push. Every key of every source is pushed to every target,
+	// except to a target with a template, which pushes what its template renders instead.
 	// +kubebuilder:validation:Required
 	Sources PushSources `json:"sources"`
 
@@ -159,6 +160,12 @@ type PushTarget struct {
 	// The folder to push to, e.g. /app. The root is /.
 	// +kubebuilder:validation:Required
 	SecretPath string `json:"secretPath"`
+
+	// Renders the secrets pushed to this target from the source keys, which are then
+	// not pushed as they are. Each source key is available as .KEY.Value, and
+	// .KEY.SecretPath is this target's secretPath.
+	// +kubebuilder:validation:Optional
+	Template *SecretTemplate `json:"template,omitempty"`
 }
 
 // InfisicalStaticSecretPushStatus defines the observed state of InfisicalStaticSecretPush

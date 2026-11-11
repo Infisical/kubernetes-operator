@@ -678,6 +678,30 @@ var _ = Describe("SyncSecrets", func() {
 			Expect(push.Status.ManagedSecrets).To(Equal(env.ids("dev", "/")))
 		})
 
+		DescribeTable("records where a template failed but not why, since the reason can contain source values",
+			func(template, location string) {
+				env := newTestEnv(sourceSecret("source", map[string]string{"PASSWORD": "s3cret"}))
+				push := env.createPush([]string{"source"}, []v1beta1.PushTarget{templated(target("dev", "/"), map[string]string{"KEY": template})})
+
+				push, err := env.sync(push)
+
+				Expect(err).To(MatchError(ContainSubstring(location + ": the reason is hidden because it can contain secret values")))
+				Expect(err.Error()).NotTo(ContainSubstring("s3cret"))
+				Expect(reconcileStatus(push).Message).NotTo(ContainSubstring("s3cret"))
+			},
+			Entry("a function error", `{{ secretFrom "/" .PASSWORD.Value }}`, `executing "KEY" at <secretFrom "/" .PASSWORD.Value>`),
+			Entry("an action error", `{{ range .PASSWORD.Value }}{{ end }}`, `executing "KEY" at <.PASSWORD.Value>`),
+		)
+
+		It("records parse errors in full", func() {
+			env := newTestEnv(sourceSecret("source", map[string]string{"PASSWORD": "s3cret"}))
+			push := env.createPush([]string{"source"}, []v1beta1.PushTarget{templated(target("dev", "/"), map[string]string{"KEY": "{{ .PASSWORD.Value "})})
+
+			_, err := env.sync(push)
+
+			Expect(err).To(MatchError(ContainSubstring(`failed to parse template at key "KEY": template: KEY:1: unclosed action`)))
+		})
+
 		It("rejects a template with only whitespace and keeps what it pushed", func() {
 			env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value"}))
 			push := env.createPush([]string{"source"}, []v1beta1.PushTarget{target("dev", "/")})

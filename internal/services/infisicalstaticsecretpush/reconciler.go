@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	tpl "text/template"
 	"time"
 	"unicode/utf8"
 
@@ -222,7 +223,7 @@ func desiredSecrets(target v1beta1.PushTarget, sources map[string]string) (map[s
 
 		rendered, err := templatev1.Render(target.Template.Data, templatev1.RenderContext{MergedSecrets: secrets})
 		if err != nil {
-			return nil, fmt.Errorf("unable to render template: %w", err)
+			return nil, fmt.Errorf("unable to render template: %w", hideExecutionReason(err))
 		}
 
 		desired = make(map[string]string, len(rendered))
@@ -246,6 +247,28 @@ func desiredSecrets(target v1beta1.PushTarget, sources map[string]string) (map[s
 	}
 
 	return desired, nil
+}
+
+// hideExecutionReason keeps where a template failed while executing and drops why. The
+// error is recorded on the status, which people who can't read the source Secrets may
+// read, and the reason can quote the values involved, such as a source value passed to
+// fail or secretFrom. Parse errors only quote the template, so they are kept as they are.
+func hideExecutionReason(err error) error {
+	if !errors.As(err, new(tpl.ExecError)) {
+		return err
+	}
+
+	// An execution error ends with `executing "<name>" at <<action>>: <reason>`. Cutting at
+	// the first ">: " after the first " at <" never keeps more than the action, even when
+	// the template or the reason contains those characters.
+	const hidden = "the reason is hidden because it can contain secret values"
+	message := err.Error()
+	if start := strings.Index(message, " at <"); start >= 0 {
+		if end := strings.Index(message[start:], ">: "); end >= 0 {
+			return fmt.Errorf("%s: %s", message[:start+end+1], hidden)
+		}
+	}
+	return fmt.Errorf("failed to execute template: %s", hidden)
 }
 
 // PushToTargets pushes the source secrets, or what a target's template renders from

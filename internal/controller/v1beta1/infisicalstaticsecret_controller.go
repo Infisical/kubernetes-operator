@@ -2,9 +2,7 @@ package v1beta1
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -24,11 +22,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	secretsv1beta1 "github.com/Infisical/infisical/k8-operator/api/v1beta1"
-	"github.com/Infisical/infisical/k8-operator/internal/api"
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
 	"github.com/Infisical/infisical/k8-operator/internal/cache"
 	"github.com/Infisical/infisical/k8-operator/internal/metrics"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
+	"github.com/Infisical/infisical/k8-operator/internal/services/infisicalsession"
 	"github.com/Infisical/infisical/k8-operator/internal/services/infisicalstaticsecret"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
 	"github.com/Infisical/infisical/k8-operator/internal/util/sse"
@@ -139,16 +137,8 @@ func (r *InfisicalStaticSecretReconciler) Reconcile(ctx context.Context, req ctr
 	handler := infisicalstaticsecret.NewInfisicalStaticSecretHandler(r.Client, r.Scheme, r.IsNamespaceScoped, r.AuthResolver, r.ProjectIDCache, logger)
 	secretsCount, err := handler.SyncSecrets(ctx, &staticSecretCRD)
 	if err != nil {
-		var rateLimitErr *api.TooManyRequestsError
-		if errors.As(err, &rateLimitErr) {
-			retryAfter := time.Duration(rateLimitErr.RetryAfter) * time.Second
-			jitter := time.Duration(rand.Int64N(int64(1500 * time.Millisecond))) // between 0 and 1500 milliseconds jitter
-
-			logger.Info(fmt.Sprintf("Rate limited, retrying after %v", retryAfter))
-			requeueAfter := retryAfter + jitter
-			return ctrl.Result{
-				RequeueAfter: requeueAfter,
-			}, nil
+		if result, ok := requeueOnRateLimit(logger, err); ok {
+			return result, nil
 		}
 
 		return ctrl.Result{}, err
@@ -229,7 +219,7 @@ func (r *InfisicalStaticSecretReconciler) FindStaticSecretsReferencingAuth(ctx c
 	for _, staticSecret := range staticSecretList.Items {
 		// Static secrets without an explicit auth ref resolve to the default
 		// InfisicalAuth, so they are re-reconciled when it changes.
-		ref := infisicalstaticsecret.ResolveAuthRef(staticSecret.Spec.InfisicalAuthRef)
+		ref := infisicalsession.ResolveAuthRef(staticSecret.Spec.InfisicalAuthRef)
 		if ref.Name == authCRD.Name && ref.Namespace == authCRD.Namespace {
 			requests = append(requests, reconcile.Request{
 				NamespacedName: types.NamespacedName{

@@ -19,16 +19,12 @@ func FindProjectBySlug(httpClient *resty.Client, slug string) (model.Project, er
 		return model.Project{}, fmt.Errorf("failed to find project by slug: %w", err)
 	}
 
-	if response.StatusCode() == http.StatusUnauthorized || response.StatusCode() == http.StatusForbidden {
-		return model.Project{}, fmt.Errorf("%w: status %d", ErrUnauthorized, response.StatusCode())
-	}
-
 	if response.StatusCode() == http.StatusNotFound {
 		return model.Project{}, fmt.Errorf("project with slug %q not found", slug)
 	}
 
-	if response.StatusCode() > 399 {
-		return model.Project{}, fmt.Errorf("failed to find project by slug [status=%d, body=%s]", response.StatusCode(), string(response.Body()))
+	if err := checkResponse(response, "find project by slug"); err != nil {
+		return model.Project{}, err
 	}
 
 	return project, nil

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
+	"github.com/Infisical/infisical/k8-operator/internal/conditions"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
 	"github.com/go-logr/logr"
@@ -147,7 +148,7 @@ func (r *InfisicalConnectionHandler) SetReconcileConditionStatus(ctx context.Con
 
 	if errorToConditionOn == nil {
 		meta.SetStatusCondition(&infisicalConnection.Status.Conditions, metav1.Condition{
-			Type:               "secrets.infisical.com/IsReady",
+			Type:               conditions.IsReady,
 			Status:             metav1.ConditionTrue,
 			Reason:             "Ok",
 			Message:            "InfisicalConnection is ready to be used.",
@@ -155,7 +156,7 @@ func (r *InfisicalConnectionHandler) SetReconcileConditionStatus(ctx context.Con
 		})
 	} else {
 		meta.SetStatusCondition(&infisicalConnection.Status.Conditions, metav1.Condition{
-			Type:               "secrets.infisical.com/IsReady",
+			Type:               conditions.IsReady,
 			Status:             metav1.ConditionFalse,
 			Reason:             "Error",
 			Message:            fmt.Sprintf("InfisicalConnection is not ready to be used due to an error: %v", errorToConditionOn),

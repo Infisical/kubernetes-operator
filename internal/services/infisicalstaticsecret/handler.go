@@ -13,6 +13,7 @@ import (
 	"github.com/Infisical/infisical/k8-operator/internal/cache"
 	"github.com/Infisical/infisical/k8-operator/internal/metrics"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
+	"github.com/Infisical/infisical/k8-operator/internal/services/infisicalsession"
 	templatev1 "github.com/Infisical/infisical/k8-operator/internal/template/v1"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
 	"github.com/Infisical/infisical/k8-operator/internal/util/sse"
@@ -40,8 +41,7 @@ func NewInfisicalStaticSecretHandler(
 			Client:            client,
 			Scheme:            scheme,
 			IsNamespaceScoped: isNamespaceScoped,
-			authResolver:      authResolver,
-			projectIDCache:    projectIDCache,
+			session:           infisicalsession.NewResolver(client, isNamespaceScoped, authResolver, projectIDCache),
 			logger:            logger,
 		},
 	}
@@ -129,19 +129,10 @@ func (h *InfisicalStaticSecretHandler) OpenInstantUpdatesStreams(
 	token := auth.Credentials.MachineIdentity.AccessToken
 	baseURL := util.AppendAPIEndpoint(auth.Connection.Address())
 
-	caCertificate, err := util.ResolveTLSCaCertificate(ctx, h.Client, auth.Connection.Spec.TLS)
+	restClient, err := h.reconciler.NewAPIClient(ctx, auth)
 	if err != nil {
 		return registries, err
 	}
-
-	restClient, err := util.CreateRestyClient(model.CreateRestyClientOptions{
-		AccessToken:   token,
-		CaCertificate: caCertificate,
-	})
-	if err != nil {
-		return registries, fmt.Errorf("failed to get REST client: %w", err)
-	}
-	restClient = restClient.SetBaseURL(auth.Connection.Address())
 
 	if registries == nil {
 		registries = make(map[string]*sse.ConnectionRegistry)
@@ -166,21 +157,17 @@ func (h *InfisicalStaticSecretHandler) OpenInstantUpdatesStreams(
 			secretsPath = path.Join(secretsPath, "**")
 		}
 
-		projectID := source.ProjectId
-		if source.ProjectSlug != "" {
-			resolvedID, err := h.reconciler.getProjectIDBySlug(restClient, infisicalStaticSecret.Spec.InfisicalAuthRef, source.ProjectSlug)
-			if err != nil {
-				h.logger.Error(err, "Failed to resolve project slug", "projectSlug", source.ProjectSlug)
-				// A transient resolution failure must not tear down an already-established
-				// stream for this source, so keep its existing registry key active.
-				for existingKey, registry := range registries {
-					if params, ok := registry.GetParams(); ok && params.EnvSlug == source.EnvironmentSlug && params.SecretsPath == secretsPath {
-						activeKeys[existingKey] = struct{}{}
-					}
+		projectID, err := h.reconciler.ResolveProjectID(restClient, infisicalStaticSecret, source)
+		if err != nil {
+			h.logger.Error(err, "Failed to resolve project slug", "projectSlug", source.ProjectSlug)
+			// A transient resolution failure must not tear down an already-established
+			// stream for this source, so keep its existing registry key active.
+			for existingKey, registry := range registries {
+				if params, ok := registry.GetParams(); ok && params.EnvSlug == source.EnvironmentSlug && params.SecretsPath == secretsPath {
+					activeKeys[existingKey] = struct{}{}
 				}
-				continue
 			}
-			projectID = resolvedID
+			continue
 		}
 
 		key := sourceSSEKey(projectID, source)
@@ -222,7 +209,7 @@ func (h *InfisicalStaticSecretHandler) OpenInstantUpdatesStreams(
 			registries[key] = registry
 		}
 
-		err := registry.SubscribeWithParams(currentParams, func() (*http.Response, error) {
+		err = registry.SubscribeWithParams(currentParams, func() (*http.Response, error) {
 			var tlsConfig *v1beta1.TLSConfig
 			if auth.Connection != nil {
 				tlsConfig = auth.Connection.Spec.TLS

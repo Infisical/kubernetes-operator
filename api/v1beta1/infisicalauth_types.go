@@ -43,6 +43,10 @@ type InfisicalAuth struct {
 	Status InfisicalAuthStatus `json:"status,omitempty"`
 }
 
+func (a InfisicalAuth) GetConditions() []metav1.Condition {
+	return a.Status.Conditions
+}
+
 type InfisicalAuthSpec struct {
 	// +kubebuilder:validation:Optional
 	InfisicalConnectionRef NamespacedName `json:"infisicalConnectionRef,omitempty"`

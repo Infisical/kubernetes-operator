@@ -70,6 +70,7 @@ rules:
       - infisicaldynamicsecrets
       - infisicalpushsecrets
       - infisicalsecrets
+      - infisicalstaticsecretpushes
       - infisicalstaticsecrets
     verbs:
       - create
@@ -85,6 +86,7 @@ rules:
       - infisicaldynamicsecrets/finalizers
       - infisicalpushsecrets/finalizers
       - infisicalsecrets/finalizers
+      - infisicalstaticsecretpushes/finalizers
       - infisicalstaticsecrets/finalizers
     verbs:
       - update
@@ -96,6 +98,7 @@ rules:
       - infisicaldynamicsecrets/status
       - infisicalpushsecrets/status
       - infisicalsecrets/status
+      - infisicalstaticsecretpushes/status
       - infisicalstaticsecrets/status
     verbs:
       - get

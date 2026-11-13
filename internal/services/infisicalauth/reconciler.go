@@ -2,18 +2,13 @@ package infisicalauth
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
-	"github.com/Infisical/infisical/k8-operator/internal/constants"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
-	"github.com/Infisical/infisical/k8-operator/internal/util"
+	"github.com/Infisical/infisical/k8-operator/internal/services/infisicalsession"
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -29,47 +24,12 @@ type InfisicalAuthReconciler struct {
 	authResolver      *auth.AuthStrategyResolver
 }
 
-func (r *InfisicalAuthReconciler) resolveConnectionRef(connectionRef v1beta1.NamespacedName) v1beta1.NamespacedName {
-	if connectionRef.Name != "" {
-		return connectionRef
-	}
-
-	return v1beta1.NamespacedName{
-		Name:      constants.DEFAULT_INFISICAL_CONNECTION_NAME,
-		Namespace: constants.GetOperatorNamespace(),
-	}
-}
-
-func (r *InfisicalAuthReconciler) getInfisicalConnection(ctx context.Context, connectionRef v1beta1.NamespacedName) (*v1beta1.InfisicalConnection, error) {
-	resolved := r.resolveConnectionRef(connectionRef)
-
-	conn := v1beta1.InfisicalConnection{}
-
-	err := r.Client.Get(ctx, types.NamespacedName{
-		Name:      resolved.Name,
-		Namespace: resolved.Namespace,
-	}, &conn)
-	if err != nil {
-		if util.IsNamespaceScopedError(err, r.IsNamespaceScoped) {
-			return nil, model.NewNamespaceScopedError(err, "InfisicalConnection")
-		}
-		return nil, fmt.Errorf("Unable to fetch Infisical Connection CRD from cluster: %w", err)
-	}
-
-	readyCond := meta.FindStatusCondition(conn.Status.Conditions, "secrets.infisical.com/IsReady")
-	if readyCond == nil || readyCond.Status != metav1.ConditionTrue {
-		return nil, fmt.Errorf("InfisicalConnection is not ready")
-	}
-
-	return &conn, nil
-}
-
 func (r *InfisicalAuthReconciler) ValidateAndAuthenticate(ctx context.Context, logger logr.Logger, infisicalAuth *v1beta1.InfisicalAuth) error {
 	if infisicalAuth == nil {
 		return model.ErrInvalidAuthObject
 	}
 
-	conn, err := r.getInfisicalConnection(ctx, infisicalAuth.Spec.InfisicalConnectionRef)
+	conn, err := infisicalsession.GetInfisicalConnection(ctx, r.Client, r.IsNamespaceScoped, infisicalAuth.Spec.InfisicalConnectionRef)
 	if err != nil {
 		return err
 	}

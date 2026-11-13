@@ -52,6 +52,10 @@ func (c InfisicalConnection) Address() string {
 	return strings.TrimSuffix(address, "/api")
 }
 
+func (c InfisicalConnection) GetConditions() []metav1.Condition {
+	return c.Status.Conditions
+}
+
 // InfisicalConnectionSpec defines how the operator connects to a Infisical instance
 type InfisicalConnectionSpec struct {
 	// +kubebuilder:validation:Optional

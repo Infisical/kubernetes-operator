@@ -42,6 +42,7 @@ type InfisicalSecretReconciler struct {
 	client.Client
 	Scheme            *runtime.Scheme
 	IsNamespaceScoped bool
+	HostAPI           string
 }
 
 func (r *InfisicalSecretReconciler) getInfisicalTokenFromKubeSecret(ctx context.Context, infisicalSecret v1alpha1.InfisicalSecret) (string, error) {
@@ -623,7 +624,7 @@ func (r *InfisicalSecretReconciler) getResourceVariables(infisicalSecret v1alpha
 		ctx, cancel := context.WithCancel(context.Background())
 
 		client := infisicalSdk.NewInfisicalClient(ctx, infisicalSdk.Config{
-			SiteUrl:       config.API_HOST_URL,
+			SiteUrl:       r.apiHost(),
 			CaCertificate: config.API_CA_CERTIFICATE,
 			UserAgent:     util.UserAgent(),
 			LogWriter:     config.API_LOG_WRITER,
@@ -972,4 +973,12 @@ func (r *InfisicalSecretReconciler) OpenInstantUpdatesStream(ctx context.Context
 		"secretsPath", currentParams.SecretsPath)
 
 	return nil
+}
+
+// apiHost returns the API host resolved for this resource, falling back to the shared global.
+func (r *InfisicalSecretReconciler) apiHost() string {
+	if r.HostAPI != "" {
+		return r.HostAPI
+	}
+	return config.API_HOST_URL
 }

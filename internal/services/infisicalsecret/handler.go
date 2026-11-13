@@ -20,6 +20,10 @@ type InfisicalSecretHandler struct {
 	client.Client
 	Scheme            *runtime.Scheme
 	IsNamespaceScoped bool
+
+	// hostAPI is the resolved API host for the resource being reconciled. It is passed to the
+	// reconciler instead of reading config.API_HOST_URL, which other controllers also write.
+	hostAPI string
 }
 
 func NewInfisicalSecretHandler(client client.Client, scheme *runtime.Scheme, isNamespaceScoped bool) *InfisicalSecretHandler {
@@ -32,10 +36,11 @@ func NewInfisicalSecretHandler(client client.Client, scheme *runtime.Scheme, isN
 
 func (h *InfisicalSecretHandler) SetupAPIConfig(infisicalSecret v1alpha1.InfisicalSecret, infisicalGlobalConfig config.InfisicalGlobalConfig) error {
 	if infisicalSecret.Spec.HostAPI == "" {
-		config.API_HOST_URL = infisicalGlobalConfig.HostAPI
+		h.hostAPI = infisicalGlobalConfig.HostAPI
 	} else {
-		config.API_HOST_URL = util.AppendAPIEndpoint(infisicalSecret.Spec.HostAPI)
+		h.hostAPI = util.AppendAPIEndpoint(infisicalSecret.Spec.HostAPI)
 	}
+	config.API_HOST_URL = h.hostAPI
 	return nil
 }
 
@@ -86,6 +91,7 @@ func (h *InfisicalSecretHandler) ReconcileInfisicalSecret(ctx context.Context, l
 		Client:            h.Client,
 		Scheme:            h.Scheme,
 		IsNamespaceScoped: h.IsNamespaceScoped,
+		HostAPI:           h.hostAPI,
 	}
 	return reconciler.ReconcileInfisicalSecret(ctx, logger, infisicalSecret, managedKubeSecretReferences, managedKubeConfigMapReferences, resourceVariablesMap)
 }
@@ -95,6 +101,7 @@ func (h *InfisicalSecretHandler) SetReadyToSyncSecretsConditions(ctx context.Con
 		Client:            h.Client,
 		Scheme:            h.Scheme,
 		IsNamespaceScoped: h.IsNamespaceScoped,
+		HostAPI:           h.hostAPI,
 	}
 	reconciler.SetReadyToSyncSecretsConditions(ctx, logger, infisicalSecret, secretsCount, errorToConditionOn)
 }
@@ -104,6 +111,7 @@ func (h *InfisicalSecretHandler) SetInfisicalAutoRedeploymentReady(ctx context.C
 		Client:            h.Client,
 		Scheme:            h.Scheme,
 		IsNamespaceScoped: h.IsNamespaceScoped,
+		HostAPI:           h.hostAPI,
 	}
 	reconciler.SetInfisicalAutoRedeploymentReady(ctx, logger, infisicalSecret, numDeployments, errorToConditionOn)
 }
@@ -113,6 +121,7 @@ func (h *InfisicalSecretHandler) CloseInstantUpdatesStream(ctx context.Context, 
 		Client:            h.Client,
 		Scheme:            h.Scheme,
 		IsNamespaceScoped: h.IsNamespaceScoped,
+		HostAPI:           h.hostAPI,
 	}
 	return reconciler.CloseInstantUpdatesStream(ctx, logger, infisicalSecret, resourceVariablesMap)
 }
@@ -123,6 +132,7 @@ func (h *InfisicalSecretHandler) OpenInstantUpdatesStream(ctx context.Context, l
 		Client:            h.Client,
 		Scheme:            h.Scheme,
 		IsNamespaceScoped: h.IsNamespaceScoped,
+		HostAPI:           h.hostAPI,
 	}
 	return reconciler.OpenInstantUpdatesStream(ctx, logger, infisicalSecret, resourceVariablesMap, eventCh)
 }

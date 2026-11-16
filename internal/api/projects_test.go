@@ -30,9 +30,9 @@ var _ = Describe("FindProjectBySlug", func() {
 			Expect(err).To(MatchError(api.ErrUnauthorized))
 			Expect(err.Error()).To(Equal("Unauthorized access: failed to find project by slug [status=401, body={}]"))
 		}),
-		Entry("403", http.StatusForbidden, nil, forbiddenBody, func(err error) {
+		Entry("403", http.StatusForbidden, nil, `{"message":"denied","details":["reason"]}`, func(err error) {
 			Expect(err).To(MatchError(api.ErrUnauthorized))
-			Expect(err.Error()).To(Equal("Unauthorized access: failed to find project by slug [status=403, body=" + forbiddenBody + "]"))
+			Expect(err.Error()).To(Equal(`Unauthorized access: failed to find project by slug [status=403, body={"message":"denied","details":["reason"]}]`))
 		}),
 		Entry("404", http.StatusNotFound, nil, `{"message":"Project not found"}`, func(err error) {
 			Expect(err.Error()).To(Equal(`project with slug "my-project" not found`))

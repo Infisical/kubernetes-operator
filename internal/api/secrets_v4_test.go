@@ -20,10 +20,6 @@ const (
 
 var location = api.SecretLocation{ProjectID: projectID, Environment: environment, SecretPath: "/app"}
 
-// forbiddenBody is what Infisical returns when a secret references another secret
-// the identity can't read. The reason is only in details.
-const forbiddenBody = `{"reqId":"req-1","statusCode":403,"message":"Failed to expand one or more secret references","details":["You do not have permission to read secret 'B' in environment 'staging' at path '/shared', which is referenced by secret 'A' in environment 'dev' at path '/'."],"error":"ForbiddenError"}`
-
 // respondWith starts a server that answers every request with the given status, headers and body.
 func respondWith(status int, headers map[string]string, body string) *resty.Client {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -73,9 +69,9 @@ var _ = Describe("ListSecrets", func() {
 			Expect(err).To(MatchError(api.ErrUnauthorized))
 			Expect(err.Error()).To(Equal("Unauthorized access: failed to list secrets [status=401, body={}]"))
 		}),
-		Entry("403", http.StatusForbidden, nil, forbiddenBody, func(err error) {
+		Entry("403", http.StatusForbidden, nil, `{"message":"denied","details":["reason"]}`, func(err error) {
 			Expect(err).To(MatchError(api.ErrUnauthorized))
-			Expect(err.Error()).To(Equal("Unauthorized access: failed to list secrets [status=403, body=" + forbiddenBody + "]"))
+			Expect(err.Error()).To(Equal(`Unauthorized access: failed to list secrets [status=403, body={"message":"denied","details":["reason"]}]`))
 		}),
 		Entry("400", http.StatusBadRequest, nil, `{"message":"bad"}`, func(err error) {
 			Expect(err).To(MatchError(api.ErrBadRequest))

@@ -21,8 +21,8 @@ const (
 var location = api.SecretLocation{ProjectID: projectID, Environment: environment, SecretPath: "/app"}
 
 // forbiddenBody is what Infisical returns when a secret references another secret
-// the identity can't read.
-const forbiddenBody = `{"reqId":"req-1","statusCode":403,"message":"You do not have permission to read secret 'B' in environment 'common' at path '/shared', which is referenced by secret 'A' in environment 'dev' at path '/'.","error":"ForbiddenError"}`
+// the identity can't read. The reason is only in details.
+const forbiddenBody = `{"reqId":"req-1","statusCode":403,"message":"Failed to expand one or more secret references","details":["You do not have permission to read secret 'B' in environment 'staging' at path '/shared', which is referenced by secret 'A' in environment 'dev' at path '/'."],"error":"ForbiddenError"}`
 
 // respondWith starts a server that answers every request with the given status, headers and body.
 func respondWith(status int, headers map[string]string, body string) *resty.Client {

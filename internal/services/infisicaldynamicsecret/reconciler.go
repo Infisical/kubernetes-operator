@@ -316,7 +316,7 @@ func (r *InfisicalDynamicSecretReconciler) ReconcileInfisicalDynamicSecret(ctx c
 
 	var err error
 
-	if authDetails.AuthStrategy == "" {
+	if authDetails.NeedsAuthentication() {
 		logger.Info("No authentication strategy found. Attempting to authenticate")
 		authDetails, err = util.HandleAuthentication(ctx, util.SecretAuthInput{
 			Secret: *infisicalDynamicSecret,

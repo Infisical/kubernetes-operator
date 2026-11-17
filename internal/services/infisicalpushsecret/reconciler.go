@@ -160,7 +160,7 @@ func (r *InfisicalPushSecretReconciler) ReconcileInfisicalPushSecret(ctx context
 	authDetails := resourceVariables.AuthDetails
 	var err error
 
-	if authDetails.AuthStrategy == "" {
+	if authDetails.NeedsAuthentication() {
 		logger.Info("No authentication strategy found. Attempting to authenticate")
 		authDetails, err = util.HandleAuthentication(ctx, util.SecretAuthInput{
 			Secret: *infisicalPushSecret,
@@ -528,7 +528,7 @@ func (r *InfisicalPushSecretReconciler) DeleteManagedSecrets(ctx context.Context
 	authDetails := resourceVariables.AuthDetails
 	var err error
 
-	if authDetails.AuthStrategy == "" {
+	if authDetails.NeedsAuthentication() {
 		logger.Info("No authentication strategy found. Attempting to authenticate")
 		authDetails, err = util.HandleAuthentication(ctx, util.SecretAuthInput{
 			Secret: *infisicalPushSecret,

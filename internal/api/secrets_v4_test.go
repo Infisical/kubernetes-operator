@@ -67,10 +67,11 @@ var _ = Describe("ListSecrets", func() {
 		},
 		Entry("401", http.StatusUnauthorized, nil, `{}`, func(err error) {
 			Expect(err).To(MatchError(api.ErrUnauthorized))
-			Expect(err.Error()).To(Equal("Unauthorized access: status 401"))
+			Expect(err.Error()).To(Equal("Unauthorized access: failed to list secrets [status=401, body={}]"))
 		}),
-		Entry("403", http.StatusForbidden, nil, `{}`, func(err error) {
+		Entry("403", http.StatusForbidden, nil, `{"message":"denied","details":["reason"]}`, func(err error) {
 			Expect(err).To(MatchError(api.ErrUnauthorized))
+			Expect(err.Error()).To(Equal(`Unauthorized access: failed to list secrets [status=403, body={"message":"denied","details":["reason"]}]`))
 		}),
 		Entry("400", http.StatusBadRequest, nil, `{"message":"bad"}`, func(err error) {
 			Expect(err).To(MatchError(api.ErrBadRequest))

@@ -47,7 +47,7 @@ type Error struct {
 func (e *Error) Error() string {
 	switch e.StatusCode {
 	case http.StatusUnauthorized, http.StatusForbidden:
-		return fmt.Sprintf("%v: status %d", ErrUnauthorized, e.StatusCode)
+		return fmt.Sprintf("%v: failed to %s [status=%d, body=%s]", ErrUnauthorized, e.Operation, e.StatusCode, e.Body)
 	case http.StatusBadRequest:
 		return fmt.Sprintf("%v: failed to %s [body=%s]", ErrBadRequest, e.Operation, e.Body)
 	default:

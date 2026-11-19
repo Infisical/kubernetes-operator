@@ -451,11 +451,9 @@ func (r *InfisicalPushSecretReconciler) ReconcileInfisicalPushSecret(ctx context
 
 			if existingSecret != nil {
 
-				_, managedByOperator := infisicalPushSecret.Status.ManagedSecrets[existingSecret.ID]
-
 				if secretValue != existingSecret.SecretValue {
 
-					if managedByOperator || updatePolicy == string(constants.PUSH_SECRET_REPLACE_POLICY_ENABLED) {
+					if updatePolicy == string(constants.PUSH_SECRET_REPLACE_POLICY_ENABLED) {
 						logger.Info(fmt.Sprintf("Secret with key [key=%s] has changed value. Updating secret in Infisical", secretKey))
 
 						updatedSecret, err := infisicalClient.Secrets().Update(infisicalSdk.UpdateSecretOptions{

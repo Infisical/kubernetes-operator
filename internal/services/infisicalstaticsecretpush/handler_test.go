@@ -947,6 +947,41 @@ var _ = Describe("namespace isolation", func() {
 		Entry("the default one", v1beta1.NamespacedName{}, ".spec.infisicalAuthRef (not set, so the default InfisicalAuth is used)"),
 	)
 
+	DescribeTable("doesn't use a ready InfisicalAuth whose references are outside its namespace, even with cached credentials",
+		func(mutate func(*v1beta1.InfisicalAuthSpec), expectedMessage string) {
+			env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value"}))
+			// Logs in and caches the InfisicalAuth's credentials.
+			push := env.mustSync(env.createPush([]string{"source"}, []v1beta1.PushTarget{target("dev", "/")}))
+
+			infisicalAuth := &v1beta1.InfisicalAuth{}
+			Expect(env.client.Get(env.ctx, client.ObjectKey{Name: "auth", Namespace: namespace}, infisicalAuth)).To(Succeed())
+			mutate(&infisicalAuth.Spec)
+			env.update(infisicalAuth)
+			setNamespaceIsolation(true)
+			env.infisical.ResetRequests()
+
+			_, err := env.sync(push)
+
+			Expect(err).To(MatchError(ContainSubstring(expectedMessage)))
+			Expect(env.infisical.Requests()).To(BeEmpty())
+		},
+		Entry("a credentials Secret", func(spec *v1beta1.InfisicalAuthSpec) {
+			spec.Universal = &v1beta1.UniversalAuthConfig{
+				ClientIdRef:     v1beta1.SecretReference{Name: "credentials", Namespace: "other", Key: "clientId"},
+				ClientSecretRef: v1beta1.SecretReference{Name: "credentials", Namespace: namespace, Key: "clientSecret"},
+			}
+		}, `the Secret "credentials" must be in this resource's namespace`),
+		Entry("a ServiceAccount", func(spec *v1beta1.InfisicalAuthSpec) {
+			spec.Kubernetes = &v1beta1.KubernetesAuthConfig{
+				IdentityIDRef:     v1beta1.SecretReference{Name: "identity", Namespace: namespace, Key: "id"},
+				ServiceAccountRef: v1beta1.NamespacedName{Name: "app", Namespace: "other"},
+			}
+		}, ".spec.kubernetes.serviceAccountRef must be in this resource's namespace"),
+		Entry("an InfisicalConnection", func(spec *v1beta1.InfisicalAuthSpec) {
+			spec.InfisicalConnectionRef.Namespace = "other"
+		}, ".spec.infisicalConnectionRef must be in this resource's namespace"),
+	)
+
 	It("doesn't use an InfisicalAuth from another namespace to delete what it pushed", func() {
 		env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value"}))
 		push := env.mustSync(env.createPush([]string{"source"}, []v1beta1.PushTarget{target("dev", "/")}))

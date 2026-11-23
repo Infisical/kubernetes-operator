@@ -80,11 +80,54 @@ func GetInfisicalConnection(ctx context.Context, c client.Client, isNamespaceSco
 		return nil, fmt.Errorf("Unable to fetch Infisical Connection CRD from cluster: %w", err)
 	}
 
+	if err := CheckConnectionNamespaces(&conn); err != nil {
+		return nil, err
+	}
+
 	if err := checkReadiness("InfisicalConnection", &conn); err != nil {
 		return nil, err
 	}
 
 	return &conn, nil
+}
+
+// CheckAuthNamespaces returns an error when namespace isolation forbids the
+// InfisicalConnection, Secrets or ServiceAccount that the InfisicalAuth references.
+func CheckAuthNamespaces(infisicalAuth *v1beta1.InfisicalAuth) error {
+	namespace := infisicalAuth.Namespace
+
+	if err := checkRefNamespace(namespace, infisicalAuth.Spec.InfisicalConnectionRef, ".spec.infisicalConnectionRef", "InfisicalConnection"); err != nil {
+		return err
+	}
+	for _, ref := range infisicalAuth.SecretReferences() {
+		if err := util.CheckNamespaceIsolation(namespace, ref.Namespace, fmt.Sprintf("the Secret %q", ref.Name)); err != nil {
+			return err
+		}
+	}
+	if k8s := infisicalAuth.Spec.Kubernetes; k8s != nil {
+		return util.CheckNamespaceIsolation(namespace, k8s.ServiceAccountRef.Namespace, ".spec.kubernetes.serviceAccountRef")
+	}
+	return nil
+}
+
+// CheckConnectionNamespaces returns an error when namespace isolation forbids the CA
+// certificate Secret that the InfisicalConnection references.
+func CheckConnectionNamespaces(conn *v1beta1.InfisicalConnection) error {
+	if tls := conn.Spec.TLS; tls != nil && tls.CaCertificate != nil {
+		return util.CheckNamespaceIsolation(conn.Namespace, tls.CaCertificate.Namespace, ".spec.tls.caCertificate")
+	}
+	return nil
+}
+
+// checkRefNamespace applies namespace isolation to a reference to an InfisicalAuth or an
+// InfisicalConnection. Isolation makes no exception for the default one in the operator
+// namespace, which is used when the reference isn't set.
+func checkRefNamespace(namespace string, ref v1beta1.NamespacedName, fieldPath, kind string) error {
+	if ref.Name == "" {
+		return util.CheckNamespaceIsolation(namespace, constants.GetOperatorNamespace(),
+			fmt.Sprintf("%s (not set, so the default %s is used)", fieldPath, kind))
+	}
+	return util.CheckNamespaceIsolation(namespace, ref.Namespace, fieldPath)
 }
 
 // checkReadiness returns nil when the resource is ready. Otherwise its error names the
@@ -135,10 +178,14 @@ func NewResolver(c client.Client, isNamespaceScoped bool, authResolver *auth.Aut
 	}
 }
 
-// GetInfisicalAuth fetches the referenced InfisicalAuth, or the default one when no
-// reference was provided. It doesn't check that the InfisicalAuth is ready, so callers
-// can record its auth method even when authentication then fails; Authenticate does.
-func (r *Resolver) GetInfisicalAuth(ctx context.Context, authRef v1beta1.NamespacedName) (*v1beta1.InfisicalAuth, error) {
+// GetInfisicalAuth fetches the InfisicalAuth that a resource in namespace references, or
+// the default one when no reference was provided. It doesn't check that the InfisicalAuth
+// is ready, so callers can record its auth method even when authentication then fails;
+// Authenticate does.
+func (r *Resolver) GetInfisicalAuth(ctx context.Context, namespace string, authRef v1beta1.NamespacedName) (*v1beta1.InfisicalAuth, error) {
+	if err := checkRefNamespace(namespace, authRef, ".spec.infisicalAuthRef", "InfisicalAuth"); err != nil {
+		return nil, err
+	}
 	return getInfisicalAuth(ctx, r.client, r.isNamespaceScoped, authRef)
 }
 
@@ -146,6 +193,12 @@ func (r *Resolver) GetInfisicalAuth(ctx context.Context, authRef v1beta1.Namespa
 // it references and logs in, reusing cached credentials when possible.
 func (r *Resolver) Authenticate(ctx context.Context, infisicalAuth *v1beta1.InfisicalAuth) (Session, error) {
 	if err := checkReadiness("InfisicalAuth", infisicalAuth); err != nil {
+		return Session{}, err
+	}
+
+	// Checked here too, not only when the InfisicalAuth is reconciled, so that a Ready
+	// condition from before namespace isolation was turned on doesn't skip the check.
+	if err := CheckAuthNamespaces(infisicalAuth); err != nil {
 		return Session{}, err
 	}
 

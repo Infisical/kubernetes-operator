@@ -84,6 +84,9 @@ func (r *InfisicalStaticSecretPushReconciler) Validate(push *v1beta1.InfisicalSt
 		if source.Namespace == "" {
 			return fmt.Errorf("sources.secrets[%d].namespace is required", i)
 		}
+		if err := util.CheckNamespaceIsolation(push.Namespace, source.Namespace, fmt.Sprintf("sources.secrets[%d].namespace", i)); err != nil {
+			return err
+		}
 
 		key := types.NamespacedName{Namespace: source.Namespace, Name: source.Name}.String()
 		if _, exists := sources[key]; exists {
@@ -148,7 +151,7 @@ func RefreshInterval(push *v1beta1.InfisicalStaticSecretPush) (time.Duration, er
 // Authenticate logs in through the InfisicalAuth the resource references and records
 // the auth method on the status as soon as the InfisicalAuth is found.
 func (r *InfisicalStaticSecretPushReconciler) Authenticate(ctx context.Context, push *v1beta1.InfisicalStaticSecretPush) (infisicalsession.Session, error) {
-	infisicalAuth, err := r.session.GetInfisicalAuth(ctx, push.Spec.InfisicalAuthRef)
+	infisicalAuth, err := r.session.GetInfisicalAuth(ctx, push.Namespace, push.Spec.InfisicalAuthRef)
 	if err != nil {
 		return infisicalsession.Session{}, err
 	}

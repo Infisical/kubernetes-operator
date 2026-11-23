@@ -9,6 +9,7 @@ import (
 
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/api"
+	"github.com/Infisical/infisical/k8-operator/internal/config"
 	"github.com/Infisical/infisical/k8-operator/internal/constants"
 	svc "github.com/Infisical/infisical/k8-operator/internal/services/infisicalstaticsecret"
 	templatev1 "github.com/Infisical/infisical/k8-operator/internal/template/v1"
@@ -160,6 +161,21 @@ var _ = Describe("Validate", func() {
 		err := reconciler.Validate(obj)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("targets[0].namespace is required"))
+	})
+
+	It("allows a target in another namespace when namespace isolation is disabled", func() {
+		obj := &v1beta1.InfisicalStaticSecret{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a"}, Spec: validSpec()}
+		Expect(reconciler.Validate(obj)).To(Succeed())
+	})
+
+	It("returns error for a target in another namespace when namespace isolation is enabled", func() {
+		config.NAMESPACE_ISOLATION = true
+		DeferCleanup(func() { config.NAMESPACE_ISOLATION = false })
+
+		obj := &v1beta1.InfisicalStaticSecret{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a"}, Spec: validSpec()}
+		err := reconciler.Validate(obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring(`targets[0].namespace must be in this resource's namespace "team-a", not "default"`))
 	})
 
 	It("returns error for duplicate targets", func() {

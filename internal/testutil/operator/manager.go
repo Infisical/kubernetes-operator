@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -8,9 +9,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/discovery"
@@ -149,6 +152,61 @@ defaultInfisicalConnection:
 		client:          k8sClient,
 		inClusterAPIURL: inClusterURL,
 	}, nil
+}
+
+// SetNamespaceIsolation upgrades the release with namespaceIsolation set to enabled, then
+// waits until the only operator pod left runs with that setting. The e2e install has no
+// leader election, so an old pod that's still running would keep reconciling with the old
+// setting.
+func (m *Manager) SetNamespaceIsolation(enabled bool) error {
+	chartPath := filepath.Join(projectRoot(), "helm-charts", "secrets-operator")
+	if err := run("helm", "upgrade", helmReleaseName, chartPath,
+		"--namespace", helmNamespace,
+		"--reuse-values",
+		"--set", fmt.Sprintf("namespaceIsolation=%t", enabled),
+		"--wait",
+		"--timeout", "120s",
+	); err != nil {
+		return fmt.Errorf("helm upgrade: %w", err)
+	}
+
+	deadline := time.Now().Add(120 * time.Second)
+	for {
+		done, err := m.onlyOperatorPodRuns(enabled)
+		if done {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for the operator to restart with namespaceIsolation=%t (last error: %v)", enabled, err)
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+// onlyOperatorPodRuns reports whether a single operator pod is left, ready, and started
+// with namespace isolation set as wanted.
+func (m *Manager) onlyOperatorPodRuns(namespaceIsolation bool) (bool, error) {
+	var pods corev1.PodList
+	if err := m.client.List(context.Background(), &pods,
+		client.InNamespace(helmNamespace),
+		client.MatchingLabels{"control-plane": "controller-manager"},
+	); err != nil {
+		return false, err
+	}
+
+	if len(pods.Items) != 1 {
+		return false, nil
+	}
+	pod := pods.Items[0]
+	if pod.DeletionTimestamp != nil || len(pod.Spec.Containers) == 0 {
+		return false, nil
+	}
+
+	ready := slices.ContainsFunc(pod.Status.Conditions, func(c corev1.PodCondition) bool {
+		return c.Type == corev1.PodReady && c.Status == corev1.ConditionTrue
+	})
+	isolated := slices.Contains(pod.Spec.Containers[0].Args, "--namespace-isolation")
+	return ready && isolated == namespaceIsolation, nil
 }
 
 func waitForAPI(baseURL string, timeout time.Duration) error {

@@ -47,6 +47,33 @@ func (a InfisicalAuth) GetConditions() []metav1.Condition {
 	return a.Status.Conditions
 }
 
+// SecretReferences returns the Secrets that the InfisicalAuth reads its credentials from.
+func (a InfisicalAuth) SecretReferences() []SecretReference {
+	var refs []SecretReference
+	if a.Spec.Universal != nil {
+		refs = append(refs, a.Spec.Universal.ClientIdRef, a.Spec.Universal.ClientSecretRef)
+	}
+	if a.Spec.Kubernetes != nil {
+		refs = append(refs, a.Spec.Kubernetes.IdentityIDRef)
+	}
+	if a.Spec.AWSIam != nil {
+		refs = append(refs, a.Spec.AWSIam.IdentityIDRef)
+	}
+	if a.Spec.Azure != nil {
+		refs = append(refs, a.Spec.Azure.IdentityIDRef)
+	}
+	if a.Spec.GCPIdToken != nil {
+		refs = append(refs, a.Spec.GCPIdToken.IdentityIDRef)
+	}
+	if a.Spec.GCPIam != nil {
+		refs = append(refs, a.Spec.GCPIam.IdentityIDRef)
+	}
+	if a.Spec.LDAP != nil {
+		refs = append(refs, a.Spec.LDAP.UsernameRef, a.Spec.LDAP.PasswordRef, a.Spec.LDAP.IdentityIDRef)
+	}
+	return refs
+}
+
 type InfisicalAuthSpec struct {
 	// +kubebuilder:validation:Optional
 	InfisicalConnectionRef NamespacedName `json:"infisicalConnectionRef,omitempty"`

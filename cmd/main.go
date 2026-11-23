@@ -87,11 +87,15 @@ func main() {
 	var namespaces string
 	var deprecatedScopedNamespaceWarning bool
 	var maxConcurrency int
+	var namespaceIsolation bool
 
 	var tlsOpts []func(*tls.Config)
 	flag.IntVar(&maxConcurrency, "max-concurrency", 1,
 		"Max concurrent reconciles for each of InfisicalStaticSecret and InfisicalStaticSecretPush. Must be at least 1.")
 	flag.StringVar(&namespaces, "namespaces", "", "Comma-separated list of namespaces to watch. If empty, watches all namespaces (cluster-scoped)")
+	flag.BoolVar(&namespaceIsolation, "namespace-isolation", false,
+		"If set, v1beta1 resources can only reference objects in their own namespace, including the default InfisicalAuth "+
+			"and InfisicalConnection. v1alpha1 resources aren't restricted.")
 	flag.BoolVar(&deprecatedScopedNamespaceWarning, "deprecated-scoped-namespace-warning", false, "If true, logs a deprecation warning for the scopedNamespace field")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -267,6 +271,11 @@ func main() {
 			DefaultNamespaces: defaultNamespaces,
 		}
 		ctrl.Log.Info(fmt.Sprintf("Watching CRDs in namespaces: %v", namespaceList))
+	}
+
+	config.NAMESPACE_ISOLATION = namespaceIsolation
+	if namespaceIsolation {
+		setupLog.Info("Namespace isolation is enabled: v1beta1 resources can only reference objects in their own namespace")
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), managerOptions)

@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	secretsv1beta1 "github.com/Infisical/infisical/k8-operator/api/v1beta1"
+	"github.com/Infisical/infisical/k8-operator/internal/config"
 	"github.com/Infisical/infisical/k8-operator/internal/controller/v1beta1"
 )
 
@@ -44,11 +45,13 @@ var _ = Describe("InfisicalConnection Controller", func() {
 		ctx := context.Background()
 
 		type testCase struct {
-			name        string
-			connOpts    []InfisicalConnectionOpt
-			expectReady bool
-			expectErr   bool
-			envMap      map[string]string
+			name               string
+			connOpts           []InfisicalConnectionOpt
+			expectReady        bool
+			expectErr          bool
+			expectMessage      string
+			envMap             map[string]string
+			namespaceIsolation bool
 		}
 
 		entries := []testCase{
@@ -88,10 +91,25 @@ var _ = Describe("InfisicalConnection Controller", func() {
 				},
 				expectReady: true,
 			},
+			{
+				name: "tls-cert-in-another-namespace-with-namespace-isolation",
+				connOpts: []InfisicalConnectionOpt{
+					WithAddress("https://app.infisical.com"),
+					WithTLS("tls-ca-cert-other-namespace", "kube-system", "ca.crt"),
+				},
+				namespaceIsolation: true,
+				expectReady:        false,
+				expectMessage:      `.spec.tls.caCertificate must be in this resource's namespace "default", not "kube-system"`,
+			},
 		}
 
 		for _, tc := range entries {
 			It(fmt.Sprintf("should handle %s", tc.name), func() {
+				if tc.namespaceIsolation {
+					config.NAMESPACE_ISOLATION = true
+					DeferCleanup(func() { config.NAMESPACE_ISOLATION = false })
+				}
+
 				if tc.envMap != nil {
 					for k, v := range tc.envMap {
 						os.Setenv(k, v)
@@ -149,6 +167,10 @@ var _ = Describe("InfisicalConnection Controller", func() {
 				} else {
 					Expect(statusCondition.Status).To(Equal(metav1.ConditionFalse))
 					Expect(statusCondition.Message).To(HavePrefix("InfisicalConnection is not ready to be used due to an error:"))
+				}
+
+				if tc.expectMessage != "" {
+					Expect(statusCondition.Message).To(ContainSubstring(tc.expectMessage))
 				}
 			})
 		}

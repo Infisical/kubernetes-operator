@@ -59,6 +59,10 @@ var API_HOST_URL string = GetDefaultHostAPI()
 var API_CA_CERTIFICATE string = ""
 var API_LOG_WRITER io.Writer = GetDefaultLogWriter().Writer()
 
+// NAMESPACE_ISOLATION is set once at startup from --namespace-isolation. When true, every
+// object a v1beta1 resource references must be in that resource's own namespace.
+var NAMESPACE_ISOLATION bool
+
 func ParseInfisicalGlobalConfig(rawMap map[string]string) (InfisicalGlobalConfig, error) {
 	config := InfisicalGlobalConfig{}
 

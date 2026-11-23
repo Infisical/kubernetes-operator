@@ -219,6 +219,9 @@ func (r *InfisicalStaticSecretReconciler) Validate(infisicalStaticSecret *v1beta
 		if target.Namespace == "" {
 			return fmt.Errorf("targets[%d].namespace is required", i)
 		}
+		if err := util.CheckNamespaceIsolation(infisicalStaticSecret.Namespace, target.Namespace, fmt.Sprintf("targets[%d].namespace", i)); err != nil {
+			return err
+		}
 
 		if target.Kind != v1beta1.SecretTargetKindConfigMap && target.Kind != v1beta1.SecretTargetKindSecret {
 			return fmt.Errorf("targets[%d].target is invalid", i)
@@ -252,7 +255,7 @@ func (r *InfisicalStaticSecretReconciler) Authenticate(ctx context.Context, infi
 		return infisicalsession.Session{}, model.ErrInvalidStaticSecretObject
 	}
 
-	infisicalAuth, err := r.session.GetInfisicalAuth(ctx, infisicalStaticSecret.Spec.InfisicalAuthRef)
+	infisicalAuth, err := r.session.GetInfisicalAuth(ctx, infisicalStaticSecret.Namespace, infisicalStaticSecret.Spec.InfisicalAuthRef)
 	if err != nil {
 		return infisicalsession.Session{}, err
 	}

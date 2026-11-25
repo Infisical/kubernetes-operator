@@ -718,7 +718,7 @@ func (r *InfisicalSecretReconciler) ReconcileInfisicalSecret(ctx context.Context
 	authDetails := resourceVariables.AuthDetails
 	var err error
 
-	if authDetails.AuthStrategy == "" {
+	if authDetails.NeedsAuthentication() {
 		logger.Info("No authentication strategy found. Attempting to authenticate")
 		authDetails, err = util.HandleAuthentication(ctx, util.SecretAuthInput{
 			Secret: *infisicalSecret,

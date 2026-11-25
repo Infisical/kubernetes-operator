@@ -3,6 +3,7 @@ package util
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"errors"
 
@@ -129,6 +130,13 @@ type AuthenticationDetails struct {
 	MachineIdentityScope  v1alpha1.MachineIdentityScopeInWorkspace // This will only be set if a machine identity auth method is used (e.g. UniversalAuth or KubernetesAuth, etc.)
 	IsMachineIdentityAuth bool
 	SecretType            SecretCrdType
+	// Zero unless the operator has to log in again itself instead of relying on the SDK's token refresh.
+	ReauthenticateAt time.Time
+}
+
+// NeedsAuthentication reports whether the operator has to log in before using the client.
+func (a AuthenticationDetails) NeedsAuthentication() bool {
+	return a.AuthStrategy == "" || (!a.ReauthenticateAt.IsZero() && !time.Now().Before(a.ReauthenticateAt))
 }
 
 var ErrAuthNotApplicable = errors.New("authentication not applicable")
@@ -333,17 +341,25 @@ func HandleKubernetesAuth(ctx context.Context, reconcilerClient client.Client, s
 		return AuthenticationDetails{}, fmt.Errorf("unable to get service account token [err=%s]", err)
 	}
 
-	_, err = infisicalClient.Auth().KubernetesRawServiceAccountTokenLogin(kubernetesAuthSpec.IdentityID, serviceAccountToken)
+	credential, err := infisicalClient.Auth().KubernetesRawServiceAccountTokenLogin(kubernetesAuthSpec.IdentityID, serviceAccountToken)
 	if err != nil {
 		return AuthenticationDetails{}, fmt.Errorf("unable to login with Kubernetes native auth [err=%s]", err)
 	}
 
-	return AuthenticationDetails{
+	authDetails := AuthenticationDetails{
 		AuthStrategy:          AuthStrategy.KUBERNETES_MACHINE_IDENTITY,
 		MachineIdentityScope:  kubernetesAuthSpec.SecretsScope,
 		IsMachineIdentityAuth: true,
 		SecretType:            secretCrd.Type,
-	}, nil
+	}
+
+	if kubernetesAuthSpec.AutoCreateServiceAccountToken {
+		// The SDK would replay this short-lived token on re-auth, so the operator logs in again itself.
+		infisicalClient.Auth().SetAccessToken(credential.AccessToken)
+		authDetails.ReauthenticateAt = time.Now().Add(time.Duration(float64(credential.ExpiresIn) * 0.7 * float64(time.Second)))
+	}
+
+	return authDetails, nil
 
 }
 

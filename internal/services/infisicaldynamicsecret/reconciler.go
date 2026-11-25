@@ -29,6 +29,7 @@ type InfisicalDynamicSecretReconciler struct {
 	Scheme            *runtime.Scheme
 	Random            *rand.Rand
 	IsNamespaceScoped bool
+	HostAPI           string
 }
 
 func (r *InfisicalDynamicSecretReconciler) GetProjectSlug(infisicalClient infisicalSdk.InfisicalClientInterface, infisicalDynamicSecret v1alpha1.InfisicalDynamicSecret) (string, error) {
@@ -118,7 +119,7 @@ func (r *InfisicalDynamicSecretReconciler) getResourceVariables(infisicalDynamic
 		ctx, cancel := context.WithCancel(context.Background())
 
 		client := infisicalSdk.NewInfisicalClient(ctx, infisicalSdk.Config{
-			SiteUrl:       config.API_HOST_URL,
+			SiteUrl:       r.apiHost(),
 			CaCertificate: config.API_CA_CERTIFICATE,
 			UserAgent:     util.UserAgent(),
 			LogWriter:     config.API_LOG_WRITER,
@@ -452,4 +453,12 @@ func (r *InfisicalDynamicSecretReconciler) ReconcileInfisicalDynamicSecret(ctx c
 	}
 
 	return nextReconcile, nil
+}
+
+// apiHost returns the API host resolved for this resource, falling back to the shared global.
+func (r *InfisicalDynamicSecretReconciler) apiHost() string {
+	if r.HostAPI != "" {
+		return r.HostAPI
+	}
+	return config.API_HOST_URL
 }

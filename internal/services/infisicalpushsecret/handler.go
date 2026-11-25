@@ -19,6 +19,10 @@ type InfisicalPushSecretHandler struct {
 	client.Client
 	Scheme            *runtime.Scheme
 	IsNamespaceScoped bool
+
+	// hostAPI is the resolved API host for the resource being reconciled. It is passed to the
+	// reconciler instead of reading config.API_HOST_URL, which other controllers also write.
+	hostAPI string
 }
 
 func NewInfisicalPushSecretHandler(client client.Client, scheme *runtime.Scheme, isNamespaceScoped bool) *InfisicalPushSecretHandler {
@@ -31,10 +35,11 @@ func NewInfisicalPushSecretHandler(client client.Client, scheme *runtime.Scheme,
 
 func (h *InfisicalPushSecretHandler) SetupAPIConfig(infisicalPushSecret v1alpha1.InfisicalPushSecret, infisicalGlobalConfig config.InfisicalGlobalConfig) error {
 	if infisicalPushSecret.Spec.HostAPI == "" {
-		config.API_HOST_URL = infisicalGlobalConfig.HostAPI
+		h.hostAPI = infisicalGlobalConfig.HostAPI
 	} else {
-		config.API_HOST_URL = util.AppendAPIEndpoint(infisicalPushSecret.Spec.HostAPI)
+		h.hostAPI = util.AppendAPIEndpoint(infisicalPushSecret.Spec.HostAPI)
 	}
+	config.API_HOST_URL = h.hostAPI
 	return nil
 }
 
@@ -86,6 +91,7 @@ func (h *InfisicalPushSecretHandler) ReconcileInfisicalPushSecret(ctx context.Co
 		Client:            h.Client,
 		Scheme:            h.Scheme,
 		IsNamespaceScoped: h.IsNamespaceScoped,
+		HostAPI:           h.hostAPI,
 	}
 	return reconciler.ReconcileInfisicalPushSecret(ctx, logger, infisicalPushSecret, resourceVariablesMap)
 }
@@ -95,6 +101,7 @@ func (h *InfisicalPushSecretHandler) DeleteManagedSecrets(ctx context.Context, l
 		Client:            h.Client,
 		Scheme:            h.Scheme,
 		IsNamespaceScoped: h.IsNamespaceScoped,
+		HostAPI:           h.hostAPI,
 	}
 	return reconciler.DeleteManagedSecrets(ctx, logger, infisicalPushSecret, resourceVariablesMap)
 }
@@ -104,6 +111,7 @@ func (h *InfisicalPushSecretHandler) SetReconcileStatusCondition(ctx context.Con
 		Client:            h.Client,
 		Scheme:            h.Scheme,
 		IsNamespaceScoped: h.IsNamespaceScoped,
+		HostAPI:           h.hostAPI,
 	}
 	reconciler.SetReconcileStatusCondition(ctx, infisicalPushSecret, err)
 }

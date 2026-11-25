@@ -65,16 +65,6 @@ func IsNamespaceScopedError(err error, isNamespaceScoped bool) bool {
 	return isNamespaceScoped && err != nil && strings.Contains(err.Error(), "unknown namespace for the cache")
 }
 
-// CheckNamespaceIsolation returns an error when namespace isolation is enabled and a resource
-// in resourceNamespace references, through fieldPath, an object in another namespace.
-func CheckNamespaceIsolation(resourceNamespace, referencedNamespace, fieldPath string) error {
-	if !config.NAMESPACE_ISOLATION || referencedNamespace == resourceNamespace {
-		return nil
-	}
-	return fmt.Errorf("%w: namespace isolation is enabled, so %s must be in this resource's namespace %q, not %q",
-		model.ErrValidation, fieldPath, resourceNamespace, referencedNamespace)
-}
-
 var responseHeaderTimeout = 60 * time.Second
 
 func CreateRestyClient(options model.CreateRestyClientOptions) (*resty.Client, error) {

@@ -80,7 +80,7 @@ func GetInfisicalConnection(ctx context.Context, c client.Client, isNamespaceSco
 		return nil, fmt.Errorf("Unable to fetch Infisical Connection CRD from cluster: %w", err)
 	}
 
-	if err := CheckConnectionNamespaces(&conn); err != nil {
+	if err := EnforceConnectionNamespaceIsolation(&conn); err != nil {
 		return nil, err
 	}
 
@@ -91,12 +91,12 @@ func GetInfisicalConnection(ctx context.Context, c client.Client, isNamespaceSco
 	return &conn, nil
 }
 
-// CheckAuthNamespaces returns an error when namespace isolation forbids the
+// EnforceAuthNamespaceIsolation returns an error when namespace isolation forbids the
 // InfisicalConnection, Secrets or ServiceAccount that the InfisicalAuth references.
-func CheckAuthNamespaces(infisicalAuth *v1beta1.InfisicalAuth) error {
+func EnforceAuthNamespaceIsolation(infisicalAuth *v1beta1.InfisicalAuth) error {
 	namespace := infisicalAuth.Namespace
 
-	if err := checkRefNamespace(namespace, infisicalAuth.Spec.InfisicalConnectionRef, ".spec.infisicalConnectionRef", "InfisicalConnection"); err != nil {
+	if err := enforceNamespaceIsolation(namespace, infisicalAuth.Spec.InfisicalConnectionRef, ".spec.infisicalConnectionRef", "InfisicalConnection"); err != nil {
 		return err
 	}
 	for _, ref := range infisicalAuth.SecretReferences() {
@@ -110,19 +110,19 @@ func CheckAuthNamespaces(infisicalAuth *v1beta1.InfisicalAuth) error {
 	return nil
 }
 
-// CheckConnectionNamespaces returns an error when namespace isolation forbids the CA
+// EnforceConnectionNamespaceIsolation returns an error when namespace isolation forbids the CA
 // certificate Secret that the InfisicalConnection references.
-func CheckConnectionNamespaces(conn *v1beta1.InfisicalConnection) error {
+func EnforceConnectionNamespaceIsolation(conn *v1beta1.InfisicalConnection) error {
 	if tls := conn.Spec.TLS; tls != nil && tls.CaCertificate != nil {
 		return util.CheckNamespaceIsolation(conn.Namespace, tls.CaCertificate.Namespace, ".spec.tls.caCertificate")
 	}
 	return nil
 }
 
-// checkRefNamespace applies namespace isolation to a reference to an InfisicalAuth or an
+// enforceNamespaceIsolation applies namespace isolation to a reference to an InfisicalAuth or an
 // InfisicalConnection. Isolation makes no exception for the default one in the operator
 // namespace, which is used when the reference isn't set.
-func checkRefNamespace(namespace string, ref v1beta1.NamespacedName, fieldPath, kind string) error {
+func enforceNamespaceIsolation(namespace string, ref v1beta1.NamespacedName, fieldPath, kind string) error {
 	if ref.Name == "" {
 		return util.CheckNamespaceIsolation(namespace, constants.GetOperatorNamespace(),
 			fmt.Sprintf("%s (not set, so the default %s is used)", fieldPath, kind))
@@ -183,7 +183,7 @@ func NewResolver(c client.Client, isNamespaceScoped bool, authResolver *auth.Aut
 // is ready, so callers can record its auth method even when authentication then fails;
 // Authenticate does.
 func (r *Resolver) GetInfisicalAuth(ctx context.Context, namespace string, authRef v1beta1.NamespacedName) (*v1beta1.InfisicalAuth, error) {
-	if err := checkRefNamespace(namespace, authRef, ".spec.infisicalAuthRef", "InfisicalAuth"); err != nil {
+	if err := enforceNamespaceIsolation(namespace, authRef, ".spec.infisicalAuthRef", "InfisicalAuth"); err != nil {
 		return nil, err
 	}
 	return getInfisicalAuth(ctx, r.client, r.isNamespaceScoped, authRef)
@@ -198,7 +198,7 @@ func (r *Resolver) Authenticate(ctx context.Context, infisicalAuth *v1beta1.Infi
 
 	// Checked here too, not only when the InfisicalAuth is reconciled, so that a Ready
 	// condition from before namespace isolation was turned on doesn't skip the check.
-	if err := CheckAuthNamespaces(infisicalAuth); err != nil {
+	if err := EnforceAuthNamespaceIsolation(infisicalAuth); err != nil {
 		return Session{}, err
 	}
 

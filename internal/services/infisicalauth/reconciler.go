@@ -29,7 +29,7 @@ func (r *InfisicalAuthReconciler) ValidateAndAuthenticate(ctx context.Context, l
 		return model.ErrInvalidAuthObject
 	}
 
-	if err := infisicalsession.CheckAuthNamespaces(infisicalAuth); err != nil {
+	if err := infisicalsession.EnforceAuthNamespaceIsolation(infisicalAuth); err != nil {
 		return err
 	}
 

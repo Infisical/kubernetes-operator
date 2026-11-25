@@ -917,6 +917,25 @@ var _ = Describe("namespace isolation", func() {
 		DeferCleanup(func() { config.NAMESPACE_ISOLATION = false })
 	}
 
+	It("pushes when the source Secrets and InfisicalAuth are in the resource's namespace", func() {
+		setNamespaceIsolation(true)
+		env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value"}))
+
+		env.mustSync(env.createPush([]string{"source"}, []v1beta1.PushTarget{target("dev", "/")}))
+
+		Expect(env.values("dev", "/")).To(HaveKeyWithValue("KEY", "value"))
+	})
+
+	It("deletes what it pushed with an InfisicalAuth in the resource's namespace", func() {
+		env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value"}))
+		push := env.mustSync(env.createPush([]string{"source"}, []v1beta1.PushTarget{target("dev", "/")}))
+		setNamespaceIsolation(true)
+
+		Expect(env.handler.DeleteManagedSecrets(env.ctx, env.get(push))).To(Succeed())
+
+		Expect(env.values("dev", "/")).To(BeEmpty())
+	})
+
 	It("doesn't read a source Secret from another namespace", func() {
 		setNamespaceIsolation(true)
 		env := newTestEnv()

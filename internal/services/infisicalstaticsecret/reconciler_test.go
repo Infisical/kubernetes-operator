@@ -178,6 +178,14 @@ var _ = Describe("Validate", func() {
 		Expect(err.Error()).To(ContainSubstring(`targets[0].namespace must be in this resource's namespace "team-a", not "default"`))
 	})
 
+	It("allows a target in the resource's namespace when namespace isolation is enabled", func() {
+		config.NAMESPACE_ISOLATION = true
+		DeferCleanup(func() { config.NAMESPACE_ISOLATION = false })
+
+		obj := &v1beta1.InfisicalStaticSecret{ObjectMeta: metav1.ObjectMeta{Namespace: "default"}, Spec: validSpec()}
+		Expect(reconciler.Validate(obj)).To(Succeed())
+	})
+
 	It("returns error for duplicate targets", func() {
 		spec := validSpec()
 		spec.Targets = append(spec.Targets, spec.Targets[0])

@@ -86,7 +86,7 @@ func (h *InfisicalConnectionHandler) GetInfisicalConnection(ctx context.Context,
 		return &connection, fmt.Errorf("%w: .spec.address is empty and INFISICAL_HOST_API env var is not set", model.ErrValidation)
 	}
 
-	if err := infisicalsession.CheckConnectionNamespaces(&connection); err != nil {
+	if err := infisicalsession.EnforceConnectionNamespaceIsolation(&connection); err != nil {
 		return &connection, err
 	}
 

@@ -26,6 +26,7 @@ package v1beta1_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -42,14 +43,16 @@ import (
 	secretsv1beta1 "github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
 	"github.com/Infisical/infisical/k8-operator/internal/cache"
+	"github.com/Infisical/infisical/k8-operator/internal/config"
 	controllerv1beta1 "github.com/Infisical/infisical/k8-operator/internal/controller/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
 )
 
 type fakeAuthStrategy struct {
-	validateErr     error
-	authenticateErr error
-	result          *model.AuthenticationResult
+	validateErr       error
+	authenticateErr   error
+	result            *model.AuthenticationResult
+	authenticateCalls int
 }
 
 func (f *fakeAuthStrategy) Validate(_ context.Context, _ *secretsv1beta1.InfisicalAuth) error {
@@ -57,6 +60,7 @@ func (f *fakeAuthStrategy) Validate(_ context.Context, _ *secretsv1beta1.Infisic
 }
 
 func (f *fakeAuthStrategy) Authenticate(_ context.Context, _ *model.InfisicalConnection, _ *secretsv1beta1.InfisicalAuth) (*model.AuthenticationResult, error) {
+	f.authenticateCalls++
 	if f.authenticateErr != nil {
 		return nil, f.authenticateErr
 	}
@@ -247,6 +251,74 @@ var _ = Describe("InfisicalAuth Controller", func() {
 			})
 		}
 	})
+})
+
+var _ = Describe("InfisicalAuth Controller with namespace isolation", func() {
+	ctx := context.Background()
+
+	BeforeEach(func() {
+		config.NAMESPACE_ISOLATION = true
+		DeferCleanup(func() { config.NAMESPACE_ISOLATION = false })
+	})
+
+	DescribeTable("refuses a reference outside the namespace before fetching the connection or logging in",
+		func(resourceName string, mutate func(*secretsv1beta1.InfisicalAuthSpec), expectedMessage string) {
+			namespacedName := types.NamespacedName{Name: resourceName, Namespace: "default"}
+
+			authCRD := &secretsv1beta1.InfisicalAuth{
+				ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: "default"},
+				Spec: secretsv1beta1.InfisicalAuthSpec{
+					Method: secretsv1beta1.KubernetesAuth,
+					// Doesn't exist: the namespace check must fail first.
+					InfisicalConnectionRef: secretsv1beta1.NamespacedName{Name: "missing-connection", Namespace: "default"},
+					Kubernetes: &secretsv1beta1.KubernetesAuthConfig{
+						IdentityIDRef:     secretsv1beta1.SecretReference{Name: "identity", Namespace: "default", Key: "id"},
+						ServiceAccountRef: secretsv1beta1.NamespacedName{Name: "app", Namespace: "default"},
+					},
+				},
+			}
+			mutate(&authCRD.Spec)
+			Expect(k8sClient.Create(ctx, authCRD)).To(Succeed())
+			DeferCleanup(func() { Expect(k8sClient.Delete(ctx, authCRD)).To(Succeed()) })
+
+			authCache, err := cache.NewAuthCache()
+			Expect(err).ToNot(HaveOccurred())
+			DeferCleanup(func() { authCache.Cleanup() })
+
+			strategy := successStrategy()
+			reconciler := &controllerv1beta1.InfisicalAuthReconciler{
+				Client:     k8sClient,
+				BaseLogger: log.Log,
+				Scheme:     k8sClient.Scheme(),
+				AuthResolver: auth.NewAuthStrategyResolverForTesting(k8sClient, authCache, map[secretsv1beta1.InfisicalAuthMethod]auth.InfisicalAuthStrategy{
+					secretsv1beta1.KubernetesAuth: strategy,
+				}),
+			}
+
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+			Expect(errors.Is(err, model.ErrValidation)).To(BeTrue(), "unexpected error: %v", err)
+			Expect(strategy.authenticateCalls).To(BeZero())
+
+			resource := &secretsv1beta1.InfisicalAuth{}
+			Expect(k8sClient.Get(ctx, namespacedName, resource)).To(Succeed())
+			isReady := findCondition(resource.Status.Conditions, "secrets.infisical.com/IsReady")
+			Expect(isReady).NotTo(BeNil())
+			Expect(isReady.Status).To(Equal(metav1.ConditionFalse))
+			Expect(isReady.Message).To(ContainSubstring(expectedMessage))
+		},
+		Entry("a ServiceAccount", "auth-isolation-service-account", func(spec *secretsv1beta1.InfisicalAuthSpec) {
+			spec.Kubernetes.ServiceAccountRef.Namespace = "team-b"
+		}, `.spec.kubernetes.serviceAccountRef must be in this resource's namespace "default", not "team-b"`),
+		Entry("a credentials Secret", "auth-isolation-secret", func(spec *secretsv1beta1.InfisicalAuthSpec) {
+			spec.Kubernetes.IdentityIDRef.Namespace = "team-b"
+		}, `the Secret "identity" must be in this resource's namespace "default", not "team-b"`),
+		Entry("an InfisicalConnection", "auth-isolation-connection", func(spec *secretsv1beta1.InfisicalAuthSpec) {
+			spec.InfisicalConnectionRef.Namespace = "team-b"
+		}, `.spec.infisicalConnectionRef must be in this resource's namespace "default", not "team-b"`),
+		Entry("the default InfisicalConnection", "auth-isolation-default-connection", func(spec *secretsv1beta1.InfisicalAuthSpec) {
+			spec.InfisicalConnectionRef = secretsv1beta1.NamespacedName{}
+		}, ".spec.infisicalConnectionRef (not set, so the default InfisicalConnection is used)"),
+	)
 })
 
 func findCondition(conditions []metav1.Condition, condType string) *metav1.Condition {

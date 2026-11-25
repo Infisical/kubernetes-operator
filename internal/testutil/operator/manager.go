@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -8,9 +9,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/discovery"
@@ -149,6 +152,63 @@ defaultInfisicalConnection:
 		client:          k8sClient,
 		inClusterAPIURL: inClusterURL,
 	}, nil
+}
+
+// SetNamespaceIsolation restarts the operator with namespaceIsolation set to enabled. The
+// e2e install has no leader election, so the running operator is stopped first: during a
+// rolling update the old pod would keep reconciling with the old setting.
+func (m *Manager) SetNamespaceIsolation(enabled bool) error {
+	if err := run("kubectl", "scale", "deployment",
+		"--namespace", helmNamespace,
+		"--selector", "control-plane=controller-manager",
+		"--replicas=0",
+	); err != nil {
+		return fmt.Errorf("stop the operator: %w", err)
+	}
+	if err := m.waitForOperatorPods(func(pods []corev1.Pod) bool { return len(pods) == 0 }); err != nil {
+		return fmt.Errorf("stop the operator: %w", err)
+	}
+
+	// Also brings the deployment back to its replica count from the chart.
+	chartPath := filepath.Join(projectRoot(), "helm-charts", "secrets-operator")
+	if err := run("helm", "upgrade", helmReleaseName, chartPath,
+		"--namespace", helmNamespace,
+		"--reuse-values",
+		"--set", fmt.Sprintf("namespaceIsolation=%t", enabled),
+		"--wait",
+		"--timeout", "120s",
+	); err != nil {
+		return fmt.Errorf("helm upgrade: %w", err)
+	}
+
+	return m.waitForOperatorPods(func(pods []corev1.Pod) bool {
+		if len(pods) != 1 || len(pods[0].Spec.Containers) == 0 {
+			return false
+		}
+		ready := slices.ContainsFunc(pods[0].Status.Conditions, func(c corev1.PodCondition) bool {
+			return c.Type == corev1.PodReady && c.Status == corev1.ConditionTrue
+		})
+		return ready && slices.Contains(pods[0].Spec.Containers[0].Args, "--namespace-isolation") == enabled
+	})
+}
+
+// waitForOperatorPods waits until the operator pods satisfy done.
+func (m *Manager) waitForOperatorPods(done func([]corev1.Pod) bool) error {
+	deadline := time.Now().Add(120 * time.Second)
+	for {
+		var pods corev1.PodList
+		err := m.client.List(context.Background(), &pods,
+			client.InNamespace(helmNamespace),
+			client.MatchingLabels{"control-plane": "controller-manager"},
+		)
+		if err == nil && done(pods.Items) {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for the operator pods (last error: %v)", err)
+		}
+		time.Sleep(time.Second)
+	}
 }
 
 func waitForAPI(baseURL string, timeout time.Duration) error {

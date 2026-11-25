@@ -22,6 +22,7 @@ import (
 	"github.com/Infisical/infisical/k8-operator/internal/auth"
 	"github.com/Infisical/infisical/k8-operator/internal/cache"
 	"github.com/Infisical/infisical/k8-operator/internal/conditions"
+	"github.com/Infisical/infisical/k8-operator/internal/config"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
 	svc "github.com/Infisical/infisical/k8-operator/internal/services/infisicalstaticsecretpush"
 	"github.com/Infisical/infisical/k8-operator/internal/testutil/fakeinfisical"
@@ -907,5 +908,110 @@ var _ = Describe("DeleteManagedSecrets", func() {
 		Expect(push.Status.ManagedSecrets).To(Equal(managed))
 		Expect(push.Status.Error).To(BeTrue())
 		Expect(reconcileStatus(push).Message).To(ContainSubstring("unable to delete pushed secrets"))
+	})
+})
+
+var _ = Describe("namespace isolation", func() {
+	setNamespaceIsolation := func(enabled bool) {
+		config.NAMESPACE_ISOLATION = enabled
+		DeferCleanup(func() { config.NAMESPACE_ISOLATION = false })
+	}
+
+	It("pushes when the source Secrets and InfisicalAuth are in the resource's namespace", func() {
+		setNamespaceIsolation(true)
+		env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value"}))
+
+		env.mustSync(env.createPush([]string{"source"}, []v1beta1.PushTarget{target("dev", "/")}))
+
+		Expect(env.values("dev", "/")).To(HaveKeyWithValue("KEY", "value"))
+	})
+
+	It("deletes what it pushed with an InfisicalAuth in the resource's namespace", func() {
+		env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value"}))
+		push := env.mustSync(env.createPush([]string{"source"}, []v1beta1.PushTarget{target("dev", "/")}))
+		setNamespaceIsolation(true)
+
+		Expect(env.handler.DeleteManagedSecrets(env.ctx, env.get(push))).To(Succeed())
+
+		Expect(env.values("dev", "/")).To(BeEmpty())
+	})
+
+	It("doesn't read a source Secret from another namespace", func() {
+		setNamespaceIsolation(true)
+		env := newTestEnv()
+		push := env.createPush(nil, []v1beta1.PushTarget{target("dev", "/")}, func(spec *v1beta1.InfisicalStaticSecretPushSpec) {
+			spec.Sources.Secrets = []v1beta1.NamespacedName{{Name: "source", Namespace: "other"}}
+		})
+
+		_, err := env.sync(push)
+
+		Expect(err).To(MatchError(ContainSubstring("sources.secrets[0].namespace must be in this resource's namespace")))
+		Expect(env.infisical.CountRequests(upsertReq)).To(Equal(0))
+	})
+
+	DescribeTable("doesn't use an InfisicalAuth outside the resource's namespace",
+		func(authRef v1beta1.NamespacedName, expectedField string) {
+			setNamespaceIsolation(true)
+			env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value"}))
+			push := env.createPush([]string{"source"}, []v1beta1.PushTarget{target("dev", "/")}, func(spec *v1beta1.InfisicalStaticSecretPushSpec) {
+				spec.InfisicalAuthRef = authRef
+			})
+
+			_, err := env.sync(push)
+
+			Expect(err).To(MatchError(ContainSubstring(expectedField)))
+			Expect(env.infisical.CountRequests(upsertReq)).To(Equal(0))
+		},
+		Entry("in another namespace", v1beta1.NamespacedName{Name: "auth", Namespace: "other"}, ".spec.infisicalAuthRef must be"),
+		Entry("the default one", v1beta1.NamespacedName{}, ".spec.infisicalAuthRef (not set, so the default InfisicalAuth is used)"),
+	)
+
+	DescribeTable("doesn't use a ready InfisicalAuth whose references are outside its namespace, even with cached credentials",
+		func(mutate func(*v1beta1.InfisicalAuthSpec), expectedMessage string) {
+			env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value"}))
+			// Logs in and caches the InfisicalAuth's credentials.
+			push := env.mustSync(env.createPush([]string{"source"}, []v1beta1.PushTarget{target("dev", "/")}))
+
+			infisicalAuth := &v1beta1.InfisicalAuth{}
+			Expect(env.client.Get(env.ctx, client.ObjectKey{Name: "auth", Namespace: namespace}, infisicalAuth)).To(Succeed())
+			mutate(&infisicalAuth.Spec)
+			env.update(infisicalAuth)
+			setNamespaceIsolation(true)
+			env.infisical.ResetRequests()
+
+			_, err := env.sync(push)
+
+			Expect(err).To(MatchError(ContainSubstring(expectedMessage)))
+			Expect(env.infisical.Requests()).To(BeEmpty())
+		},
+		Entry("a credentials Secret", func(spec *v1beta1.InfisicalAuthSpec) {
+			spec.Universal = &v1beta1.UniversalAuthConfig{
+				ClientIdRef:     v1beta1.SecretReference{Name: "credentials", Namespace: "other", Key: "clientId"},
+				ClientSecretRef: v1beta1.SecretReference{Name: "credentials", Namespace: namespace, Key: "clientSecret"},
+			}
+		}, `the Secret "credentials" must be in this resource's namespace`),
+		Entry("a ServiceAccount", func(spec *v1beta1.InfisicalAuthSpec) {
+			spec.Kubernetes = &v1beta1.KubernetesAuthConfig{
+				IdentityIDRef:     v1beta1.SecretReference{Name: "identity", Namespace: namespace, Key: "id"},
+				ServiceAccountRef: v1beta1.NamespacedName{Name: "app", Namespace: "other"},
+			}
+		}, ".spec.kubernetes.serviceAccountRef must be in this resource's namespace"),
+		Entry("an InfisicalConnection", func(spec *v1beta1.InfisicalAuthSpec) {
+			spec.InfisicalConnectionRef.Namespace = "other"
+		}, ".spec.infisicalConnectionRef must be in this resource's namespace"),
+	)
+
+	It("doesn't use an InfisicalAuth from another namespace to delete what it pushed", func() {
+		env := newTestEnv(sourceSecret("source", map[string]string{"KEY": "value"}))
+		push := env.mustSync(env.createPush([]string{"source"}, []v1beta1.PushTarget{target("dev", "/")}))
+		push.Spec.InfisicalAuthRef = v1beta1.NamespacedName{Name: "auth", Namespace: "other"}
+		env.update(push)
+		setNamespaceIsolation(true)
+
+		err := env.handler.DeleteManagedSecrets(env.ctx, env.get(push))
+
+		Expect(err).To(MatchError(ContainSubstring(".spec.infisicalAuthRef must be")))
+		Expect(env.infisical.CountRequests(deleteReq)).To(Equal(0))
+		Expect(env.values("dev", "/")).To(HaveKey("KEY"))
 	})
 })

@@ -163,38 +163,12 @@ func (r *InfisicalAuthReconciler) findAuthCRDsReferencingConnection(ctx context.
 }
 
 func authReferencesSecret(auth *secretsv1beta1.InfisicalAuth, secretName, secretNamespace string) bool {
-	for _, ref := range getSecretReferences(auth) {
+	for _, ref := range auth.SecretReferences() {
 		if ref.Name == secretName && ref.Namespace == secretNamespace {
 			return true
 		}
 	}
 	return false
-}
-
-func getSecretReferences(auth *secretsv1beta1.InfisicalAuth) []secretsv1beta1.SecretReference {
-	var refs []secretsv1beta1.SecretReference
-	if auth.Spec.Universal != nil {
-		refs = append(refs, auth.Spec.Universal.ClientIdRef, auth.Spec.Universal.ClientSecretRef)
-	}
-	if auth.Spec.Kubernetes != nil {
-		refs = append(refs, auth.Spec.Kubernetes.IdentityIDRef)
-	}
-	if auth.Spec.AWSIam != nil {
-		refs = append(refs, auth.Spec.AWSIam.IdentityIDRef)
-	}
-	if auth.Spec.Azure != nil {
-		refs = append(refs, auth.Spec.Azure.IdentityIDRef)
-	}
-	if auth.Spec.GCPIdToken != nil {
-		refs = append(refs, auth.Spec.GCPIdToken.IdentityIDRef)
-	}
-	if auth.Spec.GCPIam != nil {
-		refs = append(refs, auth.Spec.GCPIam.IdentityIDRef)
-	}
-	if auth.Spec.LDAP != nil {
-		refs = append(refs, auth.Spec.LDAP.UsernameRef, auth.Spec.LDAP.PasswordRef, auth.Spec.LDAP.IdentityIDRef)
-	}
-	return refs
 }
 
 type SpecChangedPredicate struct {

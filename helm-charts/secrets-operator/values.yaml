@@ -31,7 +31,7 @@ controllerManager:
       readOnlyRootFilesystem: true
     image:
       repository: infisical/kubernetes-operator
-      tag: v0.11.18
+      tag: v0.11.19
     resources:
       limits:
         cpu: 500m
@@ -63,6 +63,15 @@ scopedNamespace: ""
 scopedNamespaces: []
 
 scopedRBAC: false
+
+# -- Restricts v1beta1 resources (InfisicalAuth, InfisicalConnection, InfisicalStaticSecret,
+# InfisicalStaticSecretPush) to objects in their own namespace: Secrets, ServiceAccounts,
+# InfisicalAuths, InfisicalConnections and sync targets. The default InfisicalAuth and
+# InfisicalConnection then only work for resources in the operator's namespace.
+# v1alpha1 resources (InfisicalSecret, InfisicalPushSecret, InfisicalDynamicSecret) aren't
+# restricted, so restrict who can create them with RBAC.
+# @type: boolean
+namespaceIsolation: false
 
 # -- Max concurrent reconciles for each of InfisicalStaticSecret and InfisicalStaticSecretPush. Must be at least 1.
 maxConcurrency: 1

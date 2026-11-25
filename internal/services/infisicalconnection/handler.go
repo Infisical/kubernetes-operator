@@ -14,6 +14,7 @@ import (
 	"github.com/Infisical/infisical/k8-operator/api/v1beta1"
 	"github.com/Infisical/infisical/k8-operator/internal/conditions"
 	"github.com/Infisical/infisical/k8-operator/internal/model"
+	"github.com/Infisical/infisical/k8-operator/internal/services/infisicalsession"
 	"github.com/Infisical/infisical/k8-operator/internal/util"
 	"github.com/go-logr/logr"
 	"github.com/go-resty/resty/v2"
@@ -83,6 +84,10 @@ func (h *InfisicalConnectionHandler) GetInfisicalConnection(ctx context.Context,
 
 	if _, err := h.ResolveAddress(&connection); err != nil {
 		return &connection, fmt.Errorf("%w: .spec.address is empty and INFISICAL_HOST_API env var is not set", model.ErrValidation)
+	}
+
+	if err := infisicalsession.EnforceConnectionNamespaceIsolation(&connection); err != nil {
+		return &connection, err
 	}
 
 	return &connection, nil

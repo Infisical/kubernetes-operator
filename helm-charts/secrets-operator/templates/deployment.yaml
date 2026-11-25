@@ -29,6 +29,9 @@ spec:
         {{- if ne (int .Values.maxConcurrency) 1 }}
         - --max-concurrency={{ .Values.maxConcurrency | int }}
         {{- end }}
+        {{- if .Values.namespaceIsolation }}
+        - --namespace-isolation
+        {{- end }}
         {{- $namespaces := (include "secrets-operator.scopedNamespaces" . | fromJson).list }}
         {{- if and $namespaces .Values.scopedRBAC }}
         - --namespaces={{ join "," $namespaces }}

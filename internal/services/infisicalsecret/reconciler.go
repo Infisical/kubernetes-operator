@@ -147,7 +147,7 @@ func (r *InfisicalSecretReconciler) createInfisicalManagedKubeResource(ctx conte
 		}
 
 		for templateKey, userTemplate := range managedTemplateData.Data {
-			tmpl, err := tpl.New("secret-templates").Funcs(template.GetTemplateFunctions()).Parse(userTemplate)
+			tmpl, err := tpl.New("secret-templates").Option("missingkey=error").Funcs(template.GetTemplateFunctions()).Parse(userTemplate)
 			if err != nil {
 				return fmt.Errorf("unable to compile template: %s [err=%v]", templateKey, err)
 			}
@@ -427,7 +427,7 @@ func (r *InfisicalSecretReconciler) updateInfisicalManagedKubeSecret(ctx context
 		}
 
 		for templateKey, userTemplate := range managedTemplateData.Data {
-			tmpl, err := tpl.New("secret-templates").Funcs(template.GetTemplateFunctions()).Parse(userTemplate)
+			tmpl, err := tpl.New("secret-templates").Option("missingkey=error").Funcs(template.GetTemplateFunctions()).Parse(userTemplate)
 			if err != nil {
 				return fmt.Errorf("unable to compile template: %s [err=%v]", templateKey, err)
 			}
@@ -494,7 +494,7 @@ func (r *InfisicalSecretReconciler) updateInfisicalManagedConfigMap(ctx context.
 		}
 
 		for templateKey, userTemplate := range managedTemplateData.Data {
-			tmpl, err := tpl.New("secret-templates").Funcs(template.GetTemplateFunctions()).Parse(userTemplate)
+			tmpl, err := tpl.New("secret-templates").Option("missingkey=error").Funcs(template.GetTemplateFunctions()).Parse(userTemplate)
 			if err != nil {
 				return fmt.Errorf("unable to compile template: %s [err=%v]", templateKey, err)
 			}

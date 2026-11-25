@@ -212,5 +212,6 @@ func newTemplate(name, templateString string, ctx TemplateContext) (*tpl.Templat
 		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 		return result
 	}
-	return tpl.New(name).Funcs(funcs).Parse(templateString)
+	// Fail on a key that is not in the secrets instead of rendering the literal "<no value>".
+	return tpl.New(name).Option("missingkey=error").Funcs(funcs).Parse(templateString)
 }
